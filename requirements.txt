@@ -1,0 +1,12 @@
+# --- Backend core ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+SQLAlchemy>=2.0.0
+asyncpg>=0.29.0        # для PostgreSQL (prod)
+aiosqlite>=0.20.0      # для SQLite (dev)
+
+python-dotenv>=1.0.0   # подхватывать .env
+
+# На будущее (но можно поставить сразу)
+pydantic>=2.7.0
