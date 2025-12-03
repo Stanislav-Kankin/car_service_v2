@@ -799,21 +799,112 @@ async def main() -> None:
 
     # ---------- Финальное подтверждение ----------
 
+        # ---------- Финальное подтверждение ----------
+
     @dp.callback_query(RequestCreate.waiting_confirm, F.data == "req_confirm_yes")
     async def req_confirm_yes(call: CallbackQuery, state: FSMContext):
-        data = await state.get_data()
-        logger.info("Черновик заявки (пока без сохранения в БД): %s", data)
+        tg_id = call.from_user.id
 
+        data = await state.get_data()
+        logger.info("Подтверждение заявки, tg_id=%s, data=%s", tg_id, data)
+
+        # 1. Пытаемся получить пользователя по telegram_id
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя tg_id=%s: %s", tg_id, e)
+            await call.answer(
+                "Не получилось найти профиль пользователя 😔\n"
+                "Попробуй ещё раз через /start.",
+                show_alert=True,
+            )
+            return
+
+        user_id = user["id"]
+
+        # 2. Разбираем данные из FSM
+        move_type = data.get("move_type")  # "self" или "help"
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
+        address = data.get("address")
+        description = (data.get("description") or "").strip()
+        date_text = (data.get("date_text") or "").strip()
+        time_slot = (data.get("time_slot") or "").strip()
+        photo_id = data.get("photo_file_id")
+
+        # Добавим дату/время к описанию, чтобы информация не потерялась
+        extra_parts = []
+        if date_text:
+            extra_parts.append(f"Дата/когда удобно: {date_text}")
+        if time_slot:
+            extra_parts.append(f"Предпочитаемое время: {time_slot}")
+
+        if extra_parts:
+            if description:
+                description_full = description + "\n\n" + "\n".join(extra_parts)
+            else:
+                description_full = "\n".join(extra_parts)
+        else:
+            description_full = description or "Описание не указано"
+
+        # 3. Маппинг состояния авто в поля схемы
+        is_car_movable = move_type == "self"
+        need_tow_truck = move_type == "help"
+        need_mobile_master = move_type == "help"
+
+        # 4. Формируем payload под RequestCreate
+        request_payload = {
+            "user_id": user_id,
+            "car_id": None,  # TODO: шаг выбора авто из гаража (B)
+
+            "latitude": latitude,
+            "longitude": longitude,
+            "address_text": address,
+
+            "is_car_movable": is_car_movable,
+            "need_tow_truck": need_tow_truck,
+            "need_mobile_master": need_mobile_master,
+
+            "radius_km": None,          # TODO: выбор радиуса / района
+            "service_category": None,   # TODO: выбор типа услуги
+
+            "description": description_full,
+            "photos": [photo_id] if photo_id else [],
+
+            "hide_phone": True,         # TODO: отдельный шаг "Показывать номер?"
+        }
+
+        logger.info("Отправляем заявку в backend: %s", request_payload)
+
+        # 5. Пытаемся создать заявку в backend-е
+        try:
+            created = await api.create_request(request_payload)
+        except Exception as e:
+            logger.exception("Ошибка при создании заявки в backend: %s", e)
+            await state.clear()
+            await call.message.edit_text(
+                "Не получилось сохранить заявку на сервере 😔\n"
+                "Попробуй ещё раз чуть позже.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        # 6. Очищаем состояние и показываем результат
         await state.clear()
 
+        request_id = created.get("id")
+        request_id_text = f"#{request_id}" if request_id is not None else "без номера"
+
         await call.message.edit_text(
-            "Заявка сохранена как черновик внутри бота ✅\n\n"
-            "На следующем шаге мы привяжем её к backend'у, "
-            "подбору СТО и бонусам.\n\n"
-            "Пока можешь вернуться в меню:",
+            "Заявка сохранена в системе ✅\n\n"
+            "Мы зафиксировали все данные и скоро добавим:\n"
+            "подбор подходящих СТО, отклики и бонусы.\n\n"
+            f"Номер твоей заявки: {request_id_text}\n\n"
+            "Можешь вернуться в главное меню:",
             reply_markup=main_menu_inline(),
         )
-        await call.answer("Заявка подтверждена")
+        await call.answer("Заявка отправлена")
 
     # ==========================
     #   СТО: смена роли
