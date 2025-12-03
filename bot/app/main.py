@@ -79,6 +79,23 @@ class CarEdit(StatesGroup):
 
 
 # ==========================
+#   FSM регистрации СТО
+# ==========================
+
+class ServiceCenterRegistration(StatesGroup):
+    """
+    Регистрация автосервиса / частного мастера.
+    """
+    waiting_org_type = State()   # ФЛ / ЮЛ
+    waiting_name = State()       # название сервиса / имя мастера
+    waiting_phone = State()      # контактный телефон
+    waiting_city = State()       # город
+    waiting_address = State()    # адрес / ориентир
+    waiting_extra = State()      # доп. контакты (сайт, соцсети)
+    waiting_confirm = State()    # подтверждение и запись в backend
+
+
+# ==========================
 #   Inline / Reply клавиатуры
 # ==========================
 
@@ -100,6 +117,56 @@ def main_menu_inline() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="🏭 Я представляю автосервис", callback_data="menu_service"),
+            ],
+        ]
+    )
+
+
+def service_org_type_kb() -> InlineKeyboardMarkup:
+    """
+    Выбор типа организации: ФЛ / ЮЛ.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🙋‍♂️ Частный мастер (ФЛ)",
+                    callback_data="service_org_fl",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏢 Юрлицо / автосервис (ООО, ИП и т.п.)",
+                    callback_data="service_org_ul",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ В главное меню",
+                    callback_data="service_back_to_menu",
+                )
+            ],
+        ]
+    )
+
+
+def service_reg_confirm_kb() -> InlineKeyboardMarkup:
+    """
+    Подтверждение регистрации СТО.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Всё верно, зарегистрировать",
+                    callback_data="service_reg_confirm_yes",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить",
+                    callback_data="service_reg_confirm_cancel",
+                )
             ],
         ]
     )
@@ -1149,6 +1216,302 @@ async def main() -> None:
             f"{_format_car_title(car)}",
             reply_markup=main_menu_inline(),
         )
+
+    # ==========================
+    #   СТО: регистрация
+    # ==========================
+
+    @dp.callback_query(F.data == "menu_service")
+    async def cb_service_start(call: CallbackQuery, state: FSMContext):
+        """
+        Старт регистрации автосервиса / частного мастера.
+        """
+        tg_id = call.from_user.id
+
+        # Проверяем, что пользователь существует
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя для регистрации СТО: %s", e)
+            await call.message.edit_text(
+                "Не удалось найти твой профиль 😔\n"
+                "Нажми /start и пройди регистрацию ещё раз.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        await state.clear()
+        await state.set_state(ServiceCenterRegistration.waiting_org_type)
+
+        await call.message.edit_text(
+            "Ты указал(а), что представляешь автосервис.\n\n"
+            "Давай зарегистрируем его в системе.\n\n"
+            "Кто ты по форме работы?",
+            reply_markup=service_org_type_kb(),
+        )
+        await call.answer()
+
+    @dp.callback_query(ServiceCenterRegistration.waiting_org_type)
+    async def cb_service_org_type(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+
+        if data == "service_back_to_menu":
+            await state.clear()
+            await call.message.edit_text(
+                "Главное меню:",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        if data not in {"service_org_fl", "service_org_ul"}:
+            await call.answer()
+            return
+
+        org_type = "individual" if data == "service_org_fl" else "company"
+        await state.update_data(org_type=org_type)
+
+        await state.set_state(ServiceCenterRegistration.waiting_name)
+        await call.message.edit_text(
+            "Шаг 1 из 5.\n\n"
+            "Как называется твой сервис?\n"
+            "▫️ Для частника можно просто указать имя / направление\n"
+            "   (например, «Иван, выездной автоэлектрик»)\n"
+            "▫️ Для сервиса — официальное название (например, «АвтоСервис 24»).",
+        )
+        await call.answer()
+
+    @dp.message(ServiceCenterRegistration.waiting_name)
+    async def service_name_step(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Пожалуйста, укажи название сервиса.")
+            return
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Регистрация СТО отменена.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        await state.update_data(name=text)
+        await state.set_state(ServiceCenterRegistration.waiting_phone)
+
+        await message.answer(
+            "Шаг 2 из 5.\n\n"
+            "Укажи контактный телефон для клиентов.\n"
+            "Можно в любом формате (с кодом страны или без)."
+        )
+
+    @dp.message(ServiceCenterRegistration.waiting_phone)
+    async def service_phone_step(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Пожалуйста, укажи телефон или напиши «Отмена».")
+            return
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Регистрация СТО отменена.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        await state.update_data(phone=text)
+        await state.set_state(ServiceCenterRegistration.waiting_city)
+
+        await message.answer(
+            "Шаг 3 из 5.\n\n"
+            "В каком городе ты работаешь?",
+        )
+
+    @dp.message(ServiceCenterRegistration.waiting_city)
+    async def service_city_step(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Пожалуйста, укажи город или напиши «Отмена».")
+            return
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Регистрация СТО отменена.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        await state.update_data(city=text)
+        await state.set_state(ServiceCenterRegistration.waiting_address)
+
+        await message.answer(
+            "Шаг 4 из 5.\n\n"
+            "Укажи адрес сервиса или основной район работы.\n"
+            "Например: «ул. Ленина, 10» или «выезд по всему Минску».",
+        )
+
+    @dp.message(ServiceCenterRegistration.waiting_address)
+    async def service_address_step(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Пожалуйста, укажи адрес / район или напиши «Отмена».")
+            return
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Регистрация СТО отменена.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        await state.update_data(address=text)
+        await state.set_state(ServiceCenterRegistration.waiting_extra)
+
+        await message.answer(
+            "Шаг 5 из 5.\n\n"
+            "Укажи доп. контакты (если есть): сайт, Instagram, WhatsApp, Telegram-ник и т.п.\n"
+            "Если ничего добавлять не нужно — напиши «Пропустить».",
+        )
+
+    @dp.message(ServiceCenterRegistration.waiting_extra)
+    async def service_extra_step(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if text.lower() in {"отмена"}:
+            await state.clear()
+            await message.answer(
+                "Регистрация СТО отменена.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        extra = None
+        if text.lower() not in {"пропустить", "skip", "-"}:
+            extra = text
+
+        data = await state.get_data()
+
+        org_type = data.get("org_type")
+        org_title = "Частный мастер" if org_type == "individual" else "Автосервис / компания"
+
+        name = data.get("name")
+        phone = data.get("phone")
+        city = data.get("city")
+        address = data.get("address")
+
+        await state.update_data(extra=extra)
+
+        summary_lines = [
+            "Проверь, пожалуйста, данные СТО:\n",
+            f"👤 Тип: {org_title}",
+            f"🏷 Название: {name}",
+            f"📞 Телефон: {phone}",
+            f"🏙 Город: {city}",
+            f"📍 Адрес / район: {address}",
+        ]
+        if extra:
+            summary_lines.append(f"🌐 Доп. контакты: {extra}")
+
+        summary = "\n".join(summary_lines)
+
+        await state.set_state(ServiceCenterRegistration.waiting_confirm)
+        await message.answer(
+            summary + "\n\n"
+            "Если всё верно — нажми «✅ Всё верно, зарегистрировать».\n"
+            "Если передумал — «❌ Отменить».",
+            reply_markup=service_reg_confirm_kb(),
+        )
+
+    @dp.callback_query(ServiceCenterRegistration.waiting_confirm)
+    async def service_confirm_step(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+        if data == "service_reg_confirm_cancel":
+            await state.clear()
+            await call.message.edit_text(
+                "Регистрация СТО отменена.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        if data != "service_reg_confirm_yes":
+            await call.answer()
+            return
+
+        tg_id = call.from_user.id
+
+        # Достаём данные из FSM
+        fsm_data = await state.get_data()
+        org_type = fsm_data.get("org_type")
+        name = fsm_data.get("name")
+        phone = fsm_data.get("phone")
+        city = fsm_data.get("city")
+        address = fsm_data.get("address")
+        extra = fsm_data.get("extra")
+
+        # Находим пользователя
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя при финале регистрации СТО: %s", e)
+            await state.clear()
+            await call.message.edit_text(
+                "Не получилось найти твой профиль 😔\n"
+                "Попробуй ещё раз через /start.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        # Формируем payload для backend-а
+        payload = {
+            "user_id": user_id,
+            "org_type": org_type,          # "individual" / "company"
+            "name": name,
+            "phone": phone,
+            "city": city,
+            "address_text": address,
+            "extra_contacts": extra,       # если в схеме такого поля нет — уберём позже
+        }
+
+        logger.info("Регистрируем СТО в backend: %s", payload)
+
+        # Создаём СТО через нормальный метод API-клиента
+        try:
+            service_center = await api.create_service_center(payload)
+        except Exception as e:
+            logger.exception("Ошибка при создании СТО в backend: %s", e)
+            await state.clear()
+            await call.message.edit_text(
+                "Не получилось сохранить автосервис на сервере 😔\n"
+                "Попробуй ещё раз чуть позже.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        # Обновляем роль пользователя → service_owner
+        try:
+            await api.update_user(
+                user_id,
+                {"role": "service_owner"},
+            )
+        except Exception as e:
+            logger.exception("Ошибка при обновлении роли пользователя до service_owner: %s", e)
+            # не падаем, роль можно будет поправить позже
+
+        await state.clear()
+
+        sc_name = service_center.get("name") or name
+
+        await call.message.edit_text(
+            "Готово! 🎯\n\n"
+            f"Автосервис «{sc_name}» зарегистрирован в системе.\n"
+            "Скоро добавим выбор специализаций, зону обслуживания и приём заявок от клиентов.\n\n"
+            "Пока можно вернуться в главное меню:",
+            reply_markup=main_menu_inline(),
+        )
+        await call.answer("СТО зарегистрировано")
 
     # ==========================
     #   НОВАЯ ЗАЯВКА
