@@ -5,64 +5,85 @@ from pydantic import BaseModel, Field
 
 
 class ServiceCenterBase(BaseModel):
+    """
+    Общие поля для создания/чтения/обновления СТО.
+    """
+
     name: str = Field(..., max_length=255)
-    address: Optional[str] = Field(None, max_length=500)
+    address: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Адрес сервиса (строкой)",
+    )
 
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 
-    phone: Optional[str] = Field(None, max_length=32)
-    website: Optional[str] = Field(None, max_length=255)
-    social_links: Optional[Dict[str, str]] = None  # {"vk": "...", "inst": "..."}
+    phone: Optional[str] = Field(default=None, max_length=32)
+    website: Optional[str] = Field(default=None, max_length=255)
 
-    specializations: Optional[List[str]] = None  # ["mechanic", "tire", "electrics", ...]
+    # Например: {"vk": "...", "instagram": "..."}
+    social_links: Optional[Dict[str, str]] = None
 
-    is_mobile_service: bool = False   # выездной мастер
-    has_tow_truck: bool = False       # эвакуатор
+    # Список специализаций (см. словарь спецов в боте)
+    specializations: Optional[List[str]] = None
+
+    # Тип организации: ФЛ / ЮЛ
+    org_type: Optional[str] = Field(
+        default=None,
+        max_length=20,
+        description="Тип организации: 'individual' (частник) или 'company' (юрлицо)",
+    )
+
+    # Флаги возможностей
+    is_mobile_service: bool = False
+    has_tow_truck: bool = False
     is_active: bool = True
 
 
 class ServiceCenterCreate(ServiceCenterBase):
-    owner_user_id: Optional[int] = None
+    """
+    Схема создания СТО.
+    """
+
+    user_id: int
 
 
 class ServiceCenterUpdate(BaseModel):
-    name: Optional[str] = Field(None, max_length=255)
-    address: Optional[str] = Field(None, max_length=500)
+    """
+    Частичное обновление профиля СТО.
+    Все поля опциональные, мы обновляем только переданные.
+    """
+
+    name: Optional[str] = Field(default=None, max_length=255)
+    address: Optional[str] = Field(default=None, max_length=500)
 
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 
-    phone: Optional[str] = Field(None, max_length=32)
-    website: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=32)
+    website: Optional[str] = Field(default=None, max_length=255)
     social_links: Optional[Dict[str, str]] = None
-
     specializations: Optional[List[str]] = None
+
+    org_type: Optional[str] = Field(
+        default=None,
+        max_length=20,
+        description="Тип организации: 'individual' (частник) или 'company' (юрлицо)",
+    )
 
     is_mobile_service: Optional[bool] = None
     has_tow_truck: Optional[bool] = None
     is_active: Optional[bool] = None
 
 
-class ServiceCenterRead(BaseModel):
+class ServiceCenterRead(ServiceCenterBase):
+    """
+    То, что отдаём наружу.
+    """
+
     id: int
-    owner_user_id: Optional[int]
-
-    name: str
-    address: Optional[str]
-
-    latitude: Optional[float]
-    longitude: Optional[float]
-
-    phone: Optional[str]
-    website: Optional[str]
-    social_links: Optional[Dict[str, str]]
-
-    specializations: Optional[List[str]]
-
-    is_mobile_service: bool
-    has_tow_truck: bool
-    is_active: bool
+    user_id: int
 
     created_at: datetime
     updated_at: datetime

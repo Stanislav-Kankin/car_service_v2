@@ -6,19 +6,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.models import ServiceCenter
 from backend.app.schemas.service_center import (
     ServiceCenterCreate,
-    ServiceCenterRead,
     ServiceCenterUpdate,
 )
 
 
 class ServiceCentersService:
+    """
+    Сервисный слой для работы с автосервисами (СТО).
+    """
+
+    # ------------------------------------------------------------------
+    # Создание
+    # ------------------------------------------------------------------
     @staticmethod
     async def create_service_center(
         db: AsyncSession,
         data_in: ServiceCenterCreate,
     ) -> ServiceCenter:
         sc = ServiceCenter(
-            owner_user_id=data_in.owner_user_id,
+            user_id=data_in.user_id,
             name=data_in.name,
             address=data_in.address,
             latitude=data_in.latitude,
@@ -27,6 +33,7 @@ class ServiceCentersService:
             website=data_in.website,
             social_links=data_in.social_links,
             specializations=data_in.specializations,
+            org_type=data_in.org_type,
             is_mobile_service=data_in.is_mobile_service,
             has_tow_truck=data_in.has_tow_truck,
             is_active=data_in.is_active,
@@ -36,49 +43,87 @@ class ServiceCentersService:
         await db.refresh(sc)
         return sc
 
+    # ------------------------------------------------------------------
+    # Получение
+    # ------------------------------------------------------------------
     @staticmethod
     async def get_by_id(
         db: AsyncSession,
         sc_id: int,
     ) -> Optional[ServiceCenter]:
-        result = await db.execute(
-            select(ServiceCenter).where(ServiceCenter.id == sc_id)
-        )
+        stmt = select(ServiceCenter).where(ServiceCenter.id == sc_id)
+        result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def list_service_centers(
+    async def list_all(
         db: AsyncSession,
-        specialization: Optional[str] = None,
-        is_active: Optional[bool] = True,
-        has_tow_truck: Optional[bool] = None,
-        is_mobile_service: Optional[bool] = None,
+        is_active: Optional[bool] = None,
     ) -> List[ServiceCenter]:
         stmt = select(ServiceCenter)
-
         if is_active is not None:
             stmt = stmt.where(ServiceCenter.is_active == is_active)
 
-        if has_tow_truck is not None:
-            stmt = stmt.where(ServiceCenter.has_tow_truck == has_tow_truck)
+        stmt = stmt.order_by(ServiceCenter.created_at.desc())
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
-        if is_mobile_service is not None:
-            stmt = stmt.where(ServiceCenter.is_mobile_service == is_mobile_service)
+    @staticmethod
+    async def list_by_user(
+        db: AsyncSession,
+        user_id: int,
+    ) -> List[ServiceCenter]:
+        stmt = (
+            select(ServiceCenter)
+            .where(ServiceCenter.user_id == user_id)
+            .order_by(ServiceCenter.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
-        if specialization:
-            # specializations хранится как JSON-массив строк
-            # для SQLite/JSON проще пока фильтровать "на стороне Python"
-            result = await db.execute(stmt)
-            all_items = result.scalars().all()
-            return [
+    # ------------------------------------------------------------------
+    # Поиск подходящих СТО (заготовка)
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def search_service_centers(
+        db: AsyncSession,
+        *,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        radius_km: Optional[int] = None,
+        specializations: Optional[List[str]] = None,
+        is_active: Optional[bool] = True,
+    ) -> List[ServiceCenter]:
+        """
+        Базовый поиск СТО.
+
+        Сейчас:
+        - фильтруем по is_active
+        - опционально по наличию пересечения специализаций
+        - гео пока не учитываем (добавим позже в пункте E чеклиста)
+        """
+        stmt = select(ServiceCenter)
+        if is_active is not None:
+            stmt = stmt.where(ServiceCenter.is_active == is_active)
+
+        # Пока без SQL-фильтра по specializations — отфильтруем на Python.
+        result = await db.execute(stmt)
+        items: List[ServiceCenter] = list(result.scalars().all())
+
+        if specializations:
+            wanted = set(specializations)
+            items = [
                 sc
-                for sc in all_items
-                if sc.specializations and specialization in sc.specializations
+                for sc in items
+                if sc.specializations and wanted & set(sc.specializations)
             ]
 
-        result = await db.execute(stmt)
-        return result.scalars().all()
+        # TODO: добавить фильтрацию по latitude/longitude/radius_km
+        return items
 
+    # ------------------------------------------------------------------
+    # Обновление
+    # ------------------------------------------------------------------
     @staticmethod
     async def update_service_center(
         db: AsyncSession,
@@ -88,6 +133,7 @@ class ServiceCentersService:
         data = data_in.model_dump(exclude_unset=True)
         for field, value in data.items():
             setattr(sc, field, value)
+
         await db.commit()
         await db.refresh(sc)
         return sc
