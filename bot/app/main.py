@@ -15,6 +15,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.filters import CommandStart, Command, StateFilter
 
+from typing import Optional
+
 from .config import config
 from .api_client import APIClient
 
@@ -42,11 +44,38 @@ class RequestCreate(StatesGroup):
     waiting_location_confirm = State()
     waiting_description = State()
     waiting_description_confirm = State()
-    waiting_photo_choice = State()   # НОВОЕ: шаг с фото
+    waiting_photo_choice = State()
     waiting_date = State()
     waiting_date_confirm = State()
     waiting_time_slot = State()
+    waiting_car_select = State()   # выбор авто из гаража
     waiting_confirm = State()
+
+
+# ==========================
+#   FSM гаража (авто)
+# ==========================
+
+class CarAdd(StatesGroup):
+    """
+    Добавление нового автомобиля в гараж.
+    """
+    waiting_brand = State()
+    waiting_model = State()
+    waiting_year = State()
+    waiting_plate = State()
+    waiting_vin = State()
+
+
+class CarEdit(StatesGroup):
+    """
+    Полное редактирование существующего автомобиля.
+    """
+    waiting_brand = State()
+    waiting_model = State()
+    waiting_year = State()
+    waiting_plate = State()
+    waiting_vin = State()
 
 
 # ==========================
@@ -54,6 +83,9 @@ class RequestCreate(StatesGroup):
 # ==========================
 
 def main_menu_inline() -> InlineKeyboardMarkup:
+    """
+    Главное меню бота.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -62,6 +94,9 @@ def main_menu_inline() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="🆕 Новая заявка", callback_data="menu_new_request"),
+            ],
+            [
+                InlineKeyboardButton(text="📄 Мои заявки", callback_data="menu_my_requests"),
             ],
             [
                 InlineKeyboardButton(text="🏭 Я представляю автосервис", callback_data="menu_service"),
@@ -250,6 +285,72 @@ def date_confirm_kb() -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def car_select_kb(cars: list[dict]) -> InlineKeyboardMarkup:
+    """
+    Клавиатура выбора авто из гаража.
+    Каждая машина — отдельная строка.
+    Внизу:
+    - «Без привязки к авто»
+    - «Отменить заявку»
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+
+    for car in cars:
+        car_id = car.get("id")
+        if car_id is None:
+            continue
+
+        parts = []
+        brand = (car.get("brand") or "").strip()
+        model = (car.get("model") or "").strip()
+        plate = (car.get("license_plate") or "").strip()
+        year = car.get("year")
+
+        title_parts = []
+        if brand:
+            title_parts.append(brand)
+        if model:
+            title_parts.append(model)
+
+        title = " ".join(title_parts) if title_parts else f"Авто #{car_id}"
+
+        if plate:
+            title += f" • {plate}"
+        elif year:
+            title += f" • {year} г."
+
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=title,
+                    callback_data=f"req_car_{car_id}",
+                )
+            ]
+        )
+
+    # Кнопка «без привязки»
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="🚗 Без привязки к авто",
+                callback_data="req_car_skip",
+            )
+        ]
+    )
+
+    # Кнопка отмены заявки
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="❌ Отменить заявку",
+                callback_data="req_cancel",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def final_confirm_kb() -> InlineKeyboardMarkup:
@@ -446,19 +547,608 @@ async def main() -> None:
     @dp.message(Command("menu"))
     async def cmd_menu(message: Message):
         await message.answer("Главное меню 👇", reply_markup=main_menu_inline())
+    
+    def _format_car_title(car: dict) -> str:
+        """
+        Краткое название авто для кнопок/списков.
+        """
+        car_id = car.get("id")
+        brand = (car.get("brand") or "").strip()
+        model = (car.get("model") or "").strip()
+        plate = (car.get("license_plate") or "").strip()
+        year = car.get("year")
+
+        parts = []
+        if brand:
+            parts.append(brand)
+        if model:
+            parts.append(model)
+
+        title = " ".join(parts) if parts else f"Авто #{car_id or ''}"
+
+        if plate:
+            title += f" • {plate}"
+        elif year:
+            title += f" • {year} г."
+
+        return title
 
     # ==========================
-    #   ГАРАЖ (заглушка)
+    #   МОИ ЗАЯВКИ
     # ==========================
 
-    @dp.callback_query(F.data == "menu_garage")
-    async def cb_garage(call: CallbackQuery):
+    @dp.callback_query(F.data == "menu_my_requests")
+    async def cb_my_requests(call: CallbackQuery, state: FSMContext):
+        """
+        Просмотр списка заявок пользователя.
+        """
+        await state.clear()
+        tg_id = call.from_user.id
+
+        # 1. Находим пользователя по telegram_id
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя для 'Мои заявки': %s", e)
+            await call.message.edit_text(
+                "Не получилось найти твой профиль 😔\n"
+                "Нажми /start, чтобы пройти регистрацию заново.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        user_id = user["id"]
+
+        # 2. Получаем список заявок
+        try:
+            requests_list = await api.list_requests_by_user(user_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении списка заявок: %s", e)
+            requests_list = []
+
+        if not requests_list:
+            text = (
+                "📄 У тебя пока нет заявок.\n\n"
+                "Можешь создать первую через кнопку «🆕 Новая заявка»."
+            )
+        else:
+            # отображаем максимум 10 последних
+            items = requests_list[:10]
+
+            status_titles = {
+                "new": "🟡 Новая",
+                "sent": "📨 Разослана СТО",
+                "accepted_by_service": "✅ Принята СТО",
+                "in_work": "🛠 В работе",
+                "done": "🎉 Выполнена",
+                "cancelled": "❌ Отменена",
+                "rejected_by_service": "🚫 Отклонена СТО",
+            }
+
+            lines = ["📄 Твои заявки:\n"]
+
+            for r in items:
+                rid = r.get("id")
+                status_raw = r.get("status")
+                # статус может приходить как строка Enum-а, типа "new" или "RequestStatus.NEW"
+                if isinstance(status_raw, str) and status_raw.startswith("RequestStatus."):
+                    status_key = status_raw.split(".", 1)[1]
+                else:
+                    status_key = status_raw
+
+                status_text = status_titles.get(str(status_key), str(status_raw) or "—")
+
+                addr = (r.get("address_text") or "").strip()
+                if not addr:
+                    addr = "Адрес не указан"
+
+                short_descr = (r.get("description") or "").strip()
+                if len(short_descr) > 80:
+                    short_descr = short_descr[:77] + "..."
+
+                lines.append(
+                    f"• Заявка #{rid} — {status_text}\n"
+                    f"  📍 {addr}\n"
+                    f"  🔧 {short_descr}\n"
+                )
+
+            text = "\n".join(lines)
+            text += "\n\nПока это краткий список. В детализацию и чат по заявке пойдём на следующих шагах 😉"
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Обновить список",
+                        callback_data="menu_my_requests",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ В главное меню",
+                        callback_data="myreq_to_menu",
+                    )
+                ],
+            ]
+        )
+
+        await call.message.edit_text(text, reply_markup=kb)
+        await call.answer()
+
+    @dp.callback_query(F.data == "myreq_to_menu")
+    async def cb_my_requests_to_menu(call: CallbackQuery, state: FSMContext):
+        """
+        Возврат из 'Мои заявки' в главное меню.
+        """
+        await state.clear()
         await call.message.edit_text(
-            "🚗 Раздел «Гараж» скоро появится.\n\n"
-            "Ты сможешь сохранить свои автомобили, чтобы не вводить данные каждый раз.",
+            "Главное меню:",
             reply_markup=main_menu_inline(),
         )
         await call.answer()
+
+    # ==========================
+    #   ГАРАЖ
+    # ==========================
+
+    @dp.callback_query(F.data == "menu_garage")
+    async def cb_garage(call: CallbackQuery, state: FSMContext):
+        """
+        Главный экран гаража: список машин + кнопка добавить.
+        """
+        tg_id = call.from_user.id
+
+        # Получаем пользователя
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя для гаража: %s", e)
+            await call.message.edit_text(
+                "Не смог найти твой профиль 😔\n"
+                "Нажми /start, чтобы пройти регистрацию.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        user_id = user["id"]
+
+        # Получаем список машин
+        try:
+            cars = await api.list_cars(user_id=user_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении списка машин: %s", e)
+            cars = []
+
+        if cars:
+            lines = ["🚗 Твой гараж:\n"]
+            for car in cars:
+                lines.append(f"• {_format_car_title(car)}")
+            text = "\n".join(lines)
+            text += (
+                "\n\nТы можешь добавить новый автомобиль "
+                "или выбрать существующий для редактирования."
+            )
+        else:
+            text = (
+                "🚗 В гараже пока нет ни одного автомобиля.\n\n"
+                "Добавь свой первый авто, чтобы не вводить данные каждый раз."
+            )
+
+        # Клавиатура: по кнопке на каждую машину + кнопка "Добавить" + "В меню"
+        kb_rows = []
+
+        for car in cars:
+            car_id = car.get("id")
+            if car_id is None:
+                continue
+            kb_rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"✏️ {_format_car_title(car)}",
+                        callback_data=f"garage_edit_{car_id}",
+                    )
+                ]
+            )
+
+        kb_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="➕ Добавить авто",
+                    callback_data="garage_add",
+                )
+            ]
+        )
+        kb_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="⬅️ В главное меню",
+                    callback_data="garage_to_menu",
+                )
+            ]
+        )
+
+        await state.clear()
+        await call.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
+        )
+        await call.answer()
+
+    @dp.callback_query(F.data == "garage_to_menu")
+    async def cb_garage_to_menu(call: CallbackQuery, state: FSMContext):
+        """
+        Возврат в главное меню из гаража.
+        """
+        await state.clear()
+        await call.message.edit_text(
+            "Главное меню:",
+            reply_markup=main_menu_inline(),
+        )
+        await call.answer()
+
+        # ---------- Добавление нового авто ----------
+
+    @dp.callback_query(F.data == "garage_add")
+    async def cb_garage_add(call: CallbackQuery, state: FSMContext):
+        """
+        Старт добавления нового авто.
+        """
+        await state.set_state(CarAdd.waiting_brand)
+        await state.update_data(edit_car_id=None)
+
+        # В edit_text НЕ передаём ReplyKeyboardRemove — только текст.
+        await call.message.edit_text(
+            "Добавление автомобиля в гараж.\n\n"
+            "Шаг 1 из 5.\n"
+            "Напиши марку авто (например, BMW).\n\n"
+            "Если передумал — напиши «Отмена».",
+        )
+        await call.answer()
+
+    @dp.message(CarAdd.waiting_brand)
+    async def car_add_brand(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Пожалуйста, введи марку авто или напиши «Отмена».")
+            return
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        await state.update_data(brand=text)
+        await state.set_state(CarAdd.waiting_model)
+        await message.answer(
+            "Шаг 2 из 5.\n\n"
+            "Теперь введи модель авто (например, X5).\n\n"
+            "Если передумал — напиши «Отмена».",
+        )
+
+    @dp.message(CarAdd.waiting_model)
+    async def car_add_model(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Пожалуйста, введи модель авто или напиши «Отмена».")
+            return
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        await state.update_data(model=text)
+        await state.set_state(CarAdd.waiting_year)
+        await message.answer(
+            "Шаг 3 из 5.\n\n"
+            "Введи год выпуска авто (например, 2015)\n"
+            "или напиши «Пропустить», если не хочешь указывать.",
+        )
+
+    @dp.message(CarAdd.waiting_year)
+    async def car_add_year(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        year: Optional[int] = None
+        if text.lower() not in ("пропустить", "skip", "-"):
+            try:
+                year_val = int(text)
+                if year_val < 1950 or year_val > 2100:
+                    raise ValueError
+                year = year_val
+            except ValueError:
+                await message.answer(
+                    "Пожалуйста, введи год цифрами (например, 2015)\n"
+                    "или напиши «Пропустить».",
+                )
+                return
+
+        await state.update_data(year=year)
+        await state.set_state(CarAdd.waiting_plate)
+        await message.answer(
+            "Шаг 4 из 5.\n\n"
+            "Введи госномер (например, А123ВС77)\n"
+            "или напиши «Пропустить».",
+        )
+
+    @dp.message(CarAdd.waiting_plate)
+    async def car_add_plate(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        plate: Optional[str] = None
+        if text.lower() not in ("пропустить", "skip", "-"):
+            plate = text
+
+        await state.update_data(license_plate=plate)
+        await state.set_state(CarAdd.waiting_vin)
+        await message.answer(
+            "Шаг 5 из 5.\n\n"
+            "Введи VIN (17 символов) или напиши «Пропустить».",
+        )
+
+    @dp.message(CarAdd.waiting_vin)
+    async def car_add_vin(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        vin: Optional[str] = None
+        if text.lower() not in ("пропустить", "skip", "-"):
+            vin = text
+
+        data = await state.get_data()
+        brand = data.get("brand")
+        model = data.get("model")
+        year = data.get("year")
+        plate = data.get("license_plate")
+
+        tg_id = message.from_user.id
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя при добавлении авто: %s", e)
+            await state.clear()
+            await message.answer(
+                "Не удалось сохранить авто: не найден профиль пользователя 😔\n"
+                "Попробуй ещё раз через /start.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        payload = {
+            "user_id": user_id,
+            "brand": brand,
+            "model": model,
+            "year": year,
+            "license_plate": plate,
+            "vin": vin,
+        }
+
+        try:
+            car = await api.create_car(payload)
+        except Exception as e:
+            logger.exception("Ошибка при создании авто в backend: %s", e)
+            await state.clear()
+            await message.answer(
+                "Не получилось сохранить автомобиль 😔\n"
+                "Попробуй ещё раз чуть позже.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        await state.clear()
+
+        await message.answer(
+            "Автомобиль сохранён в твоём гараже ✅\n\n"
+            f"{_format_car_title(car)}\n\n"
+            "В любой момент ты сможешь отредактировать его в разделе «Мой гараж».",
+            reply_markup=main_menu_inline(),
+        )
+
+    # ---------- Редактирование существующего авто ----------
+    @dp.callback_query(F.data.startswith("garage_edit_"))
+    async def cb_garage_edit(call: CallbackQuery, state: FSMContext):
+        raw = call.data or ""
+        try:
+            car_id = int(raw.split("_")[-1])
+        except ValueError:
+            await call.answer()
+            return
+
+        try:
+            car = await api.get_car(car_id)
+        except Exception as e:
+            logger.exception("Ошибка при загрузке авто для редактирования: %s", e)
+            await call.message.edit_text(
+                "Не удалось загрузить данные автомобиля 😔",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        await state.set_state(CarEdit.waiting_brand)
+        await state.update_data(edit_car_id=car_id)
+
+        text = (
+            "Редактирование автомобиля.\n\n"
+            "Текущие данные:\n"
+            f"Марка: {car.get('brand') or '—'}\n"
+            f"Модель: {car.get('model') or '—'}\n"
+            f"Год: {car.get('year') or '—'}\n"
+            f"Госномер: {car.get('license_plate') or '—'}\n"
+            f"VIN: {car.get('vin') or '—'}\n\n"
+            "Шаг 1 из 5.\n"
+            "Напиши новую марку авто (или повтори текущую).\n\n"
+            "Если передумал — напиши «Отмена»."
+        )
+
+        # Снова: edit_text без ReplyKeyboardRemove
+        await call.message.edit_text(text)
+        await call.answer()
+
+    @dp.message(CarEdit.waiting_brand)
+    async def car_edit_brand(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Редактирование авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        await state.update_data(brand=text)
+        await state.set_state(CarEdit.waiting_model)
+        await message.answer(
+            "Шаг 2 из 5.\n\n"
+            "Теперь введи модель авто.",
+        )
+
+    @dp.message(CarEdit.waiting_model)
+    async def car_edit_model(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Редактирование авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        await state.update_data(model=text)
+        await state.set_state(CarEdit.waiting_year)
+        await message.answer(
+            "Шаг 3 из 5.\n\n"
+            "Введи год выпуска (или напиши «Пропустить»).",
+        )
+
+    @dp.message(CarEdit.waiting_year)
+    async def car_edit_year(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Редактирование авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        year: Optional[int] = None
+        if text.lower() not in ("пропустить", "skip", "-"):
+            try:
+                year_val = int(text)
+                if year_val < 1950 or year_val > 2100:
+                    raise ValueError
+                year = year_val
+            except ValueError:
+                await message.answer(
+                    "Пожалуйста, введи год цифрами (например, 2015)\n"
+                    "или напиши «Пропустить».",
+                )
+                return
+
+        await state.update_data(year=year)
+        await state.set_state(CarEdit.waiting_plate)
+        await message.answer(
+            "Шаг 4 из 5.\n\n"
+            "Введи госномер (или напиши «Пропустить»).",
+        )
+
+    @dp.message(CarEdit.waiting_plate)
+    async def car_edit_plate(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Редактирование авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        plate: Optional[str] = None
+        if text.lower() not in ("пропустить", "skip", "-"):
+            plate = text
+
+        await state.update_data(license_plate=plate)
+        await state.set_state(CarEdit.waiting_vin)
+        await message.answer(
+            "Шаг 5 из 5.\n\n"
+            "Введи VIN (или напиши «Пропустить»).",
+        )
+
+    @dp.message(CarEdit.waiting_vin)
+    async def car_edit_vin(message: Message, state: FSMContext):
+        text = (message.text or "").strip()
+        if text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Редактирование авто отменено.", reply_markup=main_menu_inline()
+            )
+            return
+
+        vin: Optional[str] = None
+        if text.lower() not in ("пропустить", "skip", "-"):
+            vin = text
+
+        data = await state.get_data()
+        car_id = data.get("edit_car_id")
+        if not car_id:
+            await state.clear()
+            await message.answer(
+                "Что-то пошло не так при редактировании авто 😔",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        brand = data.get("brand")
+        model = data.get("model")
+        year = data.get("year")
+        plate = data.get("license_plate")
+
+        payload = {
+            "brand": brand,
+            "model": model,
+            "year": year,
+            "license_plate": plate,
+            "vin": vin,
+        }
+
+        try:
+            car = await api.update_car(car_id, payload)
+        except Exception as e:
+            logger.exception("Ошибка при обновлении авто в backend: %s", e)
+            await state.clear()
+            await message.answer(
+                "Не получилось сохранить изменения автомобиля 😔\n"
+                "Попробуй ещё раз чуть позже.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        await state.clear()
+
+        await message.answer(
+            "Данные автомобиля обновлены ✅\n\n"
+            f"{_format_car_title(car)}",
+            reply_markup=main_menu_inline(),
+        )
 
     # ==========================
     #   НОВАЯ ЗАЯВКА
@@ -789,15 +1479,85 @@ async def main() -> None:
             f"📅 Дата: {date_text}\n"
             f"⏰ Время: {slot_title}\n"
             f"📷 Фото: {photo_text}\n\n"
-            "Если всё верно — подтверждай.\n"
-            "Позже привяжем это к подбору СТО и системе бонусов."
+            "Далее выберем автомобиль из гаража (если он есть).\n"
         )
 
-        await call.message.answer(summary, reply_markup=final_confirm_kb())
+        # показываем резюме без кнопок
+        await call.message.answer(summary)
+
+        # Получаем пользователя, чтобы узнать его машины
+        tg_id = call.from_user.id
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя на шаге выбора авто: %s", e)
+            # Фолбэк: идём сразу к финальному подтверждению без авто
+            await call.message.answer(
+                "Не получилось получить список автомобилей 😔\n"
+                "Заявка будет сохранена без привязки к машине.",
+                reply_markup=final_confirm_kb(),
+            )
+            await state.set_state(RequestCreate.waiting_confirm)
+            await call.answer()
+            return
+
+        # Пытаемся получить список машин
+        try:
+            cars = await api.list_cars(user_id=user_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении списка машин: %s", e)
+            cars = []
+
+        if cars:
+            await call.message.answer(
+                "Теперь выбери автомобиль из своего гаража для этой заявки:",
+                reply_markup=car_select_kb(cars),
+            )
+            await state.set_state(RequestCreate.waiting_car_select)
+        else:
+            await call.message.answer(
+                "У тебя пока нет сохранённых автомобилей.\n"
+                "Заявка будет сохранена без привязки к машине.\n"
+                "Позже ты сможешь добавить авто в разделе «Мой гараж».",
+                reply_markup=final_confirm_kb(),
+            )
+            await state.set_state(RequestCreate.waiting_confirm)
+
+        await call.answer()
+    
+        # ---------- Шаг 7: выбор автомобиля из гаража ----------
+
+    @dp.callback_query(RequestCreate.waiting_car_select)
+    async def req_car_select(call: CallbackQuery, state: FSMContext):
+        data = await state.get_data()
+        cb_data = call.data or ""
+
+        if cb_data == "req_car_skip":
+            # Пользователь решил не привязывать авто
+            await state.update_data(car_id=None)
+            car_text = "без привязки к конкретному авто"
+        elif cb_data.startswith("req_car_"):
+            try:
+                car_id = int(cb_data.split("_")[-1])
+            except ValueError:
+                await call.answer()
+                return
+            await state.update_data(car_id=car_id)
+            car_text = f"автомобиль #{car_id}"
+        else:
+            await call.answer()
+            return
+
+        # Показываем финальный шаг подтверждения
+        await call.message.edit_text(
+            "Автомобиль для заявки выбран: "
+            f"{car_text}.\n\n"
+            "Если всё верно — подтверди заявку:",
+            reply_markup=final_confirm_kb(),
+        )
         await state.set_state(RequestCreate.waiting_confirm)
         await call.answer()
-
-    # ---------- Финальное подтверждение ----------
 
         # ---------- Финальное подтверждение ----------
 
@@ -831,6 +1591,7 @@ async def main() -> None:
         date_text = (data.get("date_text") or "").strip()
         time_slot = (data.get("time_slot") or "").strip()
         photo_id = data.get("photo_file_id")
+        car_id = data.get("car_id")  # может быть None
 
         # Добавим дату/время к описанию, чтобы информация не потерялась
         extra_parts = []
@@ -855,7 +1616,7 @@ async def main() -> None:
         # 4. Формируем payload под RequestCreate
         request_payload = {
             "user_id": user_id,
-            "car_id": None,  # TODO: шаг выбора авто из гаража (B)
+            "car_id": car_id,  # 🔥 теперь берём из FSM
 
             "latitude": latitude,
             "longitude": longitude,
@@ -875,6 +1636,36 @@ async def main() -> None:
         }
 
         logger.info("Отправляем заявку в backend: %s", request_payload)
+
+        # 5. Пытаемся создать заявку в backend-е
+        try:
+            created = await api.create_request(request_payload)
+        except Exception as e:
+            logger.exception("Ошибка при создании заявки в backend: %s", e)
+            await state.clear()
+            await call.message.edit_text(
+                "Не получилось сохранить заявку на сервере 😔\n"
+                "Попробуй ещё раз чуть позже.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        # 6. Очищаем состояние и показываем результат
+        await state.clear()
+
+        request_id = created.get("id")
+        request_id_text = f"#{request_id}" if request_id is not None else "без номера"
+
+        await call.message.edit_text(
+            "Заявка сохранена в системе ✅\n\n"
+            "Мы зафиксировали все данные и скоро добавим:\n"
+            "подбор подходящих СТО, отклики и бонусы.\n\n"
+            f"Номер твоей заявки: {request_id_text}\n\n"
+            "Можешь вернуться в главное меню:",
+            reply_markup=main_menu_inline(),
+        )
+        await call.answer("Заявка отправлена")
 
         # 5. Пытаемся создать заявку в backend-е
         try:

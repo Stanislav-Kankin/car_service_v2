@@ -105,12 +105,20 @@ class APIClient:
     async def list_cars(self, user_id: Optional[int] = None) -> Any:
         """
         Получить список машин.
-        Если задан user_id — только машины этого пользователя.
+
+        Если задан user_id — используем эндпоинт /api/v1/cars/by-user/{user_id},
+        иначе — общий список /api/v1/cars/.
         """
-        params = {"user_id": user_id} if user_id is not None else None
+        if user_id is not None:
+            endpoint = f"/api/v1/cars/by-user/{user_id}"
+            params = None
+        else:
+            endpoint = "/api/v1/cars/"
+            params = None
+
         return await self._request(
             "GET",
-            "/api/v1/cars/",
+            endpoint,
             params=params,
         )
 
@@ -149,6 +157,15 @@ class APIClient:
         """
         return await self._request(
             "DELETE",
+            f"/api/v1/cars/{car_id}",
+        )
+    
+    async def get_car(self, car_id: int) -> Any:
+        """
+        Получить машину по её ID.
+        """
+        return await self._request(
+            "GET",
             f"/api/v1/cars/{car_id}",
         )
 

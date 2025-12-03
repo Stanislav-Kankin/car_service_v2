@@ -3,7 +3,7 @@ from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.models.request import Request
+from backend.app.models.request import Request, RequestStatus
 from backend.app.schemas.request import (
     RequestCreate,
     RequestRead,
@@ -14,69 +14,96 @@ from backend.app.schemas.request import (
 class RequestsService:
     """
     Сервисный слой для работы с заявками.
-    Никакой телеграм-логики, только работа с БД.
     """
 
-    # ---------- CREATE ----------
-
+    # ------------------------------------------------------------------
+    # Создание заявки
+    # ------------------------------------------------------------------
     @staticmethod
     async def create_request(
         db: AsyncSession,
         data: RequestCreate,
     ) -> Request:
         """
-        Создать заявку.
+        Создать новую заявку.
+
+        Ожидается, что RequestCreate содержит поля:
+        - user_id: int
+        - car_id: Optional[int]
+        - latitude: Optional[float]
+        - longitude: Optional[float]
+        - address_text: Optional[str]
+        - is_car_movable: bool
+        - need_tow_truck: bool
+        - need_mobile_master: bool
+        - radius_km: Optional[int]
+        - service_category: Optional[str]
+        - description: str
+        - photos: Optional[List[str]]
+        - hide_phone: bool
+
+        Статус заявки устанавливаем NEW (new) по умолчанию.
         """
+
         request = Request(
             user_id=data.user_id,
             car_id=data.car_id,
             # гео
             latitude=data.latitude,
             longitude=data.longitude,
-            address=data.address,
-            # как передвигается авто
-            move_type=data.move_type,
-            # описание проблемы
+            address_text=data.address_text,
+            # состояние авто
+            is_car_movable=data.is_car_movable,
+            need_tow_truck=data.need_tow_truck,
+            need_mobile_master=data.need_mobile_master,
+            # радиус/район + категория услуги
+            radius_km=data.radius_km,
+            service_category=data.service_category,
+            # описание и фото
             description=data.description,
-            # желаемая дата/время
-            desired_date=data.desired_date,
-            desired_time_slot=data.desired_time_slot,
+            photos=data.photos,
+            # скрытие телефона
+            hide_phone=data.hide_phone,
             # статус
-            status=data.status,
-            # путь к фото (если есть)
-            photo_file_id=data.photo_file_id,
+            status=RequestStatus.NEW,
         )
+
         db.add(request)
         await db.commit()
         await db.refresh(request)
         return request
 
-    # ---------- READ ----------
-
+    # ------------------------------------------------------------------
+    # Получение заявки по ID
+    # ------------------------------------------------------------------
     @staticmethod
     async def get_request_by_id(
         db: AsyncSession,
         request_id: int,
     ) -> Optional[Request]:
-        result = await db.execute(
-            select(Request).where(Request.id == request_id)
-        )
+        stmt = select(Request).where(Request.id == request_id)
+        result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    # ------------------------------------------------------------------
+    # Список заявок по пользователю
+    # ------------------------------------------------------------------
     @staticmethod
     async def list_requests_by_user(
         db: AsyncSession,
         user_id: int,
     ) -> List[Request]:
-        result = await db.execute(
+        stmt = (
             select(Request)
             .where(Request.user_id == user_id)
             .order_by(Request.created_at.desc())
         )
+        result = await db.execute(stmt)
         return list(result.scalars().all())
 
-    # ---------- UPDATE ----------
-
+    # ------------------------------------------------------------------
+    # Обновление заявки
+    # ------------------------------------------------------------------
     @staticmethod
     async def update_request(
         db: AsyncSession,
@@ -84,13 +111,16 @@ class RequestsService:
         data: RequestUpdate,
     ) -> Optional[Request]:
         """
-        Частичное обновление заявки.
+        Частичное обновление заявки по RequestUpdate.
+        Все поля в RequestUpdate должны быть опциональными,
+        мы обновляем только те, которые реально передали.
         """
         request = await RequestsService.get_request_by_id(db, request_id)
         if not request:
             return None
 
-        update_data = data.model_dump(exclude_unset=True)
+        # Pydantic v1: dict(exclude_unset=True)
+        update_data = data.dict(exclude_unset=True)
 
         for field, value in update_data.items():
             setattr(request, field, value)
@@ -99,8 +129,26 @@ class RequestsService:
         await db.refresh(request)
         return request
 
-    # ---------- HELPERS для будущего ----------
+    # ------------------------------------------------------------------
+    # Список всех заявок (опционально по статусу)
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def list_requests(
+        db: AsyncSession,
+        status: Optional[str] = None,
+    ) -> List[Request]:
+        stmt = select(Request)
+        if status:
+            # status ожидается как строка, например "new", "in_work"
+            stmt = stmt.where(Request.status == RequestStatus(status))
 
+        stmt = stmt.order_by(Request.created_at.desc())
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    # ------------------------------------------------------------------
+    # Заготовка под выборку заявок для СТО
+    # ------------------------------------------------------------------
     @staticmethod
     async def list_requests_for_service_centers(
         db: AsyncSession,
@@ -108,10 +156,23 @@ class RequestsService:
     ) -> List[Request]:
         """
         Заготовка под выборку «подходящих заявок для СТО».
-        Пока просто возвращаем все активные заявки.
-        """
-        query = select(Request).where(Request.status.in_(["new", "in_progress"]))
-        # TODO: сюда потом добавим фильтрацию по гео и специализации
 
-        result = await db.execute(query.order_by(Request.created_at.desc()))
+        Пока просто возвращаем все активные заявки (NEW / SENT / IN_WORK).
+        Потом сюда добавим фильтрацию по гео и специализациям.
+        """
+        active_statuses = [
+            RequestStatus.NEW,
+            RequestStatus.SENT,
+            RequestStatus.IN_WORK,
+        ]
+
+        stmt = (
+            select(Request)
+            .where(Request.status.in_(active_statuses))
+            .order_by(Request.created_at.desc())
+        )
+
+        # TODO: в будущем добавить фильтр по specializations и гео
+
+        result = await db.execute(stmt)
         return list(result.scalars().all())

@@ -7,7 +7,10 @@ from backend.app.core.db import get_db
 from backend.app.schemas.car import CarCreate, CarRead, CarUpdate
 from backend.app.services.cars_service import CarsService
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/cars",
+    tags=["cars"],
+)
 
 
 @router.post(
@@ -34,6 +37,9 @@ async def get_car(
     car_id: int,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Получить машину по ID.
+    """
     car = await CarsService.get_car_by_id(db, car_id)
     if not car:
         raise HTTPException(
@@ -51,6 +57,9 @@ async def list_cars_by_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Получить список машин пользователя.
+    """
     cars = await CarsService.list_cars_by_user(db, user_id)
     return cars
 
@@ -64,6 +73,9 @@ async def update_car(
     data_in: CarUpdate,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Частичное обновление машины.
+    """
     car = await CarsService.get_car_by_id(db, car_id)
     if not car:
         raise HTTPException(
@@ -82,6 +94,9 @@ async def delete_car(
     car_id: int,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Удаление машины.
+    """
     car = await CarsService.get_car_by_id(db, car_id)
     if not car:
         raise HTTPException(
