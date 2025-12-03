@@ -12,7 +12,7 @@ from backend.app.schemas.request import (
 from backend.app.services.requests_service import RequestsService
 
 router = APIRouter(
-    prefix="/api/v1/requests",
+    prefix="/requests",
     tags=["requests"],
 )
 
@@ -27,7 +27,7 @@ async def create_request(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Создать заявку.
+    Создать новую заявку.
     """
     request = await RequestsService.create_request(db, request_in)
     return request
@@ -42,7 +42,7 @@ async def get_request(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Получить заявку по id.
+    Получить заявку по ID.
     """
     request = await RequestsService.get_request_by_id(db, request_id)
     if not request:
@@ -57,12 +57,12 @@ async def get_request(
     "/by-user/{user_id}",
     response_model=List[RequestRead],
 )
-async def list_requests_by_user(
+async def get_requests_by_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Список заявок пользователя (по user_id).
+    Получить список заявок конкретного пользователя.
     """
     requests = await RequestsService.list_requests_by_user(db, user_id)
     return requests
