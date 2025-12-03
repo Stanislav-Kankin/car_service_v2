@@ -21,16 +21,12 @@ app.add_middleware(
 )
 
 # API v1
-app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
-app.include_router(
-    service_centers.router,
-    prefix="/api/v1/service-centers",
-    tags=["service_centers"],
-)
-app.include_router(cars.router, prefix="/api/v1/cars", tags=["cars"])
-app.include_router(requests.router, prefix="/api/v1/requests", tags=["requests"])
-app.include_router(offers.router, prefix="/api/v1/offers", tags=["offers"])
-app.include_router(bonus.router, prefix="/api/v1/bonus", tags=["bonus"])
+app.include_router(users.router, prefix="/api/v1")
+app.include_router(service_centers.router, prefix="/api/v1")
+app.include_router(cars.router, prefix="/api/v1")
+app.include_router(requests.router, prefix="/api/v1")
+app.include_router(offers.router, prefix="/api/v1")
+app.include_router(bonus.router, prefix="/api/v1")
 
 
 @app.get("/health")

@@ -1,38 +1,43 @@
+from datetime import datetime
+from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from backend.app.models.user import UserRole
+
+class UserRole(str, Enum):
+    client = "client"
+    service_owner = "service_owner"
+    admin = "admin"
 
 
 class UserBase(BaseModel):
-    full_name: Optional[str] = Field(None, max_length=255)
-    phone: Optional[str] = Field(None, max_length=32)
-    city: Optional[str] = Field(None, max_length=100)
-    role: UserRole = UserRole.CLIENT
+    telegram_id: Optional[int] = None
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    role: Optional[UserRole] = None
+    is_active: Optional[bool] = True
 
 
 class UserCreate(UserBase):
-    telegram_id: Optional[int] = None
+    telegram_id: int
+    role: Optional[UserRole] = UserRole.client
 
 
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = Field(None, max_length=255)
-    phone: Optional[str] = Field(None, max_length=32)
-    city: Optional[str] = Field(None, max_length=100)
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
 
 
-class UserRead(BaseModel):
+class UserRead(UserBase):
     id: int
-    telegram_id: Optional[int]
-    full_name: Optional[str]
-    phone: Optional[str]
-    city: Optional[str]
-    role: UserRole
-    is_active: bool
     bonus_balance: int
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
-        from_attributes = True  # Pydantic v2: заменяет orm_mode
+        from_attributes = True

@@ -1,67 +1,97 @@
-from enum import Enum
-
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    Column,
-    DateTime,
-    Integer,
-    String,
-)
+from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String, func
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 
 from ..core.db import Base
-
-
-class UserRole(str, Enum):
-    CLIENT = "client"
-    SERVICE_CENTER_OWNER = "service_center_owner"
-    ADMIN = "admin"
+from ..schemas.user import UserRole
 
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(BigInteger, unique=True, index=True, nullable=True)
-    full_name = Column(String(255), nullable=True)
-    phone = Column(String(32), nullable=True, index=True)
-    city = Column(String(100), nullable=True)
 
-    role = Column(String(50), nullable=False, default=UserRole.CLIENT.value)
-    is_active = Column(Boolean, nullable=False, default=True)
+    # Telegram
+    telegram_id = Column(Integer, unique=True, index=True, nullable=True)
 
-    bonus_balance = Column(Integer, nullable=False, default=0)
+    # Профиль
+    full_name = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    city = Column(String, nullable=True)
 
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-    )
+    role = Column(Enum(UserRole), nullable=False, default=UserRole.client)
+    is_active = Column(Boolean, default=True)
+
+    # Бонусы
+    bonus_balance = Column(Integer, default=0)
+
+    # Временные метки
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
-        nullable=False,
     )
 
-    # связи
-    cars = relationship(
-        "Car",
+    # ==========
+    # Связи
+    # ==========
+
+    # 1) Владелец СТО
+    # В ServiceCenter ожидается что-то типа:
+    # owner = relationship("User", back_populates="service_centers")
+    service_centers = relationship(
+        "ServiceCenter",
         back_populates="owner",
         cascade="all, delete-orphan",
     )
+
+    # 2) Машины пользователя (гараж)
+    # В Car ожидается:
+    # user = relationship("User", back_populates="cars")
+    cars = relationship(
+        "Car",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    # 3) Заявки клиента
+    # В Request ожидается:
+    # user = relationship("User", back_populates="requests")
     requests = relationship(
         "Request",
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    service_centers = relationship(
-        "ServiceCenter",
-        back_populates="owner",
-    )
+
+    # 4) Бонусные транзакции
+    # В BonusTransaction ожидается:
+    # user = relationship("User", back_populates="bonus_transactions")
     bonus_transactions = relationship(
         "BonusTransaction",
         back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    service_centers = relationship(
+        "ServiceCenter",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+
+    cars = relationship(
+        "Car",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    requests = relationship(
+        "Request",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    bonus_transactions = relationship(
+        "BonusTransaction",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
