@@ -91,6 +91,7 @@ class ServiceCenterRegistration(StatesGroup):
     waiting_phone = State()      # контактный телефон
     waiting_city = State()       # город
     waiting_address = State()    # адрес / ориентир
+    waiting_location = State()   # геолокация (точка на карте)
     waiting_extra = State()      # доп. контакты (сайт, соцсети)
     waiting_confirm = State()    # подтверждение и запись в backend
 
@@ -1365,13 +1366,36 @@ async def main() -> None:
             return
 
         await state.update_data(address=text)
+        await state.set_state(ServiceCenterRegistration.waiting_location)
+
+        await message.answer(
+            "Теперь отправь геолокацию сервиса 📍\n\n"
+            "Это нужно, чтобы в будущем клиенты могли находить ближайшие СТО.\n"
+            "Нажми скрепку 📎 → «Геопозиция» и выбери точку на карте.",
+        )
+
+    @dp.message(ServiceCenterRegistration.waiting_location, F.location)
+    async def service_location_step(message: Message, state: FSMContext):
+        lat = message.location.latitude
+        lon = message.location.longitude
+
+        await state.update_data(latitude=lat, longitude=lon)
         await state.set_state(ServiceCenterRegistration.waiting_extra)
 
         await message.answer(
-            "Шаг 5 из 5.\n\n"
-            "Укажи доп. контакты (если есть): сайт, Instagram, WhatsApp, Telegram-ник и т.п.\n"
+            "Геолокация сохранена ✅\n\n"
+            "Теперь укажи доп. контакты (если есть): сайт, Instagram, WhatsApp, Telegram-ник и т.п.\n"
             "Если ничего добавлять не нужно — напиши «Пропустить».",
         )
+
+    @dp.message(ServiceCenterRegistration.waiting_location)
+    async def service_location_text(message: Message, state: FSMContext):
+        # сюда попадут любые сообщения КРОМЕ геопозиции
+        await message.answer(
+            "Пожалуйста, отправь именно геолокацию 📍\n\n"
+            "Нажми скрепку 📎 → «Геопозиция» и выбери точку на карте."
+        )
+
 
     @dp.message(ServiceCenterRegistration.waiting_extra)
     async def service_extra_step(message: Message, state: FSMContext):
@@ -1447,6 +1471,8 @@ async def main() -> None:
         city = fsm_data.get("city")
         address = fsm_data.get("address")
         extra = fsm_data.get("extra")
+        latitude = fsm_data.get("latitude")
+        longitude = fsm_data.get("longitude")
 
         # Находим пользователя
         try:
@@ -1471,12 +1497,14 @@ async def main() -> None:
             "phone": phone,
             "city": city,
             "address_text": address,
-            "extra_contacts": extra,       # если в схеме такого поля нет — уберём позже
+            "latitude": latitude,
+            "longitude": longitude,
+            "extra_contacts": extra,
         }
 
         logger.info("Регистрируем СТО в backend: %s", payload)
 
-        # Создаём СТО через нормальный метод API-клиента
+        # Создаём СТО через API-клиент
         try:
             service_center = await api.create_service_center(payload)
         except Exception as e:
@@ -1498,7 +1526,6 @@ async def main() -> None:
             )
         except Exception as e:
             logger.exception("Ошибка при обновлении роли пользователя до service_owner: %s", e)
-            # не падаем, роль можно будет поправить позже
 
         await state.clear()
 
@@ -1507,7 +1534,7 @@ async def main() -> None:
         await call.message.edit_text(
             "Готово! 🎯\n\n"
             f"Автосервис «{sc_name}» зарегистрирован в системе.\n"
-            "Скоро добавим выбор специализаций, зону обслуживания и приём заявок от клиентов.\n\n"
+            "Мы сохранили адрес и геолокацию, чтобы дальше искать тебя как ближайший сервис для клиентов.\n\n"
             "Пока можно вернуться в главное меню:",
             reply_markup=main_menu_inline(),
         )
