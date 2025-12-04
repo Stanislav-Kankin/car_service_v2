@@ -608,6 +608,50 @@ def car_select_for_request_kb(cars: list[dict]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def service_select_for_request_kb(
+    services: list[dict],
+    request_id: int,
+) -> InlineKeyboardMarkup:
+    """
+    Клавиатура выбора СТО для только что созданной заявки.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+
+    for sc in services:
+        sc_id = sc["id"]
+        name = (sc.get("name") or "Без названия").strip()
+        city = (sc.get("city") or "").strip()
+
+        if city:
+            btn_text = f"{name} ({city})"
+        else:
+            btn_text = name
+
+        # На всякий случай режем слишком длинные названия
+        btn_text = btn_text[:64] or f"Сервис #{sc_id}"
+
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=btn_text,
+                    callback_data=f"req_sc_{request_id}_{sc_id}",
+                )
+            ]
+        )
+
+    # Отмена выбора сервиса
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="❌ Отменить выбор сервиса",
+                callback_data="req_cancel_choose_sc",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def format_service_center_profile(sc: dict) -> str:
     """
     Красивый текст профиля СТО для кабинета.
@@ -1568,7 +1612,75 @@ async def main() -> None:
             await state.clear()
             return
 
+        # С этого момента FSM нам уже не нужен
         await state.clear()
+
+        work_mode = data.get("work_mode") or "choose"
+
+        # ----- Вариант 1: Выбрать СТО из списка -----
+        if work_mode == "choose":
+            # Пытаемся подобрать подходящие СТО
+            try:
+                user = await api.get_user(user_id)
+            except Exception as e:
+                logger.exception("Ошибка при получении пользователя для подбора СТО: %s", e)
+                user = None
+
+            filters: dict[str, Any] = {}
+
+            # Фильтр по типу услуги
+            service_type = req.get("service_type") or data.get("service_type")
+            if service_type:
+                filters["service_type"] = service_type
+
+            # Фильтр по городу пользователя (если есть)
+            if user:
+                city = (user.get("city") or "").strip()
+                if city:
+                    filters["city"] = city
+
+            try:
+                services = await api.list_service_centers(filters or None)
+            except Exception as e:
+                logger.exception(
+                    "Ошибка при подборе СТО для заявки %s: %s",
+                    req.get("id"),
+                    e,
+                )
+                services = []
+
+            # Если ничего не нашли — показываем стандартный текст
+            if not services:
+                text = (
+                    "Заявка создана! ✅\n\n"
+                    f"Номер заявки: #{req.get('id')}\n"
+                    "Пока не удалось найти подходящие СТО.\n\n"
+                    "Следить за статусом заявки можно в разделе «📄 Мои заявки»."
+                )
+                await call.message.edit_text(
+                    text,
+                    reply_markup=main_menu_inline(),
+                )
+                return
+
+            # Есть подходящие сервисы — даём список на выбор
+            text_lines = [
+                "Заявка создана! ✅",
+                "",
+                f"Номер заявки: #{req.get('id')}",
+                "",
+                "Теперь выбери сервис из списка ниже:",
+            ]
+            await call.message.edit_text(
+                "\n".join(text_lines),
+                reply_markup=service_select_for_request_kb(
+                    services,
+                    request_id=req.get("id"),
+                ),
+            )
+            return
+
+        # ----- Вариант 2: Отправить всем (пока просто стандартный текст) -----
 
         text = (
             "Заявка создана! ✅\n\n"
@@ -1577,6 +1689,111 @@ async def main() -> None:
             "Следить за статусом заявки можно в разделе «📄 Мои заявки»."
         )
         await call.message.edit_text(text, reply_markup=main_menu_inline())
+
+    @dp.callback_query(F.data.startswith("req_sc_"))
+    async def req_choose_service_for_request(call: CallbackQuery, state: FSMContext):
+        """
+        Пользователь выбрал конкретный СТО для заявки (режим work_mode = choose).
+        callback_data: req_sc_<request_id>_<service_center_id>
+        """
+        raw = call.data or ""
+        parts = raw.split("_")
+        if len(parts) != 4:
+            await call.answer()
+            return
+
+        try:
+            request_id = int(parts[2])
+            sc_id = int(parts[3])
+        except ValueError:
+            await call.answer()
+            return
+
+        # Подтягиваем данные заявки
+        try:
+            req = await api.get_request(request_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении заявки %s: %s", request_id, e)
+            await call.message.edit_text(
+                "Не удалось найти заявку. Попробуй позже.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        # Подтягиваем данные СТО
+        try:
+            sc = await api.get_service_center(sc_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении СТО %s: %s", sc_id, e)
+            await call.message.edit_text(
+                "Не удалось получить данные сервиса.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        # Привязываем СТО к заявке
+        try:
+            await api.update_request(
+                request_id,
+                {
+                    "service_center_id": sc_id,
+                    "status": "accepted_by_service",
+                },
+            )
+        except Exception as e:
+            logger.exception("Ошибка при обновлении заявки %s: %s", request_id, e)
+            await call.message.edit_text(
+                "Не удалось привязать сервис к заявке. Попробуй позже.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        # Пытаемся уведомить владельца СТО
+        try:
+            owner_user_id = sc.get("user_id")
+            if owner_user_id:
+                svc_user = await api.get_user(owner_user_id)
+                svc_tg_id = svc_user.get("telegram_id")
+                if svc_tg_id:
+                    desc = req.get("description") or "без описания"
+                    await bot.send_message(
+                        svc_tg_id,
+                        (
+                            f"📩 Новая заявка #{request_id} закреплена за вашим сервисом.\n\n"
+                            f"Описание: {desc}"
+                        ),
+                    )
+        except Exception as e:
+            # Ошибку логируем, но пользователю ничего страшного не говорим
+            logger.exception("Ошибка при отправке уведомления СТО: %s", e)
+
+        name = (sc.get("name") or "Без названия").strip()
+        text = (
+            "Заявка закреплена за сервисом:\n\n"
+            f"🏭 <b>{name}</b>\n\n"
+            "Менеджер сервиса свяжется с тобой в ближайшее время.\n\n"
+            "Следить за статусом можно в разделе «📄 Мои заявки»."
+        )
+
+        await state.clear()
+        await call.message.edit_text(text, reply_markup=main_menu_inline())
+        await call.answer()
+
+    @dp.callback_query(F.data == "req_cancel_choose_sc")
+    async def req_cancel_choose_sc(call: CallbackQuery, state: FSMContext):
+        """
+        Отмена выбора сервиса после создания заявки.
+        """
+        await state.clear()
+        await call.message.edit_text(
+            "Выбор сервиса отменён.\n\n"
+            "Заявка всё равно сохранена, её можно найти в разделе «📄 Мои заявки».",
+            reply_markup=main_menu_inline(),
+        )
+        await call.answer()
 
     # ==========================
     #   СТО: РЕГИСТРАЦИЯ
