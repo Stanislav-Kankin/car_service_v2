@@ -16,7 +16,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.filters import CommandStart, Command, StateFilter
 
-from typing import Optional
+from typing import Optional, Any
 
 from .config import config
 from .api_client import APIClient
@@ -409,9 +409,9 @@ def request_radius_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="3 км", callback_data="req_radius_3"),
                 InlineKeyboardButton(text="5 км", callback_data="req_radius_5"),
-                InlineKeyboardButton(text="10 км", callback_data="req_radius_10"),
+                InlineKeyboardButton(text="15 км", callback_data="req_radius_15"),
+                InlineKeyboardButton(text="30 км", callback_data="req_radius_30"),
             ],
             [
                 InlineKeyboardButton(
@@ -1647,6 +1647,7 @@ async def main() -> None:
         await state.clear()
 
         work_mode = data.get("work_mode") or "choose"
+        request_id = req.get("id")
 
         # ----- Вариант 1: Выбрать СТО из списка -----
         if work_mode == "choose":
@@ -1675,7 +1676,7 @@ async def main() -> None:
             except Exception as e:
                 logger.exception(
                     "Ошибка при подборе СТО для заявки %s: %s",
-                    req.get("id"),
+                    request_id,
                     e,
                 )
                 services = []
@@ -1684,7 +1685,7 @@ async def main() -> None:
             if not services:
                 text = (
                     "Заявка создана! ✅\n\n"
-                    f"Номер заявки: #{req.get('id')}\n"
+                    f"Номер заявки: #{request_id}\n"
                     "Пока не удалось найти подходящие СТО.\n\n"
                     "Следить за статусом заявки можно в разделе «📄 Мои заявки»."
                 )
@@ -1698,7 +1699,7 @@ async def main() -> None:
             text_lines = [
                 "Заявка создана! ✅",
                 "",
-                f"Номер заявки: #{req.get('id')}",
+                f"Номер заявки: #{request_id}",
                 "",
                 "Теперь выбери сервис из списка ниже:",
             ]
@@ -1706,10 +1707,120 @@ async def main() -> None:
                 "\n".join(text_lines),
                 reply_markup=service_select_for_request_kb(
                     services,
-                    request_id=req.get("id"),
+                    request_id=request_id,
                 ),
             )
             return
+
+        # ----- Вариант 2: Отправить всем подходящим СТО -----
+
+        # 1) Ставим статус sent
+        try:
+            await api.update_request(request_id, {"status": "sent"})
+        except Exception as e:
+            logger.exception(
+                "Ошибка при обновлении статуса заявки %s на sent: %s",
+                request_id,
+                e,
+            )
+
+        # 2) Подбираем подходящие СТО (та же логика, что и для choose)
+        try:
+            user = await api.get_user(user_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя для рассылки СТО: %s", e)
+            user = None
+
+        filters: dict[str, Any] = {}
+
+        service_type = req.get("service_type") or data.get("service_type")
+        if service_type:
+            filters["service_type"] = service_type
+
+        if user:
+            city = (user.get("city") or "").strip()
+            if city:
+                filters["city"] = city
+
+        try:
+            services = await api.list_service_centers(filters or None)
+        except Exception as e:
+            logger.exception(
+                "Ошибка при подборе СТО для рассылки заявки %s: %s",
+                request_id,
+                e,
+            )
+            services = []
+
+        # 3) Если вообще никого не нашли — просто говорим клиенту
+        if not services:
+            text = (
+                "Заявка создана! ✅\n\n"
+                f"Номер заявки: #{request_id}\n"
+                "Но пока не удалось найти ни одного подходящего сервиса.\n\n"
+                "Следить за статусом заявки можно в разделе «📄 Мои заявки»."
+            )
+            await call.message.edit_text(
+                text,
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        # 4) Рассылаем всем найденным СТО
+        req_desc = req.get("description") or "без описания"
+        service_type_human = service_type or "не указано"
+
+        for sc in services:
+            owner_user_id = sc.get("user_id")
+            if not owner_user_id:
+                continue
+
+            try:
+                svc_user = await api.get_user(owner_user_id)
+            except Exception as e:
+                logger.exception(
+                    "Ошибка при получении пользователя-владельца СТО %s: %s",
+                    owner_user_id,
+                    e,
+                )
+                continue
+
+            svc_tg_id = svc_user.get("telegram_id")
+            if not svc_tg_id:
+                continue
+
+            text_svc = (
+                f"📩 Новая заявка #{request_id} от клиента.\n\n"
+                f"Тип услуги: {service_type_human}\n"
+                f"Описание: {req_desc}\n\n"
+                "Вы можете указать свои условия или отклонить заявку."
+            )
+
+            try:
+                await call.bot.send_message(
+                    svc_tg_id,
+                    text_svc,
+                    reply_markup=service_assigned_actions_kb(request_id),
+                )
+            except Exception as e:
+                logger.exception(
+                    "Не удалось отправить заявку сервису %s: %s",
+                    sc.get("id"),
+                    e,
+                )
+
+        # 5) Сообщаем клиенту
+        text_client = (
+            "Заявка создана и отправлена всем подходящим СТО! ✅\n\n"
+            f"Номер заявки: #{request_id}\n\n"
+            "Сервисы смогут прислать свои условия по этой заявке.\n"
+            "Следить за ответами можно в разделе «📄 Мои заявки»."
+        )
+
+        await call.message.edit_text(
+            text_client,
+            reply_markup=main_menu_inline(),
+        )
 
         # ----- Вариант 2: Отправить всем (пока просто стандартный текст) -----
 
@@ -2225,11 +2336,91 @@ async def main() -> None:
             await call.answer()
             return
 
-        # Обновляем статус заявки (берём "in_work" как начало работы)
+        # 1. Смотрим текущее состояние заявки
         try:
-            await api.update_request(request_id, {"status": "in_work"})
+            req = await api.get_request(request_id)
         except Exception as e:
-            logger.exception("Ошибка при обновлении статуса заявки %s: %s", request_id, e)
+            logger.exception("Ошибка при получении заявки %s: %s", request_id, e)
+            await call.message.edit_text(
+                "Не удалось получить данные заявки. Попробуй позже.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        current_status = (req.get("status") or "").lower()
+        current_sc_id = req.get("service_center_id")
+
+        # Если уже есть выбранный сервис — не даём подтвердить второй раз
+        if current_status in {"in_work", "done", "accepted_by_service"} or current_sc_id:
+            chosen_name = "другой сервис"
+            try:
+                if current_sc_id:
+                    sc = await api.get_service_center(current_sc_id)
+                    chosen_name = (sc.get("name") or "выбранный сервис").strip()
+            except Exception as e:
+                logger.exception(
+                    "Не удалось получить выбранный сервис для заявки %s: %s",
+                    request_id,
+                    e,
+                )
+
+            # Сообщение клиенту
+            await call.message.edit_text(
+                f"По заявке #{request_id} уже выбран сервис: {chosen_name}.\n\n"
+                "Если нужно изменить выбор — создай новую заявку "
+                "или свяжись с менеджером.",
+                reply_markup=main_menu_inline(),
+            )
+
+            # Уведомление сервису, который опоздал
+            try:
+                await call.bot.send_message(
+                    service_tg_id,
+                    (
+                        f"ℹ️ Клиент по заявке #{request_id} уже выбрал другой сервис.\n"
+                        "Ваше предложение не может быть принято."
+                    ),
+                )
+            except Exception as e:
+                logger.exception(
+                    "Не удалось уведомить сервис об уже выбранном исполнителе: %s",
+                    e,
+                )
+
+            await call.answer()
+            return
+
+        # 2. Пытаемся определить service_center_id по telegram сервиса
+        sc_id: int | None = None
+        try:
+            svc_user = await api.get_user_by_telegram(service_tg_id)
+            svc_user_id = svc_user.get("id")
+            if svc_user_id:
+                sc_list = await api.list_service_centers_by_user(svc_user_id)
+                if isinstance(sc_list, list) and sc_list:
+                    sc_id = sc_list[0].get("id")
+        except Exception as e:
+            logger.exception(
+                "Не удалось привязать СТО к заявке %s по telegram %s: %s",
+                request_id,
+                service_tg_id,
+                e,
+            )
+
+        # 3. Обновляем заявку
+        payload: dict[str, Any] = {"status": "in_work"}
+        if sc_id:
+            payload["service_center_id"] = sc_id
+
+        try:
+            await api.update_request(request_id, payload)
+        except Exception as e:
+            logger.exception(
+                "Ошибка при обновлении статуса заявки %s: %s",
+                request_id,
+                e,
+            )
 
         # Сообщение клиенту
         await call.message.edit_text(
@@ -2244,7 +2435,7 @@ async def main() -> None:
             await call.bot.send_message(
                 service_tg_id,
                 (
-                    f"✅ Клиент принял условия по заявке #{request_id}.\n\n"
+                    f"✅ Клиент принял ваши условия по заявке #{request_id}.\n\n"
                     "Можно приступать к работе."
                 ),
             )
@@ -2256,7 +2447,7 @@ async def main() -> None:
     @dp.callback_query(F.data.startswith("offer_reject_"))
     async def offer_reject(call: CallbackQuery, state: FSMContext):
         """
-        Клиент отклоняет условия сервиса по заявке.
+        Клиент отклоняет условия конкретного сервиса по заявке.
         callback_data: offer_reject_<request_id>_<service_tg_id>
         """
         raw = call.data or ""
@@ -2272,16 +2463,11 @@ async def main() -> None:
             await call.answer()
             return
 
-        # Обновляем статус заявки (пока помечаем как cancelled)
-        try:
-            await api.update_request(request_id, {"status": "cancelled"})
-        except Exception as e:
-            logger.exception("Ошибка при обновлении статуса заявки %s: %s", request_id, e)
-
+        # ВАЖНО: не отменяем всю заявку, только отклоняем этого исполнителя.
         await call.message.edit_text(
-            f"Ты отклонил условия по заявке #{request_id}. ❌\n\n"
-            "Заявка помечена как отменённая.\n"
-            "При необходимости можно создать новую заявку с другими параметрами.",
+            f"Ты отклонил условия этого сервиса по заявке #{request_id}. ❌\n\n"
+            "Заявка остаётся активной — можно дождаться других откликов "
+            "или создать новую заявку с другими параметрами.",
             reply_markup=main_menu_inline(),
         )
 
@@ -2290,8 +2476,8 @@ async def main() -> None:
             await call.bot.send_message(
                 service_tg_id,
                 (
-                    f"❌ Клиент отклонил условия по заявке #{request_id}.\n\n"
-                    "Вы можете предложить другие условия или оставить заявку без изменений."
+                    f"❌ Клиент отклонил предложенные условия по заявке #{request_id}.\n\n"
+                    "Вы можете предложить другие условия или дождаться новых заявок."
                 ),
             )
         except Exception as e:

@@ -700,10 +700,12 @@ async def cb_sc_choose(call: CallbackQuery, state: FSMContext):
 
 async def handle_send_to_all(message: Message, state: FSMContext):
     """
-    На этом этапе делаем простой прототип:
-    - помечаем заявку как sent
-    - далее логику рассылки и откликов реализуем отдельным этапом
+    На этом этапе:
+    - переводим заявку в status=sent
+    - ищем подходящие СТО
+    - рассылаем каждому СТО уведомление с кнопками для отклика
     """
+
     data = await state.get_data()
     request_id = data.get("request_id")
 
@@ -715,18 +717,75 @@ async def handle_send_to_all(message: Message, state: FSMContext):
         await state.clear()
         return
 
+    # 1) Обновляем заявку
     await api_client.update_request(
         request_id,
-        {
-            "status": "sent",
-        },
+        {"status": "sent"},
     )
+
+    # 2) Ищем подходящие СТО
+    params = {}
+    if data.get("latitude") and data.get("longitude"):
+        params["latitude"] = data["latitude"]
+        params["longitude"] = data["longitude"]
+
+    if data.get("radius_km"):
+        params["radius_km"] = data["radius_km"]
+
+    # На данном этапе без спецов — добавим позже
+    service_centers = await api_client.list_service_centers(params=params or None)
+
+    # 3) Рассылаем
+    for sc in service_centers:
+        manager_tg = sc.get("telegram_id") or sc.get("user", {}).get("telegram_id")
+        if not manager_tg:
+            continue
+
+        text = (
+            "🔔 *Новая заявка*\n\n"
+            f"Категория: {data.get('service_category')}\n"
+            f"Описание: {data.get('description')}\n\n"
+            "Можете отправить клиенту предложение."
+        )
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="💰 Сделать предложение",
+                        callback_data=f"offer_make_{request_id}_{sc['id']}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔍 Детали",
+                        callback_data=f"offer_details_{request_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="❌ Отклонить",
+                        callback_data=f"offer_reject_{request_id}_{sc['id']}",
+                    )
+                ],
+            ]
+        )
+
+        try:
+            await message.bot.send_message(
+                chat_id=manager_tg,
+                text=text,
+                reply_markup=kb,
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass  # игнорируем ошибки — сервис мог заблокировать бота
 
     await state.clear()
 
     await message.answer(
-        "✅ Заявка помечена как отправленная всем подходящим СТО.\n\n"
-        "Сервисы получат вашу заявку и смогут отправить свои предложения.\n"
-        "Чуть позже вы сможете выбрать лучшее предложение в разделе «Мои заявки».",
+        "📡 Ваша заявка отправлена всем подходящим СТО.\n"
+        "Они смогут прислать вам свои предложения.\n"
+        "Вы сможете выбрать лучшее в разделе «Мои заявки».",
         reply_markup=ReplyKeyboardRemove(),
     )
