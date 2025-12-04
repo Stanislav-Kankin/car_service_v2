@@ -1,4 +1,5 @@
 from typing import List, Optional
+import math
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,7 +83,7 @@ class ServiceCentersService:
         return list(result.scalars().all())
 
     # ------------------------------------------------------------------
-    # Поиск подходящих СТО (заготовка)
+    # Поиск подходящих СТО с учётом гео и специализаций
     # ------------------------------------------------------------------
     @staticmethod
     async def search_service_centers(
@@ -97,19 +98,24 @@ class ServiceCentersService:
         """
         Базовый поиск СТО.
 
-        Сейчас:
-        - фильтруем по is_active
-        - опционально по наличию пересечения специализаций
-        - гео пока не учитываем (добавим позже в пункте E чеклиста)
+        Делает:
+        - фильтрует по is_active (если передано),
+        - опционально фильтрует по пересечению специализаций,
+        - опционально фильтрует по радиусу от заданной точки (latitude/longitude),
+          и сортирует по расстоянию от ближних к дальним.
+
+        Если координаты или radius_km не переданы — гео-фильтрация не применяется.
         """
+
+        # 1. Базовый запрос к БД
         stmt = select(ServiceCenter)
         if is_active is not None:
             stmt = stmt.where(ServiceCenter.is_active == is_active)
 
-        # Пока без SQL-фильтра по specializations — отфильтруем на Python.
         result = await db.execute(stmt)
         items: List[ServiceCenter] = list(result.scalars().all())
 
+        # 2. Фильтрация по специализациям (на Python, т.к. поле JSON)
         if specializations:
             wanted = set(specializations)
             items = [
@@ -118,7 +124,55 @@ class ServiceCentersService:
                 if sc.specializations and wanted & set(sc.specializations)
             ]
 
-        # TODO: добавить фильтрацию по latitude/longitude/radius_km
+        # 3. Гео-фильтр + сортировка по расстоянию, если заданы координаты и радиус
+        if (
+            latitude is not None
+            and longitude is not None
+            and radius_km is not None
+            and radius_km > 0
+        ):
+            origin_lat = float(latitude)
+            origin_lon = float(longitude)
+
+            def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+                """
+                Расстояние по сфере (формула haversine), км.
+                Для наших задач (поиск ближайших СТО) точности более чем достаточно.
+                """
+                R = 6371.0  # радиус Земли в км
+
+                phi1 = math.radians(lat1)
+                phi2 = math.radians(lat2)
+                dphi = math.radians(lat2 - lat1)
+                dlambda = math.radians(lon2 - lon1)
+
+                a = (
+                    math.sin(dphi / 2) ** 2
+                    + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+                )
+                c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+                return R * c
+
+            filtered_with_dist = []
+            for sc in items:
+                # Если у СТО нет координат — в гео-поиске его просто не показываем
+                if sc.latitude is None or sc.longitude is None:
+                    continue
+
+                dist = haversine_km(
+                    origin_lat,
+                    origin_lon,
+                    float(sc.latitude),
+                    float(sc.longitude),
+                )
+
+                if dist <= radius_km:
+                    filtered_with_dist.append((dist, sc))
+
+            # сортируем от ближних к дальним
+            filtered_with_dist.sort(key=lambda x: x[0])
+            items = [sc for _, sc in filtered_with_dist]
+
         return items
 
     # ------------------------------------------------------------------

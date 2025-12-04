@@ -1,8 +1,10 @@
 from typing import Any, Dict, Optional
-
+import logging
 import aiohttp
 
 from .config import config
+
+logger = logging.getLogger(__name__)
 
 
 class APIClient:
@@ -57,7 +59,7 @@ class APIClient:
         """
         Создание пользователя.
 
-        Ожидает полный payload:
+        Ожидает payload:
         {
             "telegram_id": int,
             "full_name": str,
@@ -72,10 +74,22 @@ class APIClient:
         )
 
     async def get_user_by_telegram(self, telegram_id: int) -> Any:
-        return await self._request(
-            "GET",
-            f"/api/v1/users/by-telegram/{telegram_id}",
-        )
+        """
+        Вернёт dict с пользователем или None, если пользователь не найден (404).
+        Все остальные ошибки по-прежнему пробрасываем дальше.
+        """
+        try:
+            return await self._request(
+                "GET",
+                f"/api/v1/users/by-telegram/{telegram_id}",
+            )
+        except Exception as e:
+            msg = str(e)
+            if "API error 404" in msg:
+                logger.info("User with telegram_id=%s not found in backend", telegram_id)
+                return None
+            # остальные ошибки — настоящие, их не глушим
+            raise
 
     async def update_user(self, user_id: int, data: Dict[str, Any]) -> Any:
         return await self._request(
@@ -113,10 +127,6 @@ class APIClient:
         )
 
     async def list_cars_by_user(self, user_id: int) -> Any:
-        """
-        Явный метод под вызовы из main.py:
-        api.list_cars_by_user(user_id)
-        """
         return await self._request(
             "GET",
             f"/api/v1/cars/by-user/{user_id}",
@@ -270,3 +280,7 @@ class APIClient:
             f"/api/v1/bonus/{user_id}/adjust",
             data,
         )
+
+
+# Глобальный экземпляр, чтобы не создавать сессию заново в каждом хендлере
+api_client = APIClient()
