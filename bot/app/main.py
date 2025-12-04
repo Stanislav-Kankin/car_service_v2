@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.enums import ParseMode
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -87,6 +88,14 @@ class ServiceCenterSpecs(StatesGroup):
     FSM для редактирования специализаций СТО.
     """
     waiting_specs = State()
+
+
+class ServiceRequestStates(StatesGroup):
+    """
+    Состояния при работе СТО с уже закреплённой заявкой.
+    """
+    waiting_conditions = State()
+    waiting_decline_reason = State()
 
 
 # ==========================
@@ -650,6 +659,28 @@ def service_select_for_request_kb(
     )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def service_assigned_actions_kb(request_id: int) -> InlineKeyboardMarkup:
+    """
+    Кнопки под уведомлением для СТО, когда заявка закреплена за сервисом.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📝 Указать условия",
+                    callback_data=f"svc_req_cond_{request_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отклонить заявку",
+                    callback_data=f"svc_req_decline_{request_id}",
+                )
+            ],
+        ]
+    )
 
 
 def format_service_center_profile(sc: dict) -> str:
@@ -1765,7 +1796,9 @@ async def main() -> None:
                             f"📩 Новая заявка #{request_id} закреплена за вашим сервисом.\n\n"
                             f"Описание: {desc}"
                         ),
+                        reply_markup=service_assigned_actions_kb(request_id),
                     )
+
         except Exception as e:
             # Ошибку логируем, но пользователю ничего страшного не говорим
             logger.exception("Ошибка при отправке уведомления СТО: %s", e)
@@ -1779,7 +1812,11 @@ async def main() -> None:
         )
 
         await state.clear()
-        await call.message.edit_text(text, reply_markup=main_menu_inline())
+        await call.message.edit_text(
+            text,
+            reply_markup=main_menu_inline(),
+            parse_mode=ParseMode.HTML,
+        )
         await call.answer()
 
     @dp.callback_query(F.data == "req_cancel_choose_sc")
@@ -1988,6 +2025,127 @@ async def main() -> None:
             reply_markup=cancel_kb(),
         )
 
+    @dp.callback_query(F.data.startswith("svc_req_cond_"))
+    async def svc_request_conditions_start(call: CallbackQuery, state: FSMContext):
+        """
+        Старт ввода условий от СТО по заявке.
+        callback_data: svc_req_cond_<request_id>
+        """
+        raw = call.data or ""
+        parts = raw.split("_")
+        if len(parts) != 4:
+            await call.answer()
+            return
+
+        try:
+            request_id = int(parts[3])
+        except ValueError:
+            await call.answer()
+            return
+
+        await state.set_state(ServiceRequestStates.waiting_conditions)
+        await state.update_data(request_id=request_id)
+
+        await call.message.edit_text(
+            f"Заявка #{request_id}\n\n"
+            "Напишите условия для клиента в свободной форме:\n"
+            "• ориентировочная стоимость\n"
+            "• срок выполнения\n"
+            "• любые важные детали\n\n"
+            "Сообщение будет отправлено клиенту одним блоком.",
+        )
+        await call.answer()
+
+    @dp.message(ServiceRequestStates.waiting_conditions)
+    async def svc_request_conditions_receive(message: Message, state: FSMContext):
+        """
+        Принимаем текст условий от менеджера и отправляем клиенту.
+        """
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer(
+                "Пожалуйста, напишите условия одним сообщением. "
+                "Например: стоимость, срок, особенности."
+            )
+            return
+
+        data = await state.get_data()
+        request_id = data.get("request_id")
+        if not request_id:
+            await state.clear()
+            await message.answer(
+                "Не удалось определить заявку. Попробуйте ещё раз из уведомления.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        # Получаем заявку и пользователя-клиента
+        try:
+            req = await api.get_request(request_id)
+            user_id = req.get("user_id")
+            user = await api.get_user(user_id)
+            client_tg_id = user.get("telegram_id")
+        except Exception as e:
+            logger.exception("Ошибка при подготовке условий для заявки %s: %s", request_id, e)
+            await state.clear()
+            await message.answer(
+                "Не удалось отправить условия клиенту. Попробуйте позже.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        await state.clear()
+
+        # Текст клиенту
+        req_desc = req.get("description") or "без описания"
+        service_text = (
+            f"📩 По вашей заявке #{request_id} сервис прислал условия:\n\n"
+            f"📝 <b>Условия:</b>\n{text}\n\n"
+            f"🚗 <b>Описание заявки:</b> {req_desc}\n\n"
+            "Принять эти условия?"
+        )
+
+        # Кнопки принять / отклонить
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="✅ Принять условия",
+                        callback_data=f"offer_accept_{request_id}_{message.from_user.id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="❌ Отклонить условия",
+                        callback_data=f"offer_reject_{request_id}_{message.from_user.id}",
+                    )
+                ],
+            ]
+        )
+
+        # Отправляем клиенту
+        try:
+            await message.bot.send_message(
+                client_tg_id,
+                service_text,
+                reply_markup=kb,
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            logger.exception("Не удалось отправить условия клиенту: %s", e)
+            await message.answer(
+                "Не удалось отправить условия клиенту. Попробуйте позже.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        # Подтверждение менеджеру
+        await message.answer(
+            f"Условия по заявке #{request_id} отправлены клиенту. "
+            "Ожидайте его решения.",
+            reply_markup=main_menu_inline(),
+        )
+
     @dp.message(ServiceCenterRegistration.waiting_extra_contacts)
     async def service_extra_contacts_step(message: Message, state: FSMContext):
         if message.text and message.text.lower() == "отмена":
@@ -2046,6 +2204,168 @@ async def main() -> None:
                     ],
                 ]
             ),
+        )
+
+    @dp.callback_query(F.data.startswith("offer_accept_"))
+    async def offer_accept(call: CallbackQuery, state: FSMContext):
+        """
+        Клиент принимает условия сервиса по заявке.
+        callback_data: offer_accept_<request_id>_<service_tg_id>
+        """
+        raw = call.data or ""
+        parts = raw.split("_")
+        if len(parts) != 4:
+            await call.answer()
+            return
+
+        try:
+            request_id = int(parts[2])
+            service_tg_id = int(parts[3])
+        except ValueError:
+            await call.answer()
+            return
+
+        # Обновляем статус заявки (берём "in_work" как начало работы)
+        try:
+            await api.update_request(request_id, {"status": "in_work"})
+        except Exception as e:
+            logger.exception("Ошибка при обновлении статуса заявки %s: %s", request_id, e)
+
+        # Сообщение клиенту
+        await call.message.edit_text(
+            f"Ты принял условия по заявке #{request_id}. 🚗\n\n"
+            "Сервис может приступать к работе. "
+            "Следить за статусом можно в разделе «📄 Мои заявки».",
+            reply_markup=main_menu_inline(),
+        )
+
+        # Уведомление сервису
+        try:
+            await call.bot.send_message(
+                service_tg_id,
+                (
+                    f"✅ Клиент принял условия по заявке #{request_id}.\n\n"
+                    "Можно приступать к работе."
+                ),
+            )
+        except Exception as e:
+            logger.exception("Не удалось отправить уведомление сервису: %s", e)
+
+        await call.answer()
+
+    @dp.callback_query(F.data.startswith("offer_reject_"))
+    async def offer_reject(call: CallbackQuery, state: FSMContext):
+        """
+        Клиент отклоняет условия сервиса по заявке.
+        callback_data: offer_reject_<request_id>_<service_tg_id>
+        """
+        raw = call.data or ""
+        parts = raw.split("_")
+        if len(parts) != 4:
+            await call.answer()
+            return
+
+        try:
+            request_id = int(parts[2])
+            service_tg_id = int(parts[3])
+        except ValueError:
+            await call.answer()
+            return
+
+        # Обновляем статус заявки (пока помечаем как cancelled)
+        try:
+            await api.update_request(request_id, {"status": "cancelled"})
+        except Exception as e:
+            logger.exception("Ошибка при обновлении статуса заявки %s: %s", request_id, e)
+
+        await call.message.edit_text(
+            f"Ты отклонил условия по заявке #{request_id}. ❌\n\n"
+            "Заявка помечена как отменённая.\n"
+            "При необходимости можно создать новую заявку с другими параметрами.",
+            reply_markup=main_menu_inline(),
+        )
+
+        # Уведомление сервису
+        try:
+            await call.bot.send_message(
+                service_tg_id,
+                (
+                    f"❌ Клиент отклонил условия по заявке #{request_id}.\n\n"
+                    "Вы можете предложить другие условия или оставить заявку без изменений."
+                ),
+            )
+        except Exception as e:
+            logger.exception("Не удалось отправить уведомление сервису: %s", e)
+
+        await call.answer()
+
+    @dp.callback_query(F.data.startswith("svc_req_decline_"))
+    async def svc_request_decline_start(call: CallbackQuery, state: FSMContext):
+        """
+        СТО хочет отклонить заявку.
+        callback_data: svc_req_decline_<request_id>
+        """
+        raw = call.data or ""
+        parts = raw.split("_")
+        if len(parts) != 4:
+            await call.answer()
+            return
+
+        try:
+            request_id = int(parts[3])
+        except ValueError:
+            await call.answer()
+            return
+
+        await state.set_state(ServiceRequestStates.waiting_decline_reason)
+        await state.update_data(request_id=request_id)
+
+        await call.message.edit_text(
+            f"Заявка #{request_id}\n\n"
+            "Напишите причину отказа, она будет отправлена клиенту.",
+        )
+        await call.answer()
+
+    @dp.message(ServiceRequestStates.waiting_decline_reason)
+    async def svc_request_decline_reason(message: Message, state: FSMContext):
+        reason = (message.text or "").strip()
+        data = await state.get_data()
+        request_id = data.get("request_id")
+
+        if not request_id:
+            await state.clear()
+            await message.answer(
+                "Не удалось определить заявку. Попробуйте ещё раз из уведомления.",
+                reply_markup=main_menu_inline(),
+            )
+            return
+
+        await state.clear()
+
+        # Обновляем статус заявки
+        try:
+            await api.update_request(request_id, {"status": "rejected_by_service"})
+        except Exception as e:
+            logger.exception("Ошибка при обновлении статуса заявки %s: %s", request_id, e)
+
+        # Уведомляем клиента
+        try:
+            req = await api.get_request(request_id)
+            user = await api.get_user(req.get("user_id"))
+            client_tg_id = user.get("telegram_id")
+
+            text_client = (
+                f"Заявка #{request_id} была отклонена сервисом. ❌\n\n"
+                f"Причина: {reason or 'не указана'}"
+            )
+
+            await message.bot.send_message(client_tg_id, text_client)
+        except Exception as e:
+            logger.exception("Не удалось уведомить клиента об отказе: %s", e)
+
+        await message.answer(
+            f"Заявка #{request_id} отклонена. Клиент уведомлён.",
+            reply_markup=main_menu_inline(),
         )
 
     @dp.callback_query(ServiceCenterRegistration.waiting_confirm)
