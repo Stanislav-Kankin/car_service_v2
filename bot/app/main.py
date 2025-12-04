@@ -25,8 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 # ==========================
-#   FSM регистрации
+#   FSM-классы
 # ==========================
+
 
 class UserRegistration(StatesGroup):
     waiting_full_name = State()
@@ -34,32 +35,7 @@ class UserRegistration(StatesGroup):
     waiting_city = State()
 
 
-# ==========================
-#   FSM новой заявки
-# ==========================
-
-class RequestCreate(StatesGroup):
-    waiting_move = State()
-    waiting_location = State()
-    waiting_location_confirm = State()
-    waiting_description = State()
-    waiting_description_confirm = State()
-    waiting_photo_choice = State()
-    waiting_date = State()
-    waiting_date_confirm = State()
-    waiting_time_slot = State()
-    waiting_car_select = State()   # выбор авто из гаража
-    waiting_confirm = State()
-
-
-# ==========================
-#   FSM гаража (авто)
-# ==========================
-
 class CarAdd(StatesGroup):
-    """
-    Добавление нового автомобиля в гараж.
-    """
     waiting_brand = State()
     waiting_model = State()
     waiting_year = State()
@@ -78,154 +54,144 @@ class CarEdit(StatesGroup):
     waiting_vin = State()
 
 
-# ==========================
-#   FSM регистрации СТО
-# ==========================
+class RequestCreate(StatesGroup):
+    """
+    Создание заявки.
+    """
+    waiting_location_choice = State()   # 1. Выбор способа указания локации
+    waiting_geo = State()              # 2. Приём локации
+    waiting_location_text = State()    # 3. Ввод адреса/района текстом
+    waiting_move = State()             # 4. Авто едет / эвакуация
+    waiting_radius = State()           # 5. Радиус/район (если авто едет само)
+    waiting_service_type = State()     # 6. Тип услуги
+    waiting_description = State()      # 7. Описание проблемы
+    waiting_photo = State()            # 8. Фото (опционально)
+    waiting_show_phone = State()       # 9. Скрывать / показывать номер
+    waiting_select_work_mode = State() # 10. Выбрать СТО из списка / отправить всем
+    waiting_select_car = State()       # 11. Выбор авто (в конце)
+
 
 class ServiceCenterRegistration(StatesGroup):
-    """
-    Регистрация автосервиса / частного мастера.
-    """
-    waiting_org_type = State()   # ФЛ / ЮЛ
-    waiting_name = State()       # название сервиса / имя мастера
-    waiting_phone = State()      # контактный телефон
-    waiting_city = State()       # город
-    waiting_address = State()    # адрес / ориентир
-    waiting_location = State()   # геолокация (точка на карте)
-    waiting_extra = State()      # доп. контакты (сайт, соцсети)
-    waiting_confirm = State()    # подтверждение и запись в backend
+    waiting_org_type = State()
+    waiting_name = State()
+    waiting_phone = State()
+    waiting_city = State()
+    waiting_address_text = State()
+    waiting_geo = State()
+    waiting_extra_contacts = State()
+    waiting_confirm = State()
 
 
 class ServiceCenterSpecs(StatesGroup):
     """
-    Редактирование специализаций СТО.
+    FSM для редактирования специализаций СТО.
     """
     waiting_specs = State()
 
 
 # ==========================
-#   Inline / Reply клавиатуры
+#   Клавиатуры
 # ==========================
+
+
+def main_menu_reply() -> ReplyKeyboardRemove:
+    """
+    Заглушка вместо главного reply-меню:
+    просто убирает нижнюю клавиатуру, чтобы остались только inline-кнопки.
+    """
+    return ReplyKeyboardRemove()
+
 
 def main_menu_inline() -> InlineKeyboardMarkup:
     """
-    Главное меню бота.
+    Главное меню (inline-клавиатура).
+    """
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🆕 Новая заявка",
+                    callback_data="new_request",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🚗 Мой гараж",
+                    callback_data="user_garage",
+                ),
+                InlineKeyboardButton(
+                    text="📄 Мои заявки",
+                    callback_data="user_requests",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👤 Профиль",
+                    callback_data="user_profile",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏭 Я владелец СТО",
+                    callback_data="service_owner_menu",
+                ),
+            ],
+        ]
+    )
+    return kb
+
+
+def cancel_kb() -> InlineKeyboardMarkup:
+    """
+    Клавиатура с кнопкой отмены.
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="👤 Профиль", callback_data="menu_profile"),
-                InlineKeyboardButton(text="🚗 Мой гараж", callback_data="menu_garage"),
-            ],
-            [
-                InlineKeyboardButton(text="🆕 Новая заявка", callback_data="menu_new_request"),
-            ],
-            [
-                InlineKeyboardButton(text="📄 Мои заявки", callback_data="menu_my_requests"),
-            ],
-            [
-                InlineKeyboardButton(text="🏭 Я представляю автосервис", callback_data="menu_service"),
-            ],
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data="cancel",
+                )
+            ]
         ]
     )
 
 
-def service_org_type_kb() -> InlineKeyboardMarkup:
+def back_cancel_kb(back_cb: str = "back_to_main") -> InlineKeyboardMarkup:
     """
-    Выбор типа организации: ФЛ / ЮЛ.
-    """
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🙋‍♂️ Частный мастер (ФЛ)",
-                    callback_data="service_org_fl",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🏢 Юрлицо / автосервис (ООО, ИП и т.п.)",
-                    callback_data="service_org_ul",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="⬅️ В главное меню",
-                    callback_data="service_back_to_menu",
-                )
-            ],
-        ]
-    )
-
-
-def service_reg_confirm_kb() -> InlineKeyboardMarkup:
-    """
-    Подтверждение регистрации СТО.
+    Клавиатура «Назад / Отмена».
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Всё верно, зарегистрировать",
-                    callback_data="service_reg_confirm_yes",
-                )
-            ],
-            [
+                    text="⬅️ Назад",
+                    callback_data=back_cb,
+                ),
                 InlineKeyboardButton(
                     text="❌ Отменить",
-                    callback_data="service_reg_confirm_cancel",
-                )
-            ],
-        ]
-    )
-
-def service_owner_menu_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✏️ Редактировать профиль (позже)",
-                    callback_data="service_profile_edit",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🛠 Мои специализации",
-                    callback_data="service_specs_edit",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="⬅️ В главное меню",
-                    callback_data="service_owner_back",
-                )
-            ],
+                    callback_data="cancel",
+                ),
+            ]
         ]
     )
 
 
-def service_specs_kb(selected: list[str]) -> InlineKeyboardMarkup:
+def garage_menu_inline(cars: list[dict]) -> InlineKeyboardMarkup:
     """
-    Мультивыбор специализаций.
-    В selected лежат ключи ("mechanic", "tire" и т.п.).
+    Список машин в гараже.
     """
-    all_specs = [
-        ("Автомеханика", "mechanic"),
-        ("Шиномонтаж", "tire"),
-        ("Электрика", "electric"),
-        ("Диагностика", "diagnostics"),
-        ("Кузовной ремонт", "body"),
-        ("Агрегатный ремонт", "aggregates"),
-    ]
+    rows = []
 
-    rows: list[list[InlineKeyboardButton]] = []
-    for title, key in all_specs:
-        mark = "✅ " if key in selected else ""
+    for car in cars:
+        title = f"{car.get('brand', '')} {car.get('model', '')} ({car.get('year', '')})".strip()
+        if not title:
+            title = f"Авто #{car['id']}"
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"{mark}{title}",
-                    callback_data=f"service_spec_{key}",
+                    text=title,
+                    callback_data=f"car_{car['id']}",
                 )
             ]
         )
@@ -233,16 +199,17 @@ def service_specs_kb(selected: list[str]) -> InlineKeyboardMarkup:
     rows.append(
         [
             InlineKeyboardButton(
-                text="✅ Сохранить",
-                callback_data="service_spec_done",
+                text="➕ Добавить авто",
+                callback_data="car_add",
             )
         ]
     )
+
     rows.append(
         [
             InlineKeyboardButton(
-                text="⬅️ Назад в кабинет",
-                callback_data="service_spec_cancel",
+                text="⬅️ В главное меню",
+                callback_data="back_to_main",
             )
         ]
     )
@@ -250,57 +217,169 @@ def service_specs_kb(selected: list[str]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def format_service_center_profile(sc: dict) -> str:
+def car_edit_menu_kb(car_id: int) -> InlineKeyboardMarkup:
     """
-    Красивый текст профиля СТО для кабинета.
-    """
-    name = (sc.get("name") or "Без названия").strip()
-
-    org_type = sc.get("org_type")
-    if org_type == "individual":
-        org_title = "Частный мастер"
-    elif org_type == "company":
-        org_title = "Автосервис / компания"
-    else:
-        org_title = "Автосервис"
-
-    phone = (sc.get("phone") or "Не указан").strip()
-    city = (sc.get("city") or "").strip()
-    addr = (sc.get("address_text") or "").strip()
-
-    if city and addr:
-        addr_line = f"{city}, {addr}"
-    else:
-        addr_line = addr or city or "Не указан"
-
-    specs = sc.get("specializations") or []
-    specs_text = ", ".join(specs) if specs else "Пока не выбраны"
-
-    return (
-        "Кабинет автосервиса:\n\n"
-        f"🏷 Название: {name}\n"
-        f"👤 Тип: {org_title}\n"
-        f"📞 Телефон: {phone}\n"
-        f"📍 Адрес: {addr_line}\n"
-        f"🛠 Специализации: {specs_text}\n"
-    )
-
-
-def request_move_kb() -> InlineKeyboardMarkup:
-    """
-    Вопрос: авто едет / нужна эвакуация.
+    Меню редактирования авто.
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🚗 Едет самостоятельно",
+                    text="✏️ Редактировать данные",
+                    callback_data=f"car_edit_{car_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ К списку авто",
+                    callback_data="user_garage",
+                )
+            ],
+        ]
+    )
+
+
+def request_list_kb(requests: list[dict]) -> InlineKeyboardMarkup:
+    """
+    Клавиатура со списком заявок.
+    """
+    rows = []
+
+    for r in requests:
+        rid = r["id"]
+        status = r.get("status") or "new"
+        status_map = {
+            "new": "🆕 Новая",
+            "sent": "📤 Отправлена",
+            "accepted_by_service": "✅ Принята СТО",
+            "in_work": "🔧 В работе",
+            "done": "🏁 Выполнена",
+            "cancelled": "🚫 Отменена",
+            "rejected_by_service": "❌ Отклонена СТО",
+        }
+        status_text = status_map.get(status, status)
+        title = f"Заявка #{rid} — {status_text}"
+
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=title,
+                    callback_data=f"req_{rid}",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ В главное меню",
+                callback_data="back_to_main",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def service_owner_menu_kb() -> InlineKeyboardMarkup:
+    """
+    Главное меню владельца СТО.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🏭 Мой автосервис",
+                    callback_data="service_profile",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🧩 Мои специализации",
+                    callback_data="service_specs_edit",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ В главное меню",
+                    callback_data="back_to_main",
+                )
+            ],
+        ]
+    )
+
+
+def service_org_type_kb() -> InlineKeyboardMarkup:
+    """
+    Выбор типа организации СТО (ФЛ / ЮЛ).
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👨‍🔧 Частный мастер (ФЛ)",
+                    callback_data="org_type_individual",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏢 Автосервис / компания (ЮЛ)",
+                    callback_data="org_type_company",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data="cancel",
+                )
+            ],
+        ]
+    )
+
+
+def request_location_choice_kb() -> InlineKeyboardMarkup:
+    """
+    1. Выбор способа указания местоположения для заявки.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📍 Отправить геолокацию",
+                    callback_data="req_loc_geo",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗺 Указать место на карте / текстом",
+                    callback_data="req_loc_text",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить заявку",
+                    callback_data="req_cancel",
+                )
+            ],
+        ]
+    )
+
+
+def request_move_kb() -> InlineKeyboardMarkup:
+    """
+    2. Авто едет само / нужна эвакуация.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🚗 Автомобиль передвигается самостоятельно",
                     callback_data="req_move_self",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="🆘 Нужна эвакуация / выездной мастер",
+                    text="🚨 Нужна эвакуация / выездной мастер",
                     callback_data="req_move_help",
                 )
             ],
@@ -314,80 +393,22 @@ def request_move_kb() -> InlineKeyboardMarkup:
     )
 
 
-def location_reply_kb() -> ReplyKeyboardMarkup:
+def request_radius_kb() -> InlineKeyboardMarkup:
     """
-    Обычная клавиатура на шаге гео:
-    - Отправить геолокацию
-    - Пропустить
-    - Отменить заявку
-    """
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(
-                    text="📍 Отправить геолоцацию",
-                    request_location=True,
-                ),
-            ],
-            [
-                KeyboardButton(text="Пропустить"),
-            ],
-            [
-                KeyboardButton(text="Отменить заявку"),
-            ],
-        ],
-        resize_keyboard=True,
-        input_field_placeholder="Отправь геолокацию или напиши адрес…",
-        one_time_keyboard=True,
-    )
-
-
-def photo_reply_kb() -> ReplyKeyboardMarkup:
-    """
-    Клавиатура для шага с фото:
-    - Отправить фото (текстовая кнопка-подсказка)
-    - Пропустить
-    - Отменить заявку
-    """
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text="📷 Отправить фото"),
-            ],
-            [
-                KeyboardButton(text="Пропустить"),
-            ],
-            [
-                KeyboardButton(text="Отменить заявку"),
-            ],
-        ],
-        resize_keyboard=True,
-        input_field_placeholder="Прикрепи фото или нажми «Пропустить»…",
-        one_time_keyboard=True,
-    )
-
-
-def request_time_slot_kb() -> InlineKeyboardMarkup:
-    """
-    Временной интервал + отмена.
+    3. Радиус поиска сервиса.
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="🕘 До 12:00",
-                    callback_data="req_slot_morning",
-                ),
-                InlineKeyboardButton(
-                    text="🕒 12:00–18:00",
-                    callback_data="req_slot_day",
-                ),
+                InlineKeyboardButton(text="3 км", callback_data="req_radius_3"),
+                InlineKeyboardButton(text="5 км", callback_data="req_radius_5"),
+                InlineKeyboardButton(text="10 км", callback_data="req_radius_10"),
             ],
             [
                 InlineKeyboardButton(
-                    text="🌙 После 18:00",
-                    callback_data="req_slot_evening",
-                ),
+                    text="📍 Указать район на карте / текстом",
+                    callback_data="req_radius_custom",
+                )
             ],
             [
                 InlineKeyboardButton(
@@ -399,18 +420,32 @@ def request_time_slot_kb() -> InlineKeyboardMarkup:
     )
 
 
-def location_confirm_kb() -> InlineKeyboardMarkup:
+def request_service_type_kb() -> InlineKeyboardMarkup:
+    """
+    4. Тип услуги / категория.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
+                InlineKeyboardButton(text="🔧 Автомеханика", callback_data="service_type_mech"),
+            ],
+            [
+                InlineKeyboardButton(text="🛞 Шиномонтаж", callback_data="service_type_tires"),
+            ],
+            [
+                InlineKeyboardButton(text="🔌 Автоэлектрика", callback_data="service_type_electric"),
+            ],
+            [
+                InlineKeyboardButton(text="📊 Диагностика", callback_data="service_type_diag"),
+            ],
+            [
+                InlineKeyboardButton(text="🧱 Кузовной ремонт", callback_data="service_type_body"),
+            ],
+            [
                 InlineKeyboardButton(
-                    text="✅ Всё верно",
-                    callback_data="req_loc_ok",
-                ),
-                InlineKeyboardButton(
-                    text="✏️ Изменить",
-                    callback_data="req_loc_edit",
-                ),
+                    text="⚙️ Агрегаты (двигатель, КПП и т.п.)",
+                    callback_data="service_type_aggregates",
+                )
             ],
             [
                 InlineKeyboardButton(
@@ -445,17 +480,50 @@ def description_confirm_kb() -> InlineKeyboardMarkup:
     )
 
 
-def date_confirm_kb() -> InlineKeyboardMarkup:
+def photo_choice_kb() -> InlineKeyboardMarkup:
+    """
+    Прикрепить фото / пропустить.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Всё верно",
-                    callback_data="req_date_ok",
-                ),
+                    text="📷 Прикрепить фото",
+                    callback_data="req_photo_add",
+                )
+            ],
+            [
                 InlineKeyboardButton(
-                    text="✏️ Изменить",
-                    callback_data="req_date_edit",
+                    text="⏭ Пропустить",
+                    callback_data="req_photo_skip",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить заявку",
+                    callback_data="req_cancel",
+                )
+            ],
+        ]
+    )
+
+
+def show_phone_kb() -> InlineKeyboardMarkup:
+    """
+    Показывать номер телефона сотруднику?
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Показывать номер",
+                    callback_data="req_phone_show",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🙈 Не показывать номер",
+                    callback_data="req_phone_hide",
                 ),
             ],
             [
@@ -468,39 +536,45 @@ def date_confirm_kb() -> InlineKeyboardMarkup:
     )
 
 
-def car_select_kb(cars: list[dict]) -> InlineKeyboardMarkup:
+def work_mode_kb() -> InlineKeyboardMarkup:
     """
-    Клавиатура выбора авто из гаража.
-    Каждая машина — отдельная строка.
-    Внизу:
-    - «Без привязки к авто»
-    - «Отменить заявку»
+    Выбор режима работы со СТО: выбрать из списка / отправить всем.
     """
-    rows: list[list[InlineKeyboardButton]] = []
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📋 Выбрать СТО из списка",
+                    callback_data="req_mode_choose",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📤 Отправить всем подходящим СТО",
+                    callback_data="req_mode_send_all",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить заявку",
+                    callback_data="req_cancel",
+                )
+            ],
+        ]
+    )
+
+
+def car_select_for_request_kb(cars: list[dict]) -> InlineKeyboardMarkup:
+    """
+    Выбор авто для заявки (в конце сценария).
+    """
+    rows = []
 
     for car in cars:
-        car_id = car.get("id")
-        if car_id is None:
-            continue
-
-        parts = []
-        brand = (car.get("brand") or "").strip()
-        model = (car.get("model") or "").strip()
-        plate = (car.get("license_plate") or "").strip()
-        year = car.get("year")
-
-        title_parts = []
-        if brand:
-            title_parts.append(brand)
-        if model:
-            title_parts.append(model)
-
-        title = " ".join(title_parts) if title_parts else f"Авто #{car_id}"
-
-        if plate:
-            title += f" • {plate}"
-        elif year:
-            title += f" • {year} г."
+        car_id = car["id"]
+        title = f"{car.get('brand', '')} {car.get('model', '')} ({car.get('year', '')})".strip()
+        if not title:
+            title = f"Авто #{car_id}"
 
         rows.append(
             [
@@ -534,29 +608,59 @@ def car_select_kb(cars: list[dict]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def final_confirm_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✅ Подтвердить заявку",
-                    callback_data="req_confirm_yes",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="❌ Отменить заявку",
-                    callback_data="req_cancel",
-                )
-            ],
-        ]
-    )
+def format_service_center_profile(sc: dict) -> str:
+    """
+    Красивый текст профиля СТО для кабинета.
+    """
+    name = (sc.get("name") or "Без названия").strip()
 
+    org_type = sc.get("org_type")
+    if org_type == "individual":
+        org_title = "Частный мастер"
+    elif org_type == "company":
+        org_title = "Автосервис / компания"
+    else:
+        org_title = "Автосервис"
 
-# ==========================
-#   main()
-# ==========================
+    phone = (sc.get("phone") or "Не указан").strip()
+    city = (sc.get("city") or "").strip()
+    addr = (sc.get("address_text") or "").strip()
 
+    if city and addr:
+        addr_line = f"{city}, {addr}"
+    else:
+        addr_line = addr or city or "Не указан"
+
+    specs = sc.get("specializations") or []
+    specs_map = {
+        "mech": "🔧 Автомеханика",
+        "tires": "🛞 Шиномонтаж",
+        "electric": "🔌 Автоэлектрика",
+        "diag": "📊 Диагностика",
+        "body": "🧱 Кузовной ремонт",
+        "aggregates": "⚙️ Ремонт агрегатов",
+    }
+    if specs:
+        specs_text = ", ".join(specs_map.get(s, s) for s in specs)
+    else:
+        specs_text = "Не выбраны"
+
+    geo_note = "📍 Геолокация сохранена" if sc.get("latitude") and sc.get("longitude") else "📍 Геолокация не указана"
+
+    lines = [
+        f"🏭 <b>{name}</b>",
+        f"Тип: {org_title}",
+        f"Телефон: {phone}",
+        f"Адрес: {addr_line}",
+        f"Специализации: {specs_text}",
+        geo_note,
+    ]
+
+    extra = (sc.get("extra_contacts") or "").strip()
+    if extra:
+        lines.append(f"Доп. контакты: {extra}")
+
+    return "\n".join(lines)
 async def main() -> None:
     bot = Bot(token=config.BOT_TOKEN)
     dp = Dispatcher()
@@ -575,7 +679,6 @@ async def main() -> None:
         if not sc_list:
             return None
         return sc_list[0]
-
 
     # ---------- /ping ----------
 
@@ -597,39 +700,28 @@ async def main() -> None:
         try:
             user = await api.get_user_by_telegram(tg_id)
         except Exception as e:
-            logger.warning("get_user_by_telegram error: %s", e)
+            logger.exception("Ошибка при get_user_by_telegram: %s", e)
 
-        # если профиль есть → показываем меню
-        if user and (user.get("full_name") or user.get("phone") or user.get("city")):
-            name = user.get("full_name") or message.from_user.full_name or "друг"
+        if not user:
+            # запускаем регистрацию
             await message.answer(
-                f"С возвращением, {name}! 🚗\n\n"
-                "Я помогу найти автосервис, оформить заявку или управлять гаражом.\n"
-                "Выбери, что делаем:",
+                "Добро пожаловать в CarBot V2! 🎉\n"
+                "Давай заполним короткий профиль.\n\n"
+                "Как к тебе обращаются?"
+            )
+            await state.set_state(UserRegistration.waiting_full_name)
+
+        else:
+            # пользователь уже есть
+            await message.answer(
+                "С возвращением в CarBot V2! 🚗\n"
+                "Используй меню, чтобы продолжить работу.",
+                reply_markup=main_menu_reply(),
+            )
+            await message.answer(
+                "Выбери действие в меню:",
                 reply_markup=main_menu_inline(),
             )
-            return
-
-        # если нет — создаём черновик
-        if not user:
-            try:
-                logger.info("Создаём пользователя tg_id=%s", tg_id)
-                user = await api.create_user(tg_id)
-            except Exception as e:
-                logger.exception("Ошибка при создании пользователя: %s", e)
-                await message.answer(
-                    "Произошла ошибка при создании профиля 😔\n"
-                    "Попробуй ещё раз чуть позже."
-                )
-                return
-
-        # запускаем регистрацию
-        await message.answer(
-            "Добро пожаловать в CarBot V2! 🎉\n"
-            "Давай заполним короткий профиль.\n\n"
-            "Как к тебе обращаются?"
-        )
-        await state.set_state(UserRegistration.waiting_full_name)
 
     # ---------- Регистрация ----------
 
@@ -642,957 +734,1101 @@ async def main() -> None:
     @dp.message(UserRegistration.waiting_phone)
     async def reg_phone(message: Message, state: FSMContext):
         await state.update_data(phone=message.text.strip())
-        await message.answer("Из какого ты города?")
+        await message.answer("В каком городе ты находишься?")
         await state.set_state(UserRegistration.waiting_city)
 
     @dp.message(UserRegistration.waiting_city)
     async def reg_city(message: Message, state: FSMContext):
-        tg_id = message.from_user.id
         city = message.text.strip()
         data = await state.get_data()
-        full_name = data.get("full_name")
-        phone = data.get("phone")
+        full_name = data["full_name"]
+        phone = data["phone"]
+
+        # создаём пользователя в backend
+        tg_id = message.from_user.id
+        payload = {
+            "telegram_id": tg_id,
+            "full_name": full_name,
+            "phone": phone,
+            "city": city,
+        }
 
         try:
-            user = await api.get_user_by_telegram(tg_id)
-            user_id = user["id"]
-
-            await api.update_user(
-                user_id,
-                {
-                    "full_name": full_name,
-                    "phone": phone,
-                    "city": city,
-                    "role": user.get("role") or "client",
-                },
-            )
+            user = await api.create_user(payload)
+            logger.info("Создан пользователь: %s", user)
         except Exception as e:
-            logger.exception("Ошибка при сохранении профиля: %s", e)
-            await message.answer(
-                "Регистрация почти завершена, но сервер временно недоступен.\n"
-                "Попробуй позже или нажми /profile для проверки."
-            )
+            logger.exception("Ошибка при создании пользователя: %s", e)
+            await message.answer("Произошла ошибка при сохранении профиля. Попробуй позже.")
             await state.clear()
             return
 
         await state.clear()
-
         await message.answer(
-            "Регистрация завершена! ✅\n\n"
-            f"Имя: {full_name}\n"
-            f"Телефон: {phone}\n"
-            f"Город: {city}\n\n"
-            "Теперь можно переходить к гаражу и заявкам 🚗\n"
-            "Выбери действие:",
+            "Готово! ✅\n"
+            "Профиль создан, теперь можно пользоваться всеми возможностями бота.",
+            reply_markup=main_menu_reply(),
+        )
+        await message.answer(
+            "Выбери действие в меню:",
             reply_markup=main_menu_inline(),
         )
 
-    # ---------- /profile и кнопка профиля ----------
+    # ---------- Кнопка «Профиль» ----------
 
-    @dp.message(Command("profile"))
-    async def cmd_profile_command(message: Message):
-        tg_id = message.from_user.id
+    @dp.callback_query(F.data == "user_profile")
+    async def user_profile(call: CallbackQuery, state: FSMContext):
+        tg_id = call.from_user.id
         try:
             user = await api.get_user_by_telegram(tg_id)
         except Exception as e:
             logger.exception("Ошибка при получении профиля: %s", e)
-            await message.answer(
-                "Профиль не найден или сервер недоступен.\n"
-                "Нажми /start, чтобы пройти регистрацию."
-            )
-            return
-
-        text = (
-            "Ваш профиль:\n\n"
-            f"Имя: {user.get('full_name') or '—'}\n"
-            f"Телефон: {user.get('phone') or '—'}\n"
-            f"Город: {user.get('city') or '—'}\n"
-            f"Роль: {user.get('role') or '—'}\n"
-            f"Бонусы: {user.get('bonus_balance', 0)}"
-        )
-
-        await message.answer(text, reply_markup=main_menu_inline())
-
-    @dp.callback_query(F.data == "menu_profile")
-    async def cb_profile(call: CallbackQuery):
-        tg_id = call.from_user.id
-        try:
-            user = await api.get_user_by_telegram(tg_id)
-        except Exception:
-            await call.message.answer(
-                "Профиль не найден или сервер недоступен.\n"
-                "Нажми /start, чтобы пройти регистрацию."
-            )
-            await call.answer()
-            return
-
-        text = (
-            "Ваш профиль:\n\n"
-            f"Имя: {user.get('full_name') or '—'}\n"
-            f"Телефон: {user.get('phone') or '—'}\n"
-            f"Город: {user.get('city') or '—'}\n"
-            f"Роль: {user.get('role') or '—'}\n"
-            f"Бонусы: {user.get('bonus_balance', 0)}"
-        )
-
-        await call.message.edit_text(text, reply_markup=main_menu_inline())
-        await call.answer()
-
-    # ---------- /menu ----------
-
-    @dp.message(Command("menu"))
-    async def cmd_menu(message: Message):
-        await message.answer("Главное меню 👇", reply_markup=main_menu_inline())
-    
-    def _format_car_title(car: dict) -> str:
-        """
-        Краткое название авто для кнопок/списков.
-        """
-        car_id = car.get("id")
-        brand = (car.get("brand") or "").strip()
-        model = (car.get("model") or "").strip()
-        plate = (car.get("license_plate") or "").strip()
-        year = car.get("year")
-
-        parts = []
-        if brand:
-            parts.append(brand)
-        if model:
-            parts.append(model)
-
-        title = " ".join(parts) if parts else f"Авто #{car_id or ''}"
-
-        if plate:
-            title += f" • {plate}"
-        elif year:
-            title += f" • {year} г."
-
-        return title
-
-    # ==========================
-    #   МОИ ЗАЯВКИ
-    # ==========================
-
-    @dp.callback_query(F.data == "menu_my_requests")
-    async def cb_my_requests(call: CallbackQuery, state: FSMContext):
-        """
-        Просмотр списка заявок пользователя.
-        """
-        await state.clear()
-        tg_id = call.from_user.id
-
-        # 1. Находим пользователя по telegram_id
-        try:
-            user = await api.get_user_by_telegram(tg_id)
-        except Exception as e:
-            logger.exception("Ошибка при получении пользователя для 'Мои заявки': %s", e)
             await call.message.edit_text(
-                "Не получилось найти твой профиль 😔\n"
-                "Нажми /start, чтобы пройти регистрацию заново.",
+                "Не удалось получить профиль. Попробуй позже.",
                 reply_markup=main_menu_inline(),
             )
             await call.answer()
             return
 
-        user_id = user["id"]
-
-        # 2. Получаем список заявок
-        try:
-            requests_list = await api.list_requests_by_user(user_id)
-        except Exception as e:
-            logger.exception("Ошибка при получении списка заявок: %s", e)
-            requests_list = []
-
-        if not requests_list:
-            text = (
-                "📄 У тебя пока нет заявок.\n\n"
-                "Можешь создать первую через кнопку «🆕 Новая заявка»."
-            )
-        else:
-            # отображаем максимум 10 последних
-            items = requests_list[:10]
-
-            status_titles = {
-                "new": "🟡 Новая",
-                "sent": "📨 Разослана СТО",
-                "accepted_by_service": "✅ Принята СТО",
-                "in_work": "🛠 В работе",
-                "done": "🎉 Выполнена",
-                "cancelled": "❌ Отменена",
-                "rejected_by_service": "🚫 Отклонена СТО",
-            }
-
-            lines = ["📄 Твои заявки:\n"]
-
-            for r in items:
-                rid = r.get("id")
-                status_raw = r.get("status")
-                # статус может приходить как строка Enum-а, типа "new" или "RequestStatus.NEW"
-                if isinstance(status_raw, str) and status_raw.startswith("RequestStatus."):
-                    status_key = status_raw.split(".", 1)[1]
-                else:
-                    status_key = status_raw
-
-                status_text = status_titles.get(str(status_key), str(status_raw) or "—")
-
-                addr = (r.get("address_text") or "").strip()
-                if not addr:
-                    addr = "Адрес не указан"
-
-                short_descr = (r.get("description") or "").strip()
-                if len(short_descr) > 80:
-                    short_descr = short_descr[:77] + "..."
-
-                lines.append(
-                    f"• Заявка #{rid} — {status_text}\n"
-                    f"  📍 {addr}\n"
-                    f"  🔧 {short_descr}\n"
-                )
-
-            text = "\n".join(lines)
-            text += "\n\nПока это краткий список. В детализацию и чат по заявке пойдём на следующих шагах 😉"
-
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🔄 Обновить список",
-                        callback_data="menu_my_requests",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="⬅️ В главное меню",
-                        callback_data="myreq_to_menu",
-                    )
-                ],
-            ]
+        text = (
+            "👤 <b>Твой профиль</b>\n\n"
+            f"Имя: {user.get('full_name')}\n"
+            f"Телефон: {user.get('phone')}\n"
+            f"Город: {user.get('city') or 'не указан'}\n"
         )
-
-        await call.message.edit_text(text, reply_markup=kb)
-        await call.answer()
-
-    @dp.callback_query(F.data == "myreq_to_menu")
-    async def cb_my_requests_to_menu(call: CallbackQuery, state: FSMContext):
-        """
-        Возврат из 'Мои заявки' в главное меню.
-        """
-        await state.clear()
-        await call.message.edit_text(
-            "Главное меню:",
-            reply_markup=main_menu_inline(),
-        )
+        await call.message.edit_text(text, reply_markup=main_menu_inline())
         await call.answer()
 
     # ==========================
     #   ГАРАЖ
     # ==========================
 
-    @dp.callback_query(F.data == "menu_garage")
-    async def cb_garage(call: CallbackQuery, state: FSMContext):
-        """
-        Главный экран гаража: список машин + кнопка добавить.
-        """
+    @dp.callback_query(F.data == "user_garage")
+    async def user_garage_menu(call: CallbackQuery, state: FSMContext):
         tg_id = call.from_user.id
-
-        # Получаем пользователя
         try:
             user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
         except Exception as e:
             logger.exception("Ошибка при получении пользователя для гаража: %s", e)
             await call.message.edit_text(
-                "Не смог найти твой профиль 😔\n"
-                "Нажми /start, чтобы пройти регистрацию.",
+                "Не удалось получить данные пользователя.",
                 reply_markup=main_menu_inline(),
             )
             await call.answer()
             return
 
-        user_id = user["id"]
-
-        # Получаем список машин
         try:
-            cars = await api.list_cars(user_id=user_id)
+            cars = await api.list_cars_by_user(user_id)
         except Exception as e:
-            logger.exception("Ошибка при получении списка машин: %s", e)
+            logger.exception("Ошибка при list_cars_by_user: %s", e)
             cars = []
 
-        if cars:
-            lines = ["🚗 Твой гараж:\n"]
-            for car in cars:
-                lines.append(f"• {_format_car_title(car)}")
-            text = "\n".join(lines)
-            text += (
-                "\n\nТы можешь добавить новый автомобиль "
-                "или выбрать существующий для редактирования."
-            )
+        if not cars:
+            text = "Пока в гараже нет ни одного автомобиля. 🚗\nДобавим первый?"
         else:
-            text = (
-                "🚗 В гараже пока нет ни одного автомобиля.\n\n"
-                "Добавь свой первый авто, чтобы не вводить данные каждый раз."
-            )
+            text = "🚗 <b>Твой гараж</b>\nВыбери авто из списка:"
 
-        # Клавиатура: по кнопке на каждую машину + кнопка "Добавить" + "В меню"
-        kb_rows = []
-
-        for car in cars:
-            car_id = car.get("id")
-            if car_id is None:
-                continue
-            kb_rows.append(
-                [
-                    InlineKeyboardButton(
-                        text=f"✏️ {_format_car_title(car)}",
-                        callback_data=f"garage_edit_{car_id}",
-                    )
-                ]
-            )
-
-        kb_rows.append(
-            [
-                InlineKeyboardButton(
-                    text="➕ Добавить авто",
-                    callback_data="garage_add",
-                )
-            ]
-        )
-        kb_rows.append(
-            [
-                InlineKeyboardButton(
-                    text="⬅️ В главное меню",
-                    callback_data="garage_to_menu",
-                )
-            ]
-        )
-
-        await state.clear()
-        await call.message.edit_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
-        )
+        kb = garage_menu_inline(cars)
+        await call.message.edit_text(text, reply_markup=kb)
         await call.answer()
 
-    @dp.callback_query(F.data == "garage_to_menu")
-    async def cb_garage_to_menu(call: CallbackQuery, state: FSMContext):
-        """
-        Возврат в главное меню из гаража.
-        """
-        await state.clear()
-        await call.message.edit_text(
-            "Главное меню:",
-            reply_markup=main_menu_inline(),
-        )
-        await call.answer()
-
-        # ---------- Добавление нового авто ----------
-
-    @dp.callback_query(F.data == "garage_add")
-    async def cb_garage_add(call: CallbackQuery, state: FSMContext):
-        """
-        Старт добавления нового авто.
-        """
-        await state.set_state(CarAdd.waiting_brand)
-        await state.update_data(edit_car_id=None)
-
-        # В edit_text НЕ передаём ReplyKeyboardRemove — только текст.
-        await call.message.edit_text(
-            "Добавление автомобиля в гараж.\n\n"
-            "Шаг 1 из 5.\n"
-            "Напиши марку авто (например, BMW).\n\n"
-            "Если передумал — напиши «Отмена».",
-        )
-        await call.answer()
-
-    @dp.message(CarAdd.waiting_brand)
-    async def car_add_brand(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if not text:
-            await message.answer("Пожалуйста, введи марку авто или напиши «Отмена».")
-            return
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Добавление авто отменено.", reply_markup=main_menu_inline()
+    @dp.callback_query(F.data.startswith("car_"))
+    async def car_detail(call: CallbackQuery, state: FSMContext):
+        data = call.data
+        if data == "car_add":
+            # запускаем добавление нового авто
+            await state.set_state(CarAdd.waiting_brand)
+            await call.message.edit_text(
+                "Добавление нового авто.\n\nУкажи марку автомобиля:",
+                reply_markup=cancel_kb(),
             )
+            await call.answer()
             return
 
-        await state.update_data(brand=text)
-        await state.set_state(CarAdd.waiting_model)
-        await message.answer(
-            "Шаг 2 из 5.\n\n"
-            "Теперь введи модель авто (например, X5).\n\n"
-            "Если передумал — напиши «Отмена».",
-        )
-
-    @dp.message(CarAdd.waiting_model)
-    async def car_add_model(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if not text:
-            await message.answer("Пожалуйста, введи модель авто или напиши «Отмена».")
-            return
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Добавление авто отменено.", reply_markup=main_menu_inline()
-            )
+        # просмотр конкретного авто
+        try:
+            car_id = int(data.split("_", 1)[1])
+        except Exception:
+            await call.answer()
             return
 
-        await state.update_data(model=text)
-        await state.set_state(CarAdd.waiting_year)
-        await message.answer(
-            "Шаг 3 из 5.\n\n"
-            "Введи год выпуска авто (например, 2015)\n"
-            "или напиши «Пропустить», если не хочешь указывать.",
-        )
-
-    @dp.message(CarAdd.waiting_year)
-    async def car_add_year(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Добавление авто отменено.", reply_markup=main_menu_inline()
-            )
-            return
-
-        year: Optional[int] = None
-        if text.lower() not in ("пропустить", "skip", "-"):
-            try:
-                year_val = int(text)
-                if year_val < 1950 or year_val > 2100:
-                    raise ValueError
-                year = year_val
-            except ValueError:
-                await message.answer(
-                    "Пожалуйста, введи год цифрами (например, 2015)\n"
-                    "или напиши «Пропустить».",
-                )
-                return
-
-        await state.update_data(year=year)
-        await state.set_state(CarAdd.waiting_plate)
-        await message.answer(
-            "Шаг 4 из 5.\n\n"
-            "Введи госномер (например, А123ВС77)\n"
-            "или напиши «Пропустить».",
-        )
-
-    @dp.message(CarAdd.waiting_plate)
-    async def car_add_plate(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Добавление авто отменено.", reply_markup=main_menu_inline()
-            )
-            return
-
-        plate: Optional[str] = None
-        if text.lower() not in ("пропустить", "skip", "-"):
-            plate = text
-
-        await state.update_data(license_plate=plate)
-        await state.set_state(CarAdd.waiting_vin)
-        await message.answer(
-            "Шаг 5 из 5.\n\n"
-            "Введи VIN (17 символов) или напиши «Пропустить».",
-        )
-
-    @dp.message(CarAdd.waiting_vin)
-    async def car_add_vin(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Добавление авто отменено.", reply_markup=main_menu_inline()
-            )
-            return
-
-        vin: Optional[str] = None
-        if text.lower() not in ("пропустить", "skip", "-"):
-            vin = text
-
-        data = await state.get_data()
-        brand = data.get("brand")
-        model = data.get("model")
-        year = data.get("year")
-        plate = data.get("license_plate")
-
-        tg_id = message.from_user.id
+        tg_id = call.from_user.id
         try:
             user = await api.get_user_by_telegram(tg_id)
             user_id = user["id"]
         except Exception as e:
-            logger.exception("Ошибка при получении пользователя при добавлении авто: %s", e)
-            await state.clear()
-            await message.answer(
-                "Не удалось сохранить авто: не найден профиль пользователя 😔\n"
-                "Попробуй ещё раз через /start.",
+            logger.exception("Ошибка при получении пользователя для car_detail: %s", e)
+            await call.message.edit_text(
+                "Не удалось получить данные пользователя.",
                 reply_markup=main_menu_inline(),
             )
+            await call.answer()
+            return
+
+        try:
+            cars = await api.list_cars_by_user(user_id)
+        except Exception as e:
+            logger.exception("Ошибка при list_cars_by_user (detail): %s", e)
+            await call.message.edit_text(
+                "Ошибка при загрузке списка автомобилей.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        car = next((c for c in cars if c["id"] == car_id), None)
+        if not car:
+            await call.message.edit_text(
+                "Автомобиль не найден.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        text = (
+            "🚗 <b>Автомобиль</b>\n\n"
+            f"Марка: {car.get('brand')}\n"
+            f"Модель: {car.get('model')}\n"
+            f"Год: {car.get('year')}\n"
+            f"Номер: {car.get('license_plate') or 'не указан'}\n"
+            f"VIN: {car.get('vin') or 'не указан'}\n"
+        )
+
+        await call.message.edit_text(
+            text,
+            reply_markup=car_edit_menu_kb(car_id),
+        )
+        await call.answer()
+
+    # ---------- Добавление авто ----------
+
+    @dp.message(CarAdd.waiting_brand)
+    async def car_add_brand(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        await state.update_data(brand=message.text.strip())
+        await message.answer("Укажи модель автомобиля:")
+        await state.set_state(CarAdd.waiting_model)
+
+    @dp.message(CarAdd.waiting_model)
+    async def car_add_model(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        await state.update_data(model=message.text.strip())
+        await message.answer("Укажи год выпуска (например, 2015):")
+        await state.set_state(CarAdd.waiting_year)
+
+    @dp.message(CarAdd.waiting_year)
+    async def car_add_year(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        year_str = message.text.strip()
+        if not year_str.isdigit():
+            await message.answer("Введите год цифрами, например 2015.")
+            return
+
+        await state.update_data(year=int(year_str))
+        await message.answer("Укажи госномер (можно пропустить, напиши «-»):")
+        await state.set_state(CarAdd.waiting_plate)
+
+    @dp.message(CarAdd.waiting_plate)
+    async def car_add_plate(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        plate = message.text.strip()
+        if plate == "-":
+            plate = ""
+        await state.update_data(license_plate=plate)
+
+        await message.answer("Укажи VIN (можно пропустить, напиши «-»):")
+        await state.set_state(CarAdd.waiting_vin)
+
+    @dp.message(CarAdd.waiting_vin)
+    async def car_add_vin(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Добавление авто отменено.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        vin = message.text.strip()
+        if vin == "-":
+            vin = ""
+
+        data = await state.get_data()
+        tg_id = message.from_user.id
+
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя для добавления авто: %s", e)
+            await message.answer("Не удалось получить данные пользователя.")
+            await state.clear()
             return
 
         payload = {
             "user_id": user_id,
-            "brand": brand,
-            "model": model,
-            "year": year,
-            "license_plate": plate,
+            "brand": data["brand"],
+            "model": data["model"],
+            "year": data["year"],
+            "license_plate": data.get("license_plate", ""),
             "vin": vin,
         }
 
         try:
             car = await api.create_car(payload)
+            logger.info("Создан автомобиль: %s", car)
         except Exception as e:
-            logger.exception("Ошибка при создании авто в backend: %s", e)
+            logger.exception("Ошибка при создании автомобиля: %s", e)
+            await message.answer("Ошибка при сохранении авто. Попробуй позже.")
             await state.clear()
-            await message.answer(
-                "Не получилось сохранить автомобиль 😔\n"
-                "Попробуй ещё раз чуть позже.",
-                reply_markup=main_menu_inline(),
-            )
             return
 
         await state.clear()
-
         await message.answer(
-            "Автомобиль сохранён в твоём гараже ✅\n\n"
-            f"{_format_car_title(car)}\n\n"
-            "В любой момент ты сможешь отредактировать его в разделе «Мой гараж».",
+            "Автомобиль добавлен в гараж! ✅",
+            reply_markup=main_menu_reply(),
+        )
+
+    # ==========================
+    #   МОИ ЗАЯВКИ (просмотр)
+    # ==========================
+
+    @dp.callback_query(F.data == "user_requests")
+    async def user_requests_menu(call: CallbackQuery, state: FSMContext):
+        tg_id = call.from_user.id
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя для заявок: %s", e)
+            await call.message.edit_text(
+                "Не удалось получить данные пользователя.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        try:
+            requests_list = await api.list_requests_by_user(user_id)
+        except Exception as e:
+            logger.exception("Ошибка при загрузке списка заявок: %s", e)
+            requests_list = []
+
+        if not requests_list:
+            text = "У тебя пока нет заявок. 📝\nСоздай первую через «🆕 Новая заявка»."
+            await call.message.edit_text(
+                text,
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        kb = request_list_kb(requests_list)
+        await call.message.edit_text(
+            "📄 <b>Твои заявки</b>\nВыбери заявку из списка:",
+            reply_markup=kb,
+        )
+        await call.answer()
+
+    # ==========================
+    #   СОЗДАНИЕ ЗАЯВКИ
+    # ==========================
+
+    @dp.callback_query(F.data == "new_request")
+    async def new_request_start(call: CallbackQuery, state: FSMContext):
+        """
+        Старт сценария новой заявки.
+        Сначала спрашиваем состояние авто, БЕЗ запроса геолокации.
+        """
+        await state.clear()
+        await state.set_state(RequestCreate.waiting_move)
+
+        text = (
+            "Новая заявка 🚗\n\n"
+            "Сначала определимся с состоянием автомобиля:\n\n"
+            "Автомобиль передвигается самостоятельно или нужна эвакуация / выездной мастер?"
+        )
+
+        await call.message.edit_text(
+            text,
+            reply_markup=request_move_kb(),
+        )
+        await call.answer()
+
+    # ---------- Выбор способа указания локации ----------
+
+    @dp.callback_query(RequestCreate.waiting_location_choice)
+    async def req_location_choice(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+
+        if data == "req_cancel":
+            await state.clear()
+            await call.message.edit_text(
+                "Создание заявки отменено ❌\n\n"
+                "Ты всегда можешь начать заново через «🆕 Новая заявка».",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        if data == "req_loc_geo":
+            # ждём геолокацию
+            await state.set_state(RequestCreate.waiting_geo)
+            await call.message.edit_text(
+                "Отправь, пожалуйста, геолокацию текущего или целевого места.\n\n"
+                "Ты также можешь указать место на карте в приложении.",
+                reply_markup=cancel_kb(),
+            )
+            await call.answer()
+            return
+
+        if data == "req_loc_text":
+            # ждём текстовый адрес / район
+            await state.set_state(RequestCreate.waiting_location_text)
+            await call.message.edit_text(
+                "Опиши место, где нужна услуга.\n\n"
+                "Например: «Минск, Уручье» или «ул. Ленина, 10» или «весь город».",
+                reply_markup=cancel_kb(),
+            )
+            await call.answer()
+            return
+
+        await call.answer()
+
+    # ---------- Приём геолокации ----------
+
+    @dp.message(RequestCreate.waiting_geo)
+    async def req_get_geo(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Создание заявки отменено.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        if not message.location:
+            await message.answer(
+                "Пожалуйста, отправь геолокацию через кнопку отправки местоположения.\n"
+                "Или напиши «Отмена»."
+            )
+            return
+
+        lat = message.location.latitude
+        lon = message.location.longitude
+
+        await state.update_data(
+            location_type="geo",
+            latitude=lat,
+            longitude=lon,
+        )
+
+        # Дальше — выбор типа услуги (мы уже знаем, что это эвакуация/выездной мастер)
+        await state.set_state(RequestCreate.waiting_service_type)
+        await message.answer(
+            "Отлично! 📍 Локация сохранена.\n\n"
+            "Теперь выбери тип услуги / категории:",
+            reply_markup=request_service_type_kb(),
+        )
+
+    # ---------- Текстовое местоположение ----------
+
+    @dp.message(RequestCreate.waiting_location_text)
+    async def req_get_location_text(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Создание заявки отменено.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Пожалуйста, опиши место или напиши «Отмена».")
+            return
+
+        await state.update_data(
+            location_type="text",
+            location_text=text,
+        )
+
+        # Переходим сразу к выбору типа услуги
+        await state.set_state(RequestCreate.waiting_service_type)
+        await message.answer(
+            "Принял 👍\n\n"
+            "Теперь выбери тип услуги / категории:",
+            reply_markup=request_service_type_kb(),
+        )
+
+    # ---------- Отмена заявки через callback ----------
+
+    @dp.callback_query(F.data == "req_cancel")
+    async def req_cancel(call: CallbackQuery, state: FSMContext):
+        await state.clear()
+        await call.message.edit_text(
+            "Создание заявки отменено ❌\n\n"
+            "Ты всегда можешь начать заново через «🆕 Новая заявка».",
             reply_markup=main_menu_inline(),
         )
 
-    # ---------- Редактирование существующего авто ----------
-    @dp.callback_query(F.data.startswith("garage_edit_"))
-    async def cb_garage_edit(call: CallbackQuery, state: FSMContext):
-        raw = call.data or ""
-        try:
-            car_id = int(raw.split("_")[-1])
-        except ValueError:
-            await call.answer()
-            return
+    # ---------- Шаг 1: авто едет / эвакуация ----------
 
-        try:
-            car = await api.get_car(car_id)
-        except Exception as e:
-            logger.exception("Ошибка при загрузке авто для редактирования: %s", e)
+    @dp.callback_query(RequestCreate.waiting_move, F.data.in_({"req_move_self", "req_move_help"}))
+    async def req_move_choice(call: CallbackQuery, state: FSMContext):
+        move_type = "self" if call.data == "req_move_self" else "help"
+        await state.update_data(move_type=move_type)
+
+        # Если авто ЕДЕТ САМО — НИКАКОЙ геолокации, только радиус/район.
+        if move_type == "self":
+            await state.set_state(RequestCreate.waiting_radius)
             await call.message.edit_text(
-                "Не удалось загрузить данные автомобиля 😔",
-                reply_markup=main_menu_inline(),
+                "Ок, автомобиль передвигается самостоятельно. 🚗\n\n"
+                "Теперь выбери радиус или укажи район, где тебе удобно обслужиться.",
+                reply_markup=request_radius_kb(),
             )
             await call.answer()
             return
 
-        await state.set_state(CarEdit.waiting_brand)
-        await state.update_data(edit_car_id=car_id)
-
-        text = (
-            "Редактирование автомобиля.\n\n"
-            "Текущие данные:\n"
-            f"Марка: {car.get('brand') or '—'}\n"
-            f"Модель: {car.get('model') or '—'}\n"
-            f"Год: {car.get('year') or '—'}\n"
-            f"Госномер: {car.get('license_plate') or '—'}\n"
-            f"VIN: {car.get('vin') or '—'}\n\n"
-            "Шаг 1 из 5.\n"
-            "Напиши новую марку авто (или повтори текущую).\n\n"
-            "Если передумал — напиши «Отмена»."
+        # Если нужна эвакуация / выездной мастер — сперва спрашиваем местоположение
+        await state.set_state(RequestCreate.waiting_location_choice)
+        await call.message.edit_text(
+            "Принято. Нужна эвакуация / выездной мастер. 🚨\n\n"
+            "Теперь укажи место, где находится автомобиль:",
+            reply_markup=request_location_choice_kb(),
         )
-
-        # Снова: edit_text без ReplyKeyboardRemove
-        await call.message.edit_text(text)
         await call.answer()
 
-    @dp.message(CarEdit.waiting_brand)
-    async def car_edit_brand(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if text.lower() == "отмена":
+    # ---------- Радиус поиска (если авто едет само) ----------
+
+    @dp.callback_query(RequestCreate.waiting_radius)
+    async def req_radius_choice(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+
+        if data == "req_cancel":
             await state.clear()
-            await message.answer(
-                "Редактирование авто отменено.", reply_markup=main_menu_inline()
-            )
-            return
-
-        await state.update_data(brand=text)
-        await state.set_state(CarEdit.waiting_model)
-        await message.answer(
-            "Шаг 2 из 5.\n\n"
-            "Теперь введи модель авто.",
-        )
-
-    @dp.message(CarEdit.waiting_model)
-    async def car_edit_model(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Редактирование авто отменено.", reply_markup=main_menu_inline()
-            )
-            return
-
-        await state.update_data(model=text)
-        await state.set_state(CarEdit.waiting_year)
-        await message.answer(
-            "Шаг 3 из 5.\n\n"
-            "Введи год выпуска (или напиши «Пропустить»).",
-        )
-
-    @dp.message(CarEdit.waiting_year)
-    async def car_edit_year(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Редактирование авто отменено.", reply_markup=main_menu_inline()
-            )
-            return
-
-        year: Optional[int] = None
-        if text.lower() not in ("пропустить", "skip", "-"):
-            try:
-                year_val = int(text)
-                if year_val < 1950 or year_val > 2100:
-                    raise ValueError
-                year = year_val
-            except ValueError:
-                await message.answer(
-                    "Пожалуйста, введи год цифрами (например, 2015)\n"
-                    "или напиши «Пропустить».",
-                )
-                return
-
-        await state.update_data(year=year)
-        await state.set_state(CarEdit.waiting_plate)
-        await message.answer(
-            "Шаг 4 из 5.\n\n"
-            "Введи госномер (или напиши «Пропустить»).",
-        )
-
-    @dp.message(CarEdit.waiting_plate)
-    async def car_edit_plate(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Редактирование авто отменено.", reply_markup=main_menu_inline()
-            )
-            return
-
-        plate: Optional[str] = None
-        if text.lower() not in ("пропустить", "skip", "-"):
-            plate = text
-
-        await state.update_data(license_plate=plate)
-        await state.set_state(CarEdit.waiting_vin)
-        await message.answer(
-            "Шаг 5 из 5.\n\n"
-            "Введи VIN (или напиши «Пропустить»).",
-        )
-
-    @dp.message(CarEdit.waiting_vin)
-    async def car_edit_vin(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Редактирование авто отменено.", reply_markup=main_menu_inline()
-            )
-            return
-
-        vin: Optional[str] = None
-        if text.lower() not in ("пропустить", "skip", "-"):
-            vin = text
-
-        data = await state.get_data()
-        car_id = data.get("edit_car_id")
-        if not car_id:
-            await state.clear()
-            await message.answer(
-                "Что-то пошло не так при редактировании авто 😔",
+            await call.message.edit_text(
+                "Создание заявки отменено.",
                 reply_markup=main_menu_inline(),
             )
+            await call.answer()
             return
 
-        brand = data.get("brand")
-        model = data.get("model")
-        year = data.get("year")
-        plate = data.get("license_plate")
+        if data.startswith("req_radius_"):
+            radius_str = data.split("_", 2)[2]
+            if radius_str.isdigit():
+                radius_km = int(radius_str)
+            else:
+                radius_km = 5
+
+            await state.update_data(
+                radius_type="km",
+                radius_km=radius_km,
+            )
+
+            await state.set_state(RequestCreate.waiting_service_type)
+            await call.message.edit_text(
+                f"Радиус {radius_km} км выбран. ✅\n\n"
+                "Теперь выбери тип услуги:",
+                reply_markup=request_service_type_kb(),
+            )
+            await call.answer()
+            return
+
+        if data == "req_radius_custom":
+            await state.update_data(radius_type="custom")
+            await state.set_state(RequestCreate.waiting_location_text)
+            await call.message.edit_text(
+                "Опиши район, где тебе удобно обслужиться.\n"
+                "Например: «центр города», «Фрунзенский район» и т.п.",
+                reply_markup=cancel_kb(),
+            )
+            await call.answer()
+            return
+
+        await call.answer()
+
+    # ---------- Тип услуги ----------
+
+    @dp.callback_query(RequestCreate.waiting_service_type)
+    async def req_service_type_choice(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+
+        if data == "req_cancel":
+            await state.clear()
+            await call.message.edit_text(
+                "Создание заявки отменено.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        if not data.startswith("service_type_"):
+            await call.answer()
+            return
+
+        service_type_key = data.split("service_type_", 1)[1]
+        await state.update_data(service_type=service_type_key)
+
+        await state.set_state(RequestCreate.waiting_description)
+        await call.message.edit_text(
+            "Теперь опиши проблему.\n\n"
+            "Это обязательное поле — постарайся указать симптомы, ошибки, особенности.\n\n"
+            "Например: «стук в подвеске справа», «горит check engine, провалы тяги», и т.п.",
+            reply_markup=cancel_kb(),
+        )
+        await call.answer()
+
+    # ---------- Описание проблемы ----------
+
+    @dp.message(RequestCreate.waiting_description)
+    async def req_description_step(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Создание заявки отменено.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Пожалуйста, опиши проблему или напиши «Отмена».")
+            return
+
+        await state.update_data(description=text)
+
+        await state.set_state(RequestCreate.waiting_photo)
+        summary = (
+            "Описание принято ✅\n\n"
+            "Хочешь прикрепить фото к заявке?\n"
+            "Это поможет СТО быстрее понять проблему."
+        )
+        await message.answer(
+            summary,
+            reply_markup=photo_choice_kb(),
+        )
+
+    # ---------- Фото (опционально) ----------
+
+    @dp.callback_query(RequestCreate.waiting_photo)
+    async def req_photo_choice(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+
+        if data == "req_cancel":
+            await state.clear()
+            await call.message.edit_text(
+                "Создание заявки отменено.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        if data == "req_photo_skip":
+            # пропускаем фото
+            await state.update_data(photo_id=None)
+            await state.set_state(RequestCreate.waiting_show_phone)
+            await call.message.edit_text(
+                "Ок, без фото. ✅\n\n"
+                "Показывать твой номер телефона сотрудникам СТО сразу, "
+                "или скрыть его до явного согласия?",
+                reply_markup=show_phone_kb(),
+            )
+            await call.answer()
+            return
+
+        if data == "req_photo_add":
+            await call.message.edit_text(
+                "Пришли одно фото, которое лучше всего показывает проблему.\n"
+                "Или напиши «Отмена».",
+                reply_markup=cancel_kb(),
+            )
+            await state.set_state(RequestCreate.waiting_photo)
+            await call.answer()
+            return
+
+        await call.answer()
+
+    @dp.message(RequestCreate.waiting_photo, F.photo)
+    async def req_get_photo(message: Message, state: FSMContext):
+        """
+        Приём фото.
+        """
+        if message.caption and message.caption.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Создание заявки отменено.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        if not message.photo:
+            await message.answer("Пожалуйста, отправь именно фото, либо напиши «Отмена».")
+            return
+
+        file_id = message.photo[-1].file_id
+        await state.update_data(photo_id=file_id)
+
+        await state.set_state(RequestCreate.waiting_show_phone)
+        await message.answer(
+            "Фото сохранено. ✅\n\n"
+            "Показывать твой номер телефона сотрудникам СТО сразу, "
+            "или скрыть его до явного согласия?",
+            reply_markup=show_phone_kb(),
+        )
+
+    # ---------- Показывать номер телефона ----------
+
+    @dp.callback_query(RequestCreate.waiting_show_phone)
+    async def req_show_phone_choice(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+
+        if data == "req_cancel":
+            await state.clear()
+            await call.message.edit_text(
+                "Создание заявки отменено.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        show_phone = True if data == "req_phone_show" else False
+        await state.update_data(show_phone=show_phone)
+
+        # Переходим к выбору режима: выбрать СТО или отправить всем
+        await state.set_state(RequestCreate.waiting_select_work_mode)
+        await call.message.edit_text(
+            "Как будем работать со СТО?\n\n"
+            "📋 Выбрать конкретный сервис из списка\n"
+            "или\n"
+            "📤 Отправить заявку сразу всем подходящим СТО?",
+            reply_markup=work_mode_kb(),
+        )
+        await call.answer()
+    # ---------- Режим работы со СТО ----------
+
+    @dp.callback_query(RequestCreate.waiting_select_work_mode)
+    async def req_work_mode_choice(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+
+        if data == "req_cancel":
+            await state.clear()
+            await call.message.edit_text(
+                "Создание заявки отменено.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        mode = "choose" if data == "req_mode_choose" else "send_all"
+        await state.update_data(work_mode=mode)
+
+        # В самом конце — выбор авто из гаража
+        tg_id = call.from_user.id
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя для выбора авто: %s", e)
+            await call.message.edit_text(
+                "Ошибка при получении данных пользователя.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        try:
+            cars = await api.list_cars_by_user(user_id)
+        except Exception as e:
+            logger.exception("Ошибка при list_cars_by_user (для заявки): %s", e)
+            cars = []
+
+        await state.set_state(RequestCreate.waiting_select_car)
+
+        if not cars:
+            # Нет авто — сразу создаём заявку без привязки
+            await state.update_data(car_id=None)
+            await _final_create_request(call, state, api, user_id)
+            await call.answer()
+            return
+
+        # Есть авто — предлагаем выбрать
+        await call.message.edit_text(
+            "Выбери автомобиль, к которому относится заявка.\n"
+            "Либо можно оставить без привязки:",
+            reply_markup=car_select_for_request_kb(cars),
+        )
+        await call.answer()
+
+    @dp.callback_query(RequestCreate.waiting_select_car)
+    async def req_select_car_for_request(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+
+        if data == "req_cancel":
+            await state.clear()
+            await call.message.edit_text(
+                "Создание заявки отменено.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        tg_id = call.from_user.id
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя для финала заявки: %s", e)
+            await call.message.edit_text(
+                "Ошибка при получении данных пользователя.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        if data == "req_car_skip":
+            await state.update_data(car_id=None)
+        elif data.startswith("req_car_"):
+            try:
+                car_id = int(data.split("_", 2)[2])
+            except ValueError:
+                car_id = None
+            await state.update_data(car_id=car_id)
+        else:
+            await call.answer()
+            return
+
+        await _final_create_request(call, state, api, user_id)
+        await call.answer()
+
+    async def _final_create_request(
+        call: CallbackQuery,
+        state: FSMContext,
+        api: APIClient,
+        user_id: int,
+    ):
+        """
+        Финальное создание заявки в backend.
+        """
+        data = await state.get_data()
 
         payload = {
-            "brand": brand,
-            "model": model,
-            "year": year,
-            "license_plate": plate,
-            "vin": vin,
+            "user_id": user_id,
+            "location_type": data.get("location_type"),
+            "location_text": data.get("location_text"),
+            "latitude": data.get("latitude"),
+            "longitude": data.get("longitude"),
+            "move_type": data.get("move_type"),
+            "radius_type": data.get("radius_type"),
+            "radius_km": data.get("radius_km"),
+            "service_type": data.get("service_type"),
+            "description": data.get("description"),
+            "show_phone": data.get("show_phone", True),
+            "work_mode": data.get("work_mode"),
+            "car_id": data.get("car_id"),
         }
 
         try:
-            car = await api.update_car(car_id, payload)
+            req = await api.create_request(payload)
+            logger.info("Создана заявка: %s", req)
         except Exception as e:
-            logger.exception("Ошибка при обновлении авто в backend: %s", e)
-            await state.clear()
-            await message.answer(
-                "Не получилось сохранить изменения автомобиля 😔\n"
-                "Попробуй ещё раз чуть позже.",
+            logger.exception("Ошибка при создании заявки: %s", e)
+            await call.message.edit_text(
+                "Ошибка при сохранении заявки. Попробуй позже.",
                 reply_markup=main_menu_inline(),
             )
+            await state.clear()
             return
 
         await state.clear()
 
-        await message.answer(
-            "Данные автомобиля обновлены ✅\n\n"
-            f"{_format_car_title(car)}",
-            reply_markup=main_menu_inline(),
+        text = (
+            "Заявка создана! ✅\n\n"
+            f"Номер заявки: #{req.get('id')}\n"
+            "Скоро подходящие СТО увидят её и смогут откликнуться.\n\n"
+            "Следить за статусом заявки можно в разделе «📄 Мои заявки»."
         )
+        await call.message.edit_text(text, reply_markup=main_menu_inline())
 
     # ==========================
-    #   СТО: регистрация
+    #   СТО: РЕГИСТРАЦИЯ
     # ==========================
 
-    @dp.callback_query(F.data == "menu_service")
-    async def cb_service_start(call: CallbackQuery, state: FSMContext):
+    @dp.callback_query(F.data == "service_owner_menu")
+    async def service_owner_menu(call: CallbackQuery, state: FSMContext):
         """
-        Если СТО уже зарегистрирован — показываем кабинет.
-        Иначе запускаем регистрацию.
+        Вход в режим владельца СТО.
         """
         tg_id = call.from_user.id
-
         try:
             user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
         except Exception as e:
-            logger.exception("Ошибка при получении пользователя для СТО: %s", e)
+            logger.exception("Ошибка при service_owner_menu: %s", e)
             await call.message.edit_text(
-                "Не удалось найти твой профиль 😔\n"
-                "Нажми /start и пройди регистрацию ещё раз.",
+                "Не удалось получить данные пользователя.",
                 reply_markup=main_menu_inline(),
             )
             await call.answer()
             return
 
-        user_id = user["id"]
-
-        # пробуем найти уже существующий сервис
+        # Проверяем, есть ли уже СТО у пользователя
         sc = await _get_user_service_center(user_id)
-        if sc:
+        if not sc:
+            # Предложить зарегистрировать СТО
             await state.clear()
+            await state.set_state(ServiceCenterRegistration.waiting_org_type)
             await call.message.edit_text(
-                format_service_center_profile(sc),
-                reply_markup=service_owner_menu_kb(),
+                "Ты ещё не зарегистрировал автосервис.\n\n"
+                "Давай добавим его в систему! 🚀\n\n"
+                "Кто ты?",
+                reply_markup=service_org_type_kb(),
             )
             await call.answer()
             return
 
-        # если СТО ещё нет — запускаем регистрацию (как раньше)
-        await state.clear()
-        await state.set_state(ServiceCenterRegistration.waiting_org_type)
-
+        # Уже есть СТО — показываем кабинет
+        profile_text = format_service_center_profile(sc)
         await call.message.edit_text(
-            "Ты указал(а), что представляешь автосервис.\n\n"
-            "Давай зарегистрируем его в системе.\n\n"
-            "Кто ты по форме работы?",
-            reply_markup=service_org_type_kb(),
-        )
-        await call.answer()
-
-    @dp.callback_query(F.data == "service_owner_back")
-    async def service_owner_back(call: CallbackQuery, state: FSMContext):
-        await state.clear()
-        await call.message.edit_text(
-            "Главное меню:",
-            reply_markup=main_menu_inline(),
+            profile_text,
+            reply_markup=service_owner_menu_kb(),
         )
         await call.answer()
 
     @dp.callback_query(ServiceCenterRegistration.waiting_org_type)
-    async def cb_service_org_type(call: CallbackQuery, state: FSMContext):
+    async def service_org_type_step(call: CallbackQuery, state: FSMContext):
         data = call.data or ""
 
-        if data == "service_back_to_menu":
+        if data == "cancel":
             await state.clear()
             await call.message.edit_text(
-                "Главное меню:",
+                "Регистрация СТО отменена.",
                 reply_markup=main_menu_inline(),
             )
             await call.answer()
             return
 
-        if data not in {"service_org_fl", "service_org_ul"}:
+        if data not in {"org_type_individual", "org_type_company"}:
             await call.answer()
             return
 
-        org_type = "individual" if data == "service_org_fl" else "company"
+        org_type = "individual" if data == "org_type_individual" else "company"
         await state.update_data(org_type=org_type)
 
         await state.set_state(ServiceCenterRegistration.waiting_name)
         await call.message.edit_text(
-            "Шаг 1 из 5.\n\n"
-            "Как называется твой сервис?\n"
-            "▫️ Для частника можно просто указать имя / направление\n"
-            "   (например, «Иван, выездной автоэлектрик»)\n"
-            "▫️ Для сервиса — официальное название (например, «АвтоСервис 24»).",
+            "Как называется твой автосервис / мастерская?\n"
+            "Можно указать ИП, название компании или просто название.",
+            reply_markup=cancel_kb(),
         )
         await call.answer()
 
     @dp.message(ServiceCenterRegistration.waiting_name)
     async def service_name_step(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if not text:
-            await message.answer("Пожалуйста, укажи название сервиса.")
-            return
-        if text.lower() == "отмена":
+        if message.text and message.text.lower() == "отмена":
             await state.clear()
             await message.answer(
                 "Регистрация СТО отменена.",
-                reply_markup=main_menu_inline(),
+                reply_markup=main_menu_reply(),
             )
             return
 
-        await state.update_data(name=text)
-        await state.set_state(ServiceCenterRegistration.waiting_phone)
+        name = (message.text or "").strip()
+        if not name:
+            await message.answer("Пожалуйста, укажи название или напиши «Отмена».")
+            return
 
+        await state.update_data(name=name)
+        await state.set_state(ServiceCenterRegistration.waiting_phone)
         await message.answer(
-            "Шаг 2 из 5.\n\n"
-            "Укажи контактный телефон для клиентов.\n"
-            "Можно в любом формате (с кодом страны или без)."
+            "Укажи контактный телефон сервиса.\n"
+            "Это номер, по которому с тобой можно связаться.",
+            reply_markup=cancel_kb(),
         )
 
     @dp.message(ServiceCenterRegistration.waiting_phone)
     async def service_phone_step(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if not text:
-            await message.answer("Пожалуйста, укажи телефон или напиши «Отмена».")
-            return
-        if text.lower() == "отмена":
+        if message.text and message.text.lower() == "отмена":
             await state.clear()
             await message.answer(
                 "Регистрация СТО отменена.",
-                reply_markup=main_menu_inline(),
+                reply_markup=main_menu_reply(),
             )
             return
 
-        await state.update_data(phone=text)
-        await state.set_state(ServiceCenterRegistration.waiting_city)
+        phone = (message.text or "").strip()
+        if not phone:
+            await message.answer("Пожалуйста, укажи телефон или напиши «Отмена».")
+            return
 
+        await state.update_data(phone=phone)
+        await state.set_state(ServiceCenterRegistration.waiting_city)
         await message.answer(
-            "Шаг 3 из 5.\n\n"
-            "В каком городе ты работаешь?",
+            "В каком городе находится твой сервис?",
+            reply_markup=cancel_kb(),
         )
 
     @dp.message(ServiceCenterRegistration.waiting_city)
     async def service_city_step(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if not text:
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Регистрация СТО отменена.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        city = (message.text or "").strip()
+        if not city:
             await message.answer("Пожалуйста, укажи город или напиши «Отмена».")
             return
-        if text.lower() == "отмена":
-            await state.clear()
-            await message.answer(
-                "Регистрация СТО отменена.",
-                reply_markup=main_menu_inline(),
-            )
-            return
 
-        await state.update_data(city=text)
-        await state.set_state(ServiceCenterRegistration.waiting_address)
-
+        await state.update_data(city=city)
+        await state.set_state(ServiceCenterRegistration.waiting_address_text)
         await message.answer(
-            "Шаг 4 из 5.\n\n"
             "Укажи адрес сервиса или основной район работы.\n"
             "Например: «ул. Ленина, 10» или «выезд по всему Минску».",
+            reply_markup=cancel_kb(),
         )
 
-    @dp.message(ServiceCenterRegistration.waiting_address)
+    @dp.message(ServiceCenterRegistration.waiting_address_text)
     async def service_address_step(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if not text:
+        if message.text and message.text.lower() == "отмена":
+            await state.clear()
+            await message.answer(
+                "Регистрация СТО отменена.",
+                reply_markup=main_menu_reply(),
+            )
+            return
+
+        addr = (message.text or "").strip()
+        if not addr:
             await message.answer("Пожалуйста, укажи адрес / район или напиши «Отмена».")
             return
-        if text.lower() == "отмена":
+
+        await state.update_data(address_text=addr)
+        await state.set_state(ServiceCenterRegistration.waiting_geo)
+        await message.answer(
+            "Теперь отправь геолокацию сервиса или основную точку работы.\n"
+            "Это нужно, чтобы подбирать тебя по расстоянию до клиента.\n\n"
+            "Отправь локацию или напиши «Отмена».",
+            reply_markup=cancel_kb(),
+        )
+
+    @dp.message(ServiceCenterRegistration.waiting_geo)
+    async def service_geo_step(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
             await state.clear()
             await message.answer(
                 "Регистрация СТО отменена.",
-                reply_markup=main_menu_inline(),
+                reply_markup=main_menu_reply(),
             )
             return
 
-        await state.update_data(address=text)
-        await state.set_state(ServiceCenterRegistration.waiting_location)
+        if not message.location:
+            await message.answer(
+                "Пожалуйста, отправь геолокацию через кнопку отправки местоположения.\n"
+                "Или напиши «Отмена»."
+            )
+            return
 
-        await message.answer(
-            "Теперь отправь геолокацию сервиса 📍\n\n"
-            "Это нужно, чтобы в будущем клиенты могли находить ближайшие СТО.\n"
-            "Нажми скрепку 📎 → «Геопозиция» и выбери точку на карте.",
-        )
-
-    @dp.message(ServiceCenterRegistration.waiting_location, F.location)
-    async def service_location_step(message: Message, state: FSMContext):
         lat = message.location.latitude
         lon = message.location.longitude
-
         await state.update_data(latitude=lat, longitude=lon)
-        await state.set_state(ServiceCenterRegistration.waiting_extra)
 
+        await state.set_state(ServiceCenterRegistration.waiting_extra_contacts)
         await message.answer(
-            "Геолокация сохранена ✅\n\n"
-            "Теперь укажи доп. контакты (если есть): сайт, Instagram, WhatsApp, Telegram-ник и т.п.\n"
-            "Если ничего добавлять не нужно — напиши «Пропустить».",
+            "Если есть дополнительные контакты (сайт, соцсети, второй телефон) — пришли их.\n"
+            "Или напиши «-», если ничего добавлять не нужно.",
+            reply_markup=cancel_kb(),
         )
 
-    @dp.message(ServiceCenterRegistration.waiting_location)
-    async def service_location_text(message: Message, state: FSMContext):
-        # сюда попадут любые сообщения КРОМЕ геопозиции
-        await message.answer(
-            "Пожалуйста, отправь именно геолокацию 📍\n\n"
-            "Нажми скрепку 📎 → «Геопозиция» и выбери точку на карте."
-        )
-
-    @dp.message(ServiceCenterRegistration.waiting_extra)
-    async def service_extra_step(message: Message, state: FSMContext):
-        text = (message.text or "").strip()
-        if text.lower() in {"отмена"}:
+    @dp.message(ServiceCenterRegistration.waiting_extra_contacts)
+    async def service_extra_contacts_step(message: Message, state: FSMContext):
+        if message.text and message.text.lower() == "отмена":
             await state.clear()
             await message.answer(
                 "Регистрация СТО отменена.",
-                reply_markup=main_menu_inline(),
+                reply_markup=main_menu_reply(),
             )
             return
 
-        extra = None
-        if text.lower() not in {"пропустить", "skip", "-"}:
-            extra = text
+        extra = (message.text or "").strip()
+        if extra == "-":
+            extra = ""
+
+        await state.update_data(extra_contacts=extra)
 
         data = await state.get_data()
-
         org_type = data.get("org_type")
-        org_title = "Частный мастер" if org_type == "individual" else "Автосервис / компания"
-
         name = data.get("name")
         phone = data.get("phone")
         city = data.get("city")
-        address = data.get("address")
+        addr = data.get("address_text")
+        lat = data.get("latitude")
+        lon = data.get("longitude")
 
-        await state.update_data(extra=extra)
-
-        summary_lines = [
-            "Проверь, пожалуйста, данные СТО:\n",
-            f"👤 Тип: {org_title}",
-            f"🏷 Название: {name}",
-            f"📞 Телефон: {phone}",
-            f"🏙 Город: {city}",
-            f"📍 Адрес / район: {address}",
-        ]
+        summary = (
+            "Проверь, всё ли верно:\n\n"
+            f"Тип: {'Частный мастер' if org_type == 'individual' else 'Автосервис / компания'}\n"
+            f"Название: {name}\n"
+            f"Телефон: {phone}\n"
+            f"Город: {city}\n"
+            f"Адрес: {addr}\n"
+            f"Геолокация: {lat}, {lon}\n"
+        )
         if extra:
-            summary_lines.append(f"🌐 Доп. контакты: {extra}")
-
-        summary = "\n".join(summary_lines)
+            summary += f"Доп. контакты: {extra}\n"
 
         await state.set_state(ServiceCenterRegistration.waiting_confirm)
         await message.answer(
             summary + "\n\n"
             "Если всё верно — нажми «✅ Всё верно, зарегистрировать».\n"
             "Если передумал — «❌ Отменить».",
-            reply_markup=service_reg_confirm_kb(),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Всё верно, зарегистрировать",
+                            callback_data="service_reg_confirm_yes",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="❌ Отменить",
+                            callback_data="service_reg_confirm_cancel",
+                        )
+                    ],
+                ]
+            ),
         )
 
     @dp.callback_query(ServiceCenterRegistration.waiting_confirm)
@@ -1614,66 +1850,58 @@ async def main() -> None:
         tg_id = call.from_user.id
 
         # Достаём данные из FSM
-        fsm_data = await state.get_data()
-        org_type = fsm_data.get("org_type")
-        name = fsm_data.get("name")
-        phone = fsm_data.get("phone")
-        city = fsm_data.get("city")
-        address = fsm_data.get("address")
-        extra = fsm_data.get("extra")
-        latitude = fsm_data.get("latitude")
-        longitude = fsm_data.get("longitude")
+        fsm = await state.get_data()
+        org_type = fsm.get("org_type")
+        name = fsm.get("name")
+        phone = fsm.get("phone")
+        city = fsm.get("city")
+        addr = fsm.get("address_text")
+        lat = fsm.get("latitude")
+        lon = fsm.get("longitude")
+        extra = fsm.get("extra_contacts") or ""
 
-        # Находим пользователя
+        # Получаем пользователя
         try:
             user = await api.get_user_by_telegram(tg_id)
             user_id = user["id"]
         except Exception as e:
-            logger.exception("Ошибка при получении пользователя при финале регистрации СТО: %s", e)
-            await state.clear()
+            logger.exception("Ошибка при получении пользователя для СТО: %s", e)
             await call.message.edit_text(
-                "Не получилось найти твой профиль 😔\n"
-                "Попробуй ещё раз через /start.",
+                "Ошибка при поиске пользователя. Попробуй позже.",
                 reply_markup=main_menu_inline(),
             )
+            await state.clear()
             await call.answer()
             return
 
-        # Формируем payload для backend-а
         payload = {
             "user_id": user_id,
-            "org_type": org_type,          # "individual" / "company"
+            "org_type": org_type,
             "name": name,
             "phone": phone,
             "city": city,
-            "address_text": address,
-            "latitude": latitude,
-            "longitude": longitude,
+            "address_text": addr,
+            "latitude": lat,
+            "longitude": lon,
             "extra_contacts": extra,
         }
 
-        logger.info("Регистрируем СТО в backend: %s", payload)
-
-        # Создаём СТО через API-клиент
         try:
             service_center = await api.create_service_center(payload)
+            logger.info("Создан автосервис: %s", service_center)
         except Exception as e:
-            logger.exception("Ошибка при создании СТО в backend: %s", e)
-            await state.clear()
+            logger.exception("Ошибка при создании СТО: %s", e)
             await call.message.edit_text(
-                "Не получилось сохранить автосервис на сервере 😔\n"
-                "Попробуй ещё раз чуть позже.",
+                "Ошибка при сохранении автосервиса. Попробуй позже.",
                 reply_markup=main_menu_inline(),
             )
+            await state.clear()
             await call.answer()
             return
 
-        # Обновляем роль пользователя → service_owner
+        # Обновляем роль пользователя до service_owner
         try:
-            await api.update_user(
-                user_id,
-                {"role": "service_owner"},
-            )
+            await api.update_user(user_id, {"role": "service_owner"})
         except Exception as e:
             logger.exception("Ошибка при обновлении роли пользователя до service_owner: %s", e)
 
@@ -1703,7 +1931,7 @@ async def main() -> None:
         except Exception as e:
             logger.exception("Ошибка при получении пользователя для спецов СТО: %s", e)
             await call.message.edit_text(
-                "Не удалось найти твой профиль 😔",
+                "Не удалось получить данные пользователя.",
                 reply_markup=main_menu_inline(),
             )
             await call.answer()
@@ -1713,7 +1941,7 @@ async def main() -> None:
         if not sc:
             await call.message.edit_text(
                 "У тебя пока нет зарегистрированного автосервиса.\n"
-                "Сначала пройди регистрацию.",
+                "Сначала зарегистрируй СТО, чтобы управлять специализациями.",
                 reply_markup=main_menu_inline(),
             )
             await call.answer()
@@ -1744,10 +1972,10 @@ async def main() -> None:
         sc_id = fsm.get("service_center_id")
         user_id = fsm.get("user_id")
 
-        if data == "service_spec_cancel":
-            # возвращаемся в кабинет без сохранения
-            sc = await _get_user_service_center(user_id)
+        if data == "service_specs_cancel":
             await state.clear()
+            # возвращаемся в кабинет СТО
+            sc = await _get_user_service_center(user_id)
             if sc:
                 await call.message.edit_text(
                     format_service_center_profile(sc),
@@ -1755,29 +1983,27 @@ async def main() -> None:
                 )
             else:
                 await call.message.edit_text(
-                    "Сервис не найден.",
+                    "Автосервис не найден.",
                     reply_markup=main_menu_inline(),
                 )
             await call.answer()
             return
 
-        if data == "service_spec_done":
+        if data == "service_specs_save":
+            await state.clear()
+            # сохраняем выбранные специализации
             try:
                 await api.update_service_center(sc_id, {"specializations": selected})
             except Exception as e:
                 logger.exception("Ошибка при сохранении спецов СТО: %s", e)
-                await state.clear()
                 await call.message.edit_text(
-                    "Не получилось сохранить специализации 😔\n"
-                    "Попробуй ещё раз позже.",
-                    reply_markup=service_owner_menu_kb(),
+                    "Ошибка при сохранении специализаций.",
+                    reply_markup=main_menu_inline(),
                 )
                 await call.answer()
                 return
 
-            # обновим профиль и вернёмся в кабинет
             sc = await _get_user_service_center(user_id)
-            await state.clear()
             if sc:
                 await call.message.edit_text(
                     "Специализации обновлены ✅\n\n"
@@ -1809,515 +2035,69 @@ async def main() -> None:
         await call.answer()
 
     # ==========================
-    #   НОВАЯ ЗАЯВКА
+    #   Хендлер на «Назад в меню»
     # ==========================
 
-    @dp.callback_query(F.data == "menu_new_request")
-    async def cb_new_request_start(call: CallbackQuery, state: FSMContext):
-        """
-        Старт мастера: сначала спрашиваем,
-        едет ли авто или нужна эвакуация.
-        """
-        await state.clear()
-        await state.set_state(RequestCreate.waiting_move)
-
-        await call.message.answer(
-            "Создаём новую заявку 🚗\n\n"
-            "Шаг 1.\n"
-            "Автомобиль передвигается самостоятельно\n"
-            "или нужна эвакуация / выездной мастер?",
-            reply_markup=request_move_kb(),
-        )
-        await call.answer()
-
-    # ---------- Отмена заявки (inline, глобально для FSM RequestCreate) ----------
-
-    @dp.callback_query(StateFilter(RequestCreate), F.data == "req_cancel")
-    async def req_cancel(call: CallbackQuery, state: FSMContext):
+    @dp.callback_query(F.data == "back_to_main")
+    async def back_to_main(call: CallbackQuery, state: FSMContext):
         await state.clear()
         await call.message.edit_text(
-            "Создание заявки отменено ❌\n\n"
-            "Ты всегда можешь начать заново через «🆕 Новая заявка».",
+            "Главное меню:",
             reply_markup=main_menu_inline(),
         )
-        await call.answer("Заявка отменена")
-
-    # ---------- Отмена заявки (reply-клавиатура: текст «Отменить заявку») ----------
-
-    @dp.message(StateFilter(RequestCreate), F.text.casefold() == "отменить заявку")
-    async def req_cancel_text(message: Message, state: FSMContext):
-        await state.clear()
-        await message.answer(
-            "Создание заявки отменено ❌\n\n"
-            "Ты всегда можешь начать заново через «🆕 Новая заявка».",
-            reply_markup=main_menu_inline(),
-        )
-
-    # ---------- Шаг 1: авто едет / эвакуация ----------
-
-    @dp.callback_query(RequestCreate.waiting_move, F.data.in_({"req_move_self", "req_move_help"}))
-    async def req_move_choice(call: CallbackQuery, state: FSMContext):
-        move_type = "self" if call.data == "req_move_self" else "help"
-        await state.update_data(move_type=move_type)
-
-        # Если авто ЕДЕТ САМО — шаг с гео пропускаем.
-        if move_type == "self":
-            # Сразу ставим "виртуальное" местоположение
-            await state.update_data(
-                latitude=None,
-                longitude=None,
-                address=None,
-                loc_text="Местоположение не указано (авто едет самостоятельно)",
-            )
-
-            await call.message.answer(
-                "Шаг 2.\n\n"
-                "Опиши проблему своими словами.\n"
-                "Чем точнее описание — тем точнее диагностика и оценка стоимости.",
-            )
-            await state.set_state(RequestCreate.waiting_description)
-            await call.answer()
-            return
-
-        # Если нужна эвакуация / выездной мастер — спрашиваем место
-        text = (
-            "Шаг 2.\n\n"
-            "Где находится автомобиль или откуда удобнее забрать?\n\n"
-            "▫️ Отправь геолокацию кнопкой ниже\n"
-            "▫️ Или напиши адрес / ориентир текстом\n"
-            "▫️ В крайнем случае можно нажать «Пропустить», "
-            "но тогда подобрать эвакуацию будет сложнее."
-        )
-
-        await call.message.answer(text, reply_markup=location_reply_kb())
-        await state.set_state(RequestCreate.waiting_location)
         await call.answer()
 
-    # ---------- Шаг 2: локация (только для эвакуации) ----------
+    # ==========================
+    #   Запуск поллинга
+    # ==========================
 
-    @dp.message(RequestCreate.waiting_location)
-    async def req_location(message: Message, state: FSMContext):
-        """
-        Принимаем:
-        - геолокацию (кнопка)
-        - текст (адрес / район)
-        - слово «Пропустить»
-        - «Отменить заявку» обрабатывается отдельным хендлером
-        """
-        latitude = None
-        longitude = None
-        address = None
-        loc_text = ""
+    logger.info("Запуск бота...")
+    await dp.start_polling(bot)
 
-        if message.location:
-            latitude = message.location.latitude
-            longitude = message.location.longitude
 
-            # Яндекс.Карты
-            url = f"https://yandex.ru/maps/?ll={longitude:.6f}%2C{latitude:.6f}&z=16"
-            loc_text = f"Яндекс.Карты: {url}"
-        else:
-            text = (message.text or "").strip()
-            if text.lower() == "пропустить":
-                loc_text = "Местоположение не указано"
-            else:
-                # Любой другой текст трактуем как адрес
-                address = text
-                loc_text = f"Адрес / ориентир: {address}"
+def service_specs_kb(selected: list[str]) -> InlineKeyboardMarkup:
+    """
+    Клавиатура для выбора специализаций СТО.
+    """
+    specs_map = [
+        ("mech", "🔧 Автомеханика"),
+        ("tires", "🛞 Шиномонтаж"),
+        ("electric", "🔌 Автоэлектрика"),
+        ("diag", "📊 Диагностика"),
+        ("body", "🧱 Кузовной ремонт"),
+        ("aggregates", "⚙️ Ремонт агрегатов"),
+    ]
 
-        await state.update_data(
-            latitude=latitude,
-            longitude=longitude,
-            address=address,
-            loc_text=loc_text,
+    rows = []
+    for key, title in specs_map:
+        prefix = "✅ " if key in selected else "⬜ "
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=prefix + title,
+                    callback_data=f"service_spec_{key}",
+                )
+            ]
         )
 
-        # убираем reply-клавиатуру
-        await message.answer("Спасибо! Зафиксировал местоположение.", reply_markup=ReplyKeyboardRemove())
-
-        # подтверждение
-        await message.answer(
-            "Ты указал(а):\n"
-            f"{loc_text}\n\n"
-            "Всё верно?",
-            reply_markup=location_confirm_kb(),
-        )
-        await state.set_state(RequestCreate.waiting_location_confirm)
-
-    @dp.callback_query(RequestCreate.waiting_location_confirm, F.data == "req_loc_ok")
-    async def req_location_ok(call: CallbackQuery, state: FSMContext):
-        await call.answer("Местоположение подтверждено")
-
-        await call.message.answer(
-            "Шаг 3.\n\n"
-            "Опиши проблему своими словами.\n"
-            "Чем точнее описание — тем точнее диагностика и оценка стоимости.",
-        )
-        await state.set_state(RequestCreate.waiting_description)
-
-    @dp.callback_query(RequestCreate.waiting_location_confirm, F.data == "req_loc_edit")
-    async def req_location_edit(call: CallbackQuery, state: FSMContext):
-        await call.answer("Измени местоположение")
-
-        await call.message.answer(
-            "Ок, давай ещё раз укажем место.\n\n"
-            "▫️ Отправь геолокацию кнопкой ниже\n"
-            "▫️ Или напиши адрес / район текстом\n"
-            "▫️ Или нажми «Пропустить».",
-            reply_markup=location_reply_kb(),
-        )
-        await state.set_state(RequestCreate.waiting_location)
-
-    # ---------- Шаг 3: описание + подтверждение ----------
-
-    @dp.message(RequestCreate.waiting_description)
-    async def req_description(message: Message, state: FSMContext):
-        description = message.text.strip()
-        await state.update_data(description=description)
-
-        await message.answer(
-            "Ты описал(а) проблему так:\n\n"
-            f"«{description}»\n\n"
-            "Всё верно?",
-            reply_markup=description_confirm_kb(),
-        )
-        await state.set_state(RequestCreate.waiting_description_confirm)
-
-    @dp.callback_query(RequestCreate.waiting_description_confirm, F.data == "req_desc_ok")
-    async def req_description_ok(call: CallbackQuery, state: FSMContext):
-        await call.answer("Описание подтверждено")
-
-        await call.message.answer(
-            "Шаг 4.\n\n"
-            "Прикрепи одно фото, если есть:\n"
-            "повреждения, приборка, ошибка на панели и т.п.\n\n"
-            "▫️ Отправь фото одним сообщением\n"
-            "▫️ Или нажми «Пропустить»",
-            reply_markup=photo_reply_kb(),
-        )
-        await state.set_state(RequestCreate.waiting_photo_choice)
-
-    @dp.callback_query(RequestCreate.waiting_description_confirm, F.data == "req_desc_edit")
-    async def req_description_edit(call: CallbackQuery, state: FSMContext):
-        await call.answer("Измени описание")
-
-        await call.message.answer(
-            "Ок, опиши проблему ещё раз.\n"
-            "Можно коротко: как проявляется, при каких условиях.",
-        )
-        await state.set_state(RequestCreate.waiting_description)
-
-    # ---------- Шаг 4: фото (опционально) ----------
-
-    @dp.message(RequestCreate.waiting_photo_choice)
-    async def req_photo(message: Message, state: FSMContext):
-        """
-        Принимаем:
-        - message.photo (одно фото)
-        - текст «Пропустить»
-        - текст «Отменить заявку» — обрабатывается отдельным хендлером
-        - текст «Отправить фото» — просто подсказка, ждём реальное фото
-        """
-        text = (message.text or "").strip().lower() if message.text else ""
-
-        if text == "пропустить":
-            await state.update_data(photo_file_id=None)
-            await message.answer("Окей, идём дальше без фото.", reply_markup=ReplyKeyboardRemove())
-
-            await message.answer(
-                "Шаг 5.\n\n"
-                "На какую дату удобно записаться?\n"
-                "Можно написать в свободной форме:\n"
-                "«сегодня вечером», «5 декабря», "
-                "«любой будний день после обеда» и т.п.",
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="💾 Сохранить",
+                callback_data="service_specs_save",
             )
-            await state.set_state(RequestCreate.waiting_date)
-            return
-
-        if text.startswith("📷 отправить фото".lower()) or "отправить фото" in text:
-            await message.answer(
-                "Прикрепи, пожалуйста, одно фото автомобиля одним сообщением 📷\n"
-                "После этого продолжим."
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="❌ Отмена",
+                callback_data="service_specs_cancel",
             )
-            return
+        ]
+    )
 
-        if message.photo:
-            file_id = message.photo[-1].file_id
-            await state.update_data(photo_file_id=file_id)
-            await message.answer("Фото прикреплено ✅", reply_markup=ReplyKeyboardRemove())
-
-            await message.answer(
-                "Шаг 5.\n\n"
-                "На какую дату удобно записаться?\n"
-                "Можно написать в свободной форме:\n"
-                "«сегодня вечером», «5 декабря», "
-                "«любой будний день после обеда» и т.п.",
-            )
-            await state.set_state(RequestCreate.waiting_date)
-            return
-
-        await message.answer(
-            "Пожалуйста, отправь одно фото автомобиля как медиа-сообщение "
-            "или нажми «Пропустить».\n"
-            "Если передумал(а) — напиши «Отменить заявку».",
-        )
-
-    # ---------- Шаг 5: дата + подтверждение ----------
-
-    @dp.message(RequestCreate.waiting_date)
-    async def req_date(message: Message, state: FSMContext):
-        date_text = message.text.strip()
-        await state.update_data(date_text=date_text)
-
-        await message.answer(
-            "Ты указал(а) дату так:\n\n"
-            f"«{date_text}»\n\n"
-            "Всё верно?",
-            reply_markup=date_confirm_kb(),
-        )
-        await state.set_state(RequestCreate.waiting_date_confirm)
-
-    @dp.callback_query(RequestCreate.waiting_date_confirm, F.data == "req_date_ok")
-    async def req_date_ok(call: CallbackQuery, state: FSMContext):
-        await call.answer("Дата подтверждена")
-
-        await call.message.answer(
-            "Шаг 6.\n\n"
-            "Выбери удобный диапазон времени:",
-            reply_markup=request_time_slot_kb(),
-        )
-        await state.set_state(RequestCreate.waiting_time_slot)
-
-    @dp.callback_query(RequestCreate.waiting_date_confirm, F.data == "req_date_edit")
-    async def req_date_edit(call: CallbackQuery, state: FSMContext):
-        await call.answer("Измени дату")
-
-        await call.message.answer(
-            "Ок, напиши удобную дату ещё раз.\n"
-            "Можно свободным текстом.",
-        )
-        await state.set_state(RequestCreate.waiting_date)
-
-    # ---------- Шаг 6: диапазон времени ----------
-
-    @dp.callback_query(RequestCreate.waiting_time_slot)
-    async def req_time_slot(call: CallbackQuery, state: FSMContext):
-        mapping = {
-            "req_slot_morning": "До 12:00",
-            "req_slot_day": "12:00–18:00",
-            "req_slot_evening": "После 18:00",
-        }
-
-        if call.data not in mapping:
-            await call.answer()
-            return
-
-        slot_title = mapping[call.data]
-        await state.update_data(time_slot=slot_title)
-
-        data = await state.get_data()
-        move_type = data.get("move_type")
-        move_text = (
-            "Едет самостоятельно"
-            if move_type == "self"
-            else "Нужна эвакуация / выездной мастер"
-        )
-
-        loc_text = data.get("loc_text") or "Не указано"
-        description = data.get("description") or "Не указано"
-        date_text = data.get("date_text") or "Не указано"
-        photo_id = data.get("photo_file_id")
-        photo_text = "прикреплено" if photo_id else "нет"
-
-        summary = (
-            "Проверь, пожалуйста, заявку:\n\n"
-            f"📍 Местоположение: {loc_text}\n"
-            f"🚗 Состояние авто: {move_text}\n"
-            f"🔧 Описание: {description}\n"
-            f"📅 Дата: {date_text}\n"
-            f"⏰ Время: {slot_title}\n"
-            f"📷 Фото: {photo_text}\n\n"
-            "Далее выберем автомобиль из гаража (если он есть).\n"
-        )
-
-        # показываем резюме без кнопок
-        await call.message.answer(summary)
-
-        # Получаем пользователя, чтобы узнать его машины
-        tg_id = call.from_user.id
-        try:
-            user = await api.get_user_by_telegram(tg_id)
-            user_id = user["id"]
-        except Exception as e:
-            logger.exception("Ошибка при получении пользователя на шаге выбора авто: %s", e)
-            # Фолбэк: идём сразу к финальному подтверждению без авто
-            await call.message.answer(
-                "Не получилось получить список автомобилей 😔\n"
-                "Заявка будет сохранена без привязки к машине.",
-                reply_markup=final_confirm_kb(),
-            )
-            await state.set_state(RequestCreate.waiting_confirm)
-            await call.answer()
-            return
-
-        # Пытаемся получить список машин
-        try:
-            cars = await api.list_cars(user_id=user_id)
-        except Exception as e:
-            logger.exception("Ошибка при получении списка машин: %s", e)
-            cars = []
-
-        if cars:
-            await call.message.answer(
-                "Теперь выбери автомобиль из своего гаража для этой заявки:",
-                reply_markup=car_select_kb(cars),
-            )
-            await state.set_state(RequestCreate.waiting_car_select)
-        else:
-            await call.message.answer(
-                "У тебя пока нет сохранённых автомобилей.\n"
-                "Заявка будет сохранена без привязки к машине.\n"
-                "Позже ты сможешь добавить авто в разделе «Мой гараж».",
-                reply_markup=final_confirm_kb(),
-            )
-            await state.set_state(RequestCreate.waiting_confirm)
-
-        await call.answer()
-    
-        # ---------- Шаг 7: выбор автомобиля из гаража ----------
-
-    @dp.callback_query(RequestCreate.waiting_car_select)
-    async def req_car_select(call: CallbackQuery, state: FSMContext):
-        data = await state.get_data()
-        cb_data = call.data or ""
-
-        if cb_data == "req_car_skip":
-            # Пользователь решил не привязывать авто
-            await state.update_data(car_id=None)
-            car_text = "без привязки к конкретному авто"
-        elif cb_data.startswith("req_car_"):
-            try:
-                car_id = int(cb_data.split("_")[-1])
-            except ValueError:
-                await call.answer()
-                return
-            await state.update_data(car_id=car_id)
-            car_text = f"автомобиль #{car_id}"
-        else:
-            await call.answer()
-            return
-
-        # Показываем финальный шаг подтверждения
-        await call.message.edit_text(
-            "Автомобиль для заявки выбран: "
-            f"{car_text}.\n\n"
-            "Если всё верно — подтверди заявку:",
-            reply_markup=final_confirm_kb(),
-        )
-        await state.set_state(RequestCreate.waiting_confirm)
-        await call.answer()
-
-        # ---------- Финальное подтверждение ----------
-
-    @dp.callback_query(RequestCreate.waiting_confirm, F.data == "req_confirm_yes")
-    async def req_confirm_yes(call: CallbackQuery, state: FSMContext):
-        tg_id = call.from_user.id
-
-        data = await state.get_data()
-        logger.info("Подтверждение заявки, tg_id=%s, data=%s", tg_id, data)
-
-        # 1. Пытаемся получить пользователя по telegram_id
-        try:
-            user = await api.get_user_by_telegram(tg_id)
-        except Exception as e:
-            logger.exception("Ошибка при получении пользователя tg_id=%s: %s", tg_id, e)
-            await call.answer(
-                "Не получилось найти профиль пользователя 😔\n"
-                "Попробуй ещё раз через /start.",
-                show_alert=True,
-            )
-            return
-
-        user_id = user["id"]
-
-        # 2. Разбираем данные из FSM
-        move_type = data.get("move_type")  # "self" или "help"
-        latitude = data.get("latitude")
-        longitude = data.get("longitude")
-        address = data.get("address")
-        description = (data.get("description") or "").strip()
-        date_text = (data.get("date_text") or "").strip()
-        time_slot = (data.get("time_slot") or "").strip()
-        photo_id = data.get("photo_file_id")
-        car_id = data.get("car_id")  # может быть None
-
-        extra_parts = []
-        if date_text:
-            extra_parts.append(f"Дата/когда удобно: {date_text}")
-        if time_slot:
-            extra_parts.append(f"Предпочитаемое время: {time_slot}")
-
-        if extra_parts:
-            if description:
-                description_full = description + "\n\n" + "\n".join(extra_parts)
-            else:
-                description_full = "\n".join(extra_parts)
-        else:
-            description_full = description or "Описание не указано"
-
-        # 3. Маппинг состояния авто в поля схемы
-        is_car_movable = move_type == "self"
-        need_tow_truck = move_type == "help"
-        need_mobile_master = move_type == "help"
-
-        # 4. Формируем payload под RequestCreate
-        request_payload = {
-            "user_id": user_id,
-            "car_id": car_id,
-            "latitude": latitude,
-            "longitude": longitude,
-            "address_text": address,
-            "is_car_movable": is_car_movable,
-            "need_tow_truck": need_tow_truck,
-            "need_mobile_master": need_mobile_master,
-            "radius_km": None,        # TODO
-            "service_category": None, # TODO
-            "description": description_full,
-            "photos": [photo_id] if photo_id else [],
-            "hide_phone": True,       # TODO: шаг "Показывать номер?"
-        }
-
-        logger.info("Отправляем заявку в backend: %s", request_payload)
-
-        # 5. Пытаемся создать заявку в backend-е
-        try:
-            created = await api.create_request(request_payload)
-        except Exception as e:
-            logger.exception("Ошибка при создании заявки в backend: %s", e)
-            await state.clear()
-            await call.message.edit_text(
-                "Не получилось сохранить заявку на сервере 😔\n"
-                "Попробуй ещё раз чуть позже.",
-                reply_markup=main_menu_inline(),
-            )
-            await call.answer()
-            return
-
-        # 6. Очищаем состояние и показываем результат
-        await state.clear()
-
-        request_id = created.get("id")
-        request_id_text = f"#{request_id}" if request_id is not None else "без номера"
-
-        await call.message.edit_text(
-            "Заявка сохранена в системе ✅\n\n"
-            "Мы зафиксировали все данные и скоро добавим:\n"
-            "подбор подходящих СТО, отклики и бонусы.\n\n"
-            f"Номер твоей заявки: {request_id_text}\n\n"
-            "Можешь вернуться в главное меню:",
-            reply_markup=main_menu_inline(),
-        )
-        await call.answer("Заявка отправлена")
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 if __name__ == "__main__":

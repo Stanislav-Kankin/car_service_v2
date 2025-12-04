@@ -27,10 +27,10 @@ class APIClient:
         """
         Базовый метод для всех запросов.
 
-        method  — "GET", "POST", "PATCH", "DELETE"
+        method   — "GET", "POST", "PATCH", "DELETE"
         endpoint — строка вида "/api/v1/users/..."
-        data    — JSON-тело (dict) или None
-        params  — query-параметры (?user_id=1 и т.п.)
+        data     — JSON-тело (dict) или None
+        params   — query-параметры (?user_id=1 и т.п.)
         """
         url = f"{self.base_url}{endpoint}"
 
@@ -53,11 +53,22 @@ class APIClient:
     # USERS
     # ------------------------------------------------------------------
 
-    async def create_user(self, telegram_id: int) -> Any:
+    async def create_user(self, data: Dict[str, Any]) -> Any:
+        """
+        Создание пользователя.
+
+        Ожидает полный payload:
+        {
+            "telegram_id": int,
+            "full_name": str,
+            "phone": str,
+            "city": str
+        }
+        """
         return await self._request(
             "POST",
             "/api/v1/users/",
-            {"telegram_id": telegram_id},
+            data,
         )
 
     async def get_user_by_telegram(self, telegram_id: int) -> Any:
@@ -84,6 +95,10 @@ class APIClient:
     # ------------------------------------------------------------------
 
     async def list_cars(self, user_id: Optional[int] = None) -> Any:
+        """
+        Общий метод: либо все машины, либо по пользователю (если backend так поддерживает).
+        В текущем проекте основное использование — list_cars_by_user().
+        """
         if user_id is not None:
             endpoint = f"/api/v1/cars/by-user/{user_id}"
             params = None
@@ -95,6 +110,16 @@ class APIClient:
             "GET",
             endpoint,
             params=params,
+        )
+
+    async def list_cars_by_user(self, user_id: int) -> Any:
+        """
+        Явный метод под вызовы из main.py:
+        api.list_cars_by_user(user_id)
+        """
+        return await self._request(
+            "GET",
+            f"/api/v1/cars/by-user/{user_id}",
         )
 
     async def create_car(self, data: Dict[str, Any]) -> Any:
