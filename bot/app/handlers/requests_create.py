@@ -11,7 +11,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-from app.api_client import api_client
+from ..api_client import api_client
 
 router = Router()
 

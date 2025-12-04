@@ -2,7 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
-from app.api_client import api_client
+from ..api_client import api_client
 from .general import get_main_menu
 
 router = Router()

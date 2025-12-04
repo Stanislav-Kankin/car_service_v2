@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from ..api_client import api_client
 
-from app.api_client import api_client
 
 router = Router()
 

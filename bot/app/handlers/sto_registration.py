@@ -8,7 +8,7 @@ from aiogram.types import (
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 
-from bot.app.api_client import api
+from ..api_client import api_client
 
 router = Router()
 logger = logging.getLogger(__name__)
