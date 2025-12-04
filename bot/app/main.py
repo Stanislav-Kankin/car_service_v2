@@ -96,6 +96,13 @@ class ServiceCenterRegistration(StatesGroup):
     waiting_confirm = State()    # подтверждение и запись в backend
 
 
+class ServiceCenterSpecs(StatesGroup):
+    """
+    Редактирование специализаций СТО.
+    """
+    waiting_specs = State()
+
+
 # ==========================
 #   Inline / Reply клавиатуры
 # ==========================
@@ -170,6 +177,112 @@ def service_reg_confirm_kb() -> InlineKeyboardMarkup:
                 )
             ],
         ]
+    )
+
+def service_owner_menu_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ Редактировать профиль (позже)",
+                    callback_data="service_profile_edit",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🛠 Мои специализации",
+                    callback_data="service_specs_edit",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ В главное меню",
+                    callback_data="service_owner_back",
+                )
+            ],
+        ]
+    )
+
+
+def service_specs_kb(selected: list[str]) -> InlineKeyboardMarkup:
+    """
+    Мультивыбор специализаций.
+    В selected лежат ключи ("mechanic", "tire" и т.п.).
+    """
+    all_specs = [
+        ("Автомеханика", "mechanic"),
+        ("Шиномонтаж", "tire"),
+        ("Электрика", "electric"),
+        ("Диагностика", "diagnostics"),
+        ("Кузовной ремонт", "body"),
+        ("Агрегатный ремонт", "aggregates"),
+    ]
+
+    rows: list[list[InlineKeyboardButton]] = []
+    for title, key in all_specs:
+        mark = "✅ " if key in selected else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{mark}{title}",
+                    callback_data=f"service_spec_{key}",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="✅ Сохранить",
+                callback_data="service_spec_done",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ Назад в кабинет",
+                callback_data="service_spec_cancel",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def format_service_center_profile(sc: dict) -> str:
+    """
+    Красивый текст профиля СТО для кабинета.
+    """
+    name = (sc.get("name") or "Без названия").strip()
+
+    org_type = sc.get("org_type")
+    if org_type == "individual":
+        org_title = "Частный мастер"
+    elif org_type == "company":
+        org_title = "Автосервис / компания"
+    else:
+        org_title = "Автосервис"
+
+    phone = (sc.get("phone") or "Не указан").strip()
+    city = (sc.get("city") or "").strip()
+    addr = (sc.get("address_text") or "").strip()
+
+    if city and addr:
+        addr_line = f"{city}, {addr}"
+    else:
+        addr_line = addr or city or "Не указан"
+
+    specs = sc.get("specializations") or []
+    specs_text = ", ".join(specs) if specs else "Пока не выбраны"
+
+    return (
+        "Кабинет автосервиса:\n\n"
+        f"🏷 Название: {name}\n"
+        f"👤 Тип: {org_title}\n"
+        f"📞 Телефон: {phone}\n"
+        f"📍 Адрес: {addr_line}\n"
+        f"🛠 Специализации: {specs_text}\n"
     )
 
 
@@ -448,6 +561,21 @@ async def main() -> None:
     bot = Bot(token=config.BOT_TOKEN)
     dp = Dispatcher()
     api = APIClient()
+
+    async def _get_user_service_center(user_id: int) -> Optional[dict]:
+        """
+        Возвращает первый СТО пользователя или None.
+        """
+        try:
+            sc_list = await api.list_service_centers_by_user(user_id)
+        except Exception as e:
+            logger.exception("Ошибка при получении СТО пользователя: %s", e)
+            return None
+
+        if not sc_list:
+            return None
+        return sc_list[0]
+
 
     # ---------- /ping ----------
 
@@ -1225,15 +1353,15 @@ async def main() -> None:
     @dp.callback_query(F.data == "menu_service")
     async def cb_service_start(call: CallbackQuery, state: FSMContext):
         """
-        Старт регистрации автосервиса / частного мастера.
+        Если СТО уже зарегистрирован — показываем кабинет.
+        Иначе запускаем регистрацию.
         """
         tg_id = call.from_user.id
 
-        # Проверяем, что пользователь существует
         try:
             user = await api.get_user_by_telegram(tg_id)
         except Exception as e:
-            logger.exception("Ошибка при получении пользователя для регистрации СТО: %s", e)
+            logger.exception("Ошибка при получении пользователя для СТО: %s", e)
             await call.message.edit_text(
                 "Не удалось найти твой профиль 😔\n"
                 "Нажми /start и пройди регистрацию ещё раз.",
@@ -1242,6 +1370,20 @@ async def main() -> None:
             await call.answer()
             return
 
+        user_id = user["id"]
+
+        # пробуем найти уже существующий сервис
+        sc = await _get_user_service_center(user_id)
+        if sc:
+            await state.clear()
+            await call.message.edit_text(
+                format_service_center_profile(sc),
+                reply_markup=service_owner_menu_kb(),
+            )
+            await call.answer()
+            return
+
+        # если СТО ещё нет — запускаем регистрацию (как раньше)
         await state.clear()
         await state.set_state(ServiceCenterRegistration.waiting_org_type)
 
@@ -1250,6 +1392,15 @@ async def main() -> None:
             "Давай зарегистрируем его в системе.\n\n"
             "Кто ты по форме работы?",
             reply_markup=service_org_type_kb(),
+        )
+        await call.answer()
+
+    @dp.callback_query(F.data == "service_owner_back")
+    async def service_owner_back(call: CallbackQuery, state: FSMContext):
+        await state.clear()
+        await call.message.edit_text(
+            "Главное меню:",
+            reply_markup=main_menu_inline(),
         )
         await call.answer()
 
@@ -1396,7 +1547,6 @@ async def main() -> None:
             "Нажми скрепку 📎 → «Геопозиция» и выбери точку на карте."
         )
 
-
     @dp.message(ServiceCenterRegistration.waiting_extra)
     async def service_extra_step(message: Message, state: FSMContext):
         text = (message.text or "").strip()
@@ -1539,6 +1689,124 @@ async def main() -> None:
             reply_markup=main_menu_inline(),
         )
         await call.answer("СТО зарегистрировано")
+
+    @dp.callback_query(F.data == "service_specs_edit")
+    async def service_specs_edit_start(call: CallbackQuery, state: FSMContext):
+        """
+        Запуск редактирования специализаций СТО.
+        """
+        tg_id = call.from_user.id
+
+        try:
+            user = await api.get_user_by_telegram(tg_id)
+            user_id = user["id"]
+        except Exception as e:
+            logger.exception("Ошибка при получении пользователя для спецов СТО: %s", e)
+            await call.message.edit_text(
+                "Не удалось найти твой профиль 😔",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        sc = await _get_user_service_center(user_id)
+        if not sc:
+            await call.message.edit_text(
+                "У тебя пока нет зарегистрированного автосервиса.\n"
+                "Сначала пройди регистрацию.",
+                reply_markup=main_menu_inline(),
+            )
+            await call.answer()
+            return
+
+        sc_id = sc["id"]
+        current_specs = sc.get("specializations") or []
+
+        await state.set_state(ServiceCenterSpecs.waiting_specs)
+        await state.update_data(
+            service_center_id=sc_id,
+            user_id=user_id,
+            specs_selected=list(current_specs),
+        )
+
+        await call.message.edit_text(
+            "Выбери специализации твоего сервиса.\n"
+            "Можно выбрать несколько, кнопки переключаются.",
+            reply_markup=service_specs_kb(list(current_specs)),
+        )
+        await call.answer()
+
+    @dp.callback_query(ServiceCenterSpecs.waiting_specs)
+    async def service_specs_edit_process(call: CallbackQuery, state: FSMContext):
+        data = call.data or ""
+        fsm = await state.get_data()
+        selected: list[str] = fsm.get("specs_selected", [])
+        sc_id = fsm.get("service_center_id")
+        user_id = fsm.get("user_id")
+
+        if data == "service_spec_cancel":
+            # возвращаемся в кабинет без сохранения
+            sc = await _get_user_service_center(user_id)
+            await state.clear()
+            if sc:
+                await call.message.edit_text(
+                    format_service_center_profile(sc),
+                    reply_markup=service_owner_menu_kb(),
+                )
+            else:
+                await call.message.edit_text(
+                    "Сервис не найден.",
+                    reply_markup=main_menu_inline(),
+                )
+            await call.answer()
+            return
+
+        if data == "service_spec_done":
+            try:
+                await api.update_service_center(sc_id, {"specializations": selected})
+            except Exception as e:
+                logger.exception("Ошибка при сохранении спецов СТО: %s", e)
+                await state.clear()
+                await call.message.edit_text(
+                    "Не получилось сохранить специализации 😔\n"
+                    "Попробуй ещё раз позже.",
+                    reply_markup=service_owner_menu_kb(),
+                )
+                await call.answer()
+                return
+
+            # обновим профиль и вернёмся в кабинет
+            sc = await _get_user_service_center(user_id)
+            await state.clear()
+            if sc:
+                await call.message.edit_text(
+                    "Специализации обновлены ✅\n\n"
+                    + format_service_center_profile(sc),
+                    reply_markup=service_owner_menu_kb(),
+                )
+            else:
+                await call.message.edit_text(
+                    "Сервис не найден.",
+                    reply_markup=main_menu_inline(),
+                )
+            await call.answer()
+            return
+
+        if data.startswith("service_spec_"):
+            key = data.split("_", 2)[2]
+            if key in selected:
+                selected.remove(key)
+            else:
+                selected.append(key)
+            await state.update_data(specs_selected=selected)
+
+            await call.message.edit_reply_markup(
+                reply_markup=service_specs_kb(selected),
+            )
+            await call.answer()
+            return
+
+        await call.answer()
 
     # ==========================
     #   НОВАЯ ЗАЯВКА
@@ -1983,7 +2251,6 @@ async def main() -> None:
         photo_id = data.get("photo_file_id")
         car_id = data.get("car_id")  # может быть None
 
-        # Добавим дату/время к описанию, чтобы информация не потерялась
         extra_parts = []
         if date_text:
             extra_parts.append(f"Дата/когда удобно: {date_text}")
@@ -2006,23 +2273,18 @@ async def main() -> None:
         # 4. Формируем payload под RequestCreate
         request_payload = {
             "user_id": user_id,
-            "car_id": car_id,  # 🔥 теперь берём из FSM
-
+            "car_id": car_id,
             "latitude": latitude,
             "longitude": longitude,
             "address_text": address,
-
             "is_car_movable": is_car_movable,
             "need_tow_truck": need_tow_truck,
             "need_mobile_master": need_mobile_master,
-
-            "radius_km": None,          # TODO: выбор радиуса / района
-            "service_category": None,   # TODO: выбор типа услуги
-
+            "radius_km": None,        # TODO
+            "service_category": None, # TODO
             "description": description_full,
             "photos": [photo_id] if photo_id else [],
-
-            "hide_phone": True,         # TODO: отдельный шаг "Показывать номер?"
+            "hide_phone": True,       # TODO: шаг "Показывать номер?"
         }
 
         logger.info("Отправляем заявку в backend: %s", request_payload)
@@ -2056,66 +2318,6 @@ async def main() -> None:
             reply_markup=main_menu_inline(),
         )
         await call.answer("Заявка отправлена")
-
-        # 5. Пытаемся создать заявку в backend-е
-        try:
-            created = await api.create_request(request_payload)
-        except Exception as e:
-            logger.exception("Ошибка при создании заявки в backend: %s", e)
-            await state.clear()
-            await call.message.edit_text(
-                "Не получилось сохранить заявку на сервере 😔\n"
-                "Попробуй ещё раз чуть позже.",
-                reply_markup=main_menu_inline(),
-            )
-            await call.answer()
-            return
-
-        # 6. Очищаем состояние и показываем результат
-        await state.clear()
-
-        request_id = created.get("id")
-        request_id_text = f"#{request_id}" if request_id is not None else "без номера"
-
-        await call.message.edit_text(
-            "Заявка сохранена в системе ✅\n\n"
-            "Мы зафиксировали все данные и скоро добавим:\n"
-            "подбор подходящих СТО, отклики и бонусы.\n\n"
-            f"Номер твоей заявки: {request_id_text}\n\n"
-            "Можешь вернуться в главное меню:",
-            reply_markup=main_menu_inline(),
-        )
-        await call.answer("Заявка отправлена")
-
-    # ==========================
-    #   СТО: смена роли
-    # ==========================
-
-    @dp.callback_query(F.data == "menu_service")
-    async def cb_service(call: CallbackQuery):
-        tg_id = call.from_user.id
-        try:
-            user = await api.get_user_by_telegram(tg_id)
-            await api.update_user(user["id"], {"role": "service_owner"})
-        except Exception as e:
-            logger.exception("Ошибка при смене роли: %s", e)
-            await call.message.answer(
-                "Не удалось обновить роль до «автосервис» 😔\n"
-                "Попробуй позже или напиши /profile для проверки.",
-                reply_markup=main_menu_inline(),
-            )
-            await call.answer()
-            return
-
-        await call.message.edit_text(
-            "Отлично! 🎯\n"
-            "Теперь ты отмечен как представитель автосервиса.\n"
-            "Скоро добавим регистрацию СТО, адрес, услуги и приём заявок.",
-            reply_markup=main_menu_inline(),
-        )
-        await call.answer()
-
-    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
