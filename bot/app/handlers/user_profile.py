@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 
 from ..api_client import api_client
 
@@ -8,6 +8,10 @@ router = Router()
 
 @router.message(F.text == "👤 Профиль")
 async def profile_show(message: Message):
+    """Показать профиль пользователя.
+
+    Пока без редактирования, просто читаем данные из backend.
+    """
     user = await api_client.get_user_by_telegram(message.from_user.id)
 
     if not user:
@@ -25,3 +29,10 @@ async def profile_show(message: Message):
     )
 
     await message.answer(text)
+
+
+@router.callback_query(F.data == "main:profile")
+async def profile_show_from_menu(callback: CallbackQuery):
+    """Обработчик нажатия на пункт "👤 Профиль" в главном инлайн-меню."""
+    await profile_show(callback.message)
+    await callback.answer()

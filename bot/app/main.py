@@ -27,8 +27,7 @@ from .handlers.requests_view import router as requests_view_router
 from .handlers.sto_registration import router as sto_registration_router
 from .handlers.sto_offers import router as sto_offers_router
 
-# Эти пока закомментированы, подключим позже, когда там появятся router'ы
-# from .handlers.user_garage import router as user_garage_router
+from .handlers.user_garage import router as user_garage_router
 # from .handlers.raiting_bonus import router as raiting_bonus_router
 # from .handlers.admin import router as admin_router
 # from .handlers.chat import router as chat_router
@@ -92,9 +91,7 @@ async def main() -> None:
     dp.include_router(requests_create_router)
     dp.include_router(requests_view_router)
     dp.include_router(sto_offers_router)
-
-    # Когда допишем — раскомментируем:
-    # dp.include_router(user_garage_router)
+    dp.include_router(user_garage_router)
     # dp.include_router(raiting_bonus_router)
     # dp.include_router(admin_router)
     # dp.include_router(chat_router)

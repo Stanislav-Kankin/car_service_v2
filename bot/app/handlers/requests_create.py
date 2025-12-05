@@ -175,7 +175,14 @@ async def request_create_start(message: Message, state: FSMContext):
         "• «Энка, парковка ТРЦ»",
         reply_markup=kb_cancel(),
     )
-    await state.set_state(RequestCreateStates.waiting_location)
+    await state.set_s
+    tate(RequestCreateStates.waiting_location)
+
+@router.callback_query(F.data == "main:new_request")
+async def request_create_start_from_menu(callback: CallbackQuery, state: FSMContext):
+    """Старт создания заявки из инлайн-меню."""
+    await request_create_start(callback.message, state)
+    await callback.answer()
 
 
 # -----------------------------

@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from ..api_client import api_client
 
 
@@ -34,6 +34,13 @@ async def my_requests(message: Message):
             f"Описание: {req['description']}\n"
         )
         await message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "main:my_requests")
+async def my_requests_from_menu(callback: CallbackQuery):
+    """Вход в список заявок из главного инлайн-меню."""
+    await my_requests(callback.message)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("req_offers_"))
