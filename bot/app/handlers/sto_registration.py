@@ -246,6 +246,11 @@ async def sto_specs(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(STORegister.waiting_confirm)
 async def sto_finish(call: CallbackQuery, state: FSMContext):
+    """
+    Финальный шаг регистрации СТО:
+    - при "sto_reg_no" отменяем;
+    - при подтверждении создаём запись сервис-центра в backend.
+    """
     if call.data == "sto_reg_no":
         await state.clear()
         await call.message.edit_text("Регистрация отменена.")
@@ -256,23 +261,40 @@ async def sto_finish(call: CallbackQuery, state: FSMContext):
     tg_id = call.from_user.id
 
     try:
-        user = await api.get_user_by_telegram(tg_id)
-        user_id = user["id"]
+        user = await api_client.get_user_by_telegram(tg_id)
+    except Exception as e:
+        logger.exception("Ошибка запроса пользователя при регистрации СТО: %s", e)
+        await call.message.edit_text(
+            "Не удалось получить данные пользователя 😔\n"
+            "Попробуйте ещё раз с команды /start."
+        )
+        await call.answer()
+        return
 
-        payload = {
-            "user_id": user_id,
-            "org_type": data["org_type"],
-            "name": data["name"],
-            "address_text": data["address_text"],
-            "latitude": data["latitude"],
-            "longitude": data["longitude"],
-            "phone": data["phone"],
-            "website": data["website"],
-            "specializations": data["specializations"],
-        }
+    if not user:
+        await call.message.edit_text(
+            "Пользователь не найден в системе.\n"
+            "Сначала завершите регистрацию как клиента через /start."
+        )
+        await call.answer()
+        return
 
-        created = await api.create_service_center(payload)
+    user_id = user["id"]
 
+    payload = {
+        "user_id": user_id,
+        "org_type": data["org_type"],
+        "name": data["name"],
+        "address_text": data["address_text"],
+        "latitude": data["latitude"],
+        "longitude": data["longitude"],
+        "phone": data["phone"],
+        "website": data["website"],
+        "specializations": data["specializations"],
+    }
+
+    try:
+        created = await api_client.create_service_center(payload)
     except Exception as e:
         logger.exception("Ошибка регистрации СТО: %s", e)
         await call.message.edit_text("Не удалось зарегистрировать СТО 😔 Попробуйте позже.")

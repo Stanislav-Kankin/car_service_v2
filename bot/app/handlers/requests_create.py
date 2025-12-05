@@ -175,8 +175,7 @@ async def request_create_start(message: Message, state: FSMContext):
         "• «Энка, парковка ТРЦ»",
         reply_markup=kb_cancel(),
     )
-    await state.set_s
-    tate(RequestCreateStates.waiting_location)
+    await state.set_state(RequestCreateStates.waiting_location)
 
 
 @router.callback_query(F.data == "main:new_request")
