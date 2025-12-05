@@ -1,6 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import (
     Message,
+    CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     ReplyKeyboardRemove,
@@ -8,7 +9,6 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 
 from ..api_client import api_client
-from ..states.user_states import UserRegistration
 
 router = Router()
 
@@ -20,7 +20,7 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
     role:
       - "client"        -> только клиентские пункты
       - "service_owner" -> добавляем меню СТО
-      - "admin"         -> позже добавим отдельный блок
+      - "admin"         -> можно будет добавить отдельные пункты
     """
     buttons: list[list[InlineKeyboardButton]] = [
         [
@@ -71,20 +71,20 @@ async def cmd_start(message: Message, state: FSMContext):
     - если нет — запускаем сценарий регистрации (FSM UserRegistration);
     - если есть — убираем старую reply-клаву и показываем главное инлайн-меню.
     """
-    # На всякий случай чистим всё старое состояние
     await state.clear()
 
     user = await api_client.get_user_by_telegram(message.from_user.id)
 
     if user is None:
-        # пользователь не зарегистрирован → запускаем регистрацию
+        from ..states.user_states import UserRegistration  # локальный импорт, чтобы избежать циклов
+
         await state.set_state(UserRegistration.waiting_full_name)
 
         await message.answer(
             "Привет! 👋\n"
             "Похоже, вы здесь впервые.\n\n"
             "Давайте зарегистрируемся, это займёт одну минуту!",
-            reply_markup=ReplyKeyboardRemove(),  # снимаем старые reply-клавиатуры, если вдруг остались
+            reply_markup=ReplyKeyboardRemove(),
         )
         await message.answer("Введите ваше имя:")
         return
@@ -102,14 +102,31 @@ async def cmd_start(message: Message, state: FSMContext):
     else:
         name = message.from_user.full_name or message.from_user.first_name or "друг"
 
-    # 1) Сначала убираем любую старую reply-клавиатуру
     await message.answer(
         f"Рады снова видеть, {name}!",
         reply_markup=ReplyKeyboardRemove(),
     )
 
-    # 2) Отдельным сообщением показываем чистое инлайн-меню
     await message.answer(
         "Выберите действие из меню ниже 👇",
         reply_markup=get_main_menu(role),
     )
+
+
+@router.callback_query(F.data == "main:menu")
+async def main_menu_callback(callback: CallbackQuery, state: FSMContext):
+    """
+    Универсальный возврат в главное меню из любой точки.
+    """
+    await state.clear()
+    user = await api_client.get_user_by_telegram(callback.from_user.id)
+
+    role: str | None = None
+    if isinstance(user, dict):
+        role = user.get("role")
+
+    await callback.message.edit_text(
+        "Выберите действие из меню ниже 👇",
+        reply_markup=get_main_menu(role),
+    )
+    await callback.answer()
