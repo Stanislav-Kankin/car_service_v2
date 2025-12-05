@@ -7,7 +7,8 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 
-from ..api_client import api_client  # относительный импорт внутри bot.app
+from ..api_client import api_client
+from ..states.user_states import UserRegistration
 
 router = Router()
 
@@ -17,7 +18,7 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
     Инлайн-меню главного экрана.
 
     role:
-      - "client"        -> только клиентские пункты + кнопка регистрации СТО
+      - "client"        -> только клиентские пункты
       - "service_owner" -> добавляем меню СТО
       - "admin"         -> позже добавим отдельный блок
     """
@@ -46,18 +47,7 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
         ],
     ]
 
-    # Клиентам даём возможность подключить СТО
-    if role == "client":
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text="🔧 Зарегистрировать СТО",
-                    callback_data="main:sto_register",
-                ),
-            ]
-        )
-
-    # Владельцам СТО и админам показываем кабинет СТО
+    # Кнопка "Меню СТО" только для владельцев сервисов и админов
     if role in ("service_owner", "admin"):
         buttons.append(
             [
@@ -78,15 +68,18 @@ async def cmd_start(message: Message, state: FSMContext):
 
     - очищаем FSM;
     - ищем пользователя в backend;
-    - если нет — запускаем сценарий регистрации (user_registration.py через reg_step);
+    - если нет — запускаем сценарий регистрации (FSM UserRegistration);
     - если есть — убираем старую reply-клаву и показываем главное инлайн-меню.
     """
+    # На всякий случай чистим всё старое состояние
     await state.clear()
 
     user = await api_client.get_user_by_telegram(message.from_user.id)
 
     if user is None:
-        # пользователь не зарегистрирован → отправляем в регистрацию
+        # пользователь не зарегистрирован → запускаем регистрацию
+        await state.set_state(UserRegistration.waiting_full_name)
+
         await message.answer(
             "Привет! 👋\n"
             "Похоже, вы здесь впервые.\n\n"
@@ -94,10 +87,9 @@ async def cmd_start(message: Message, state: FSMContext):
             reply_markup=ReplyKeyboardRemove(),  # снимаем старые reply-клавиатуры, если вдруг остались
         )
         await message.answer("Введите ваше имя:")
-        await state.update_data(reg_step="name")
         return
 
-    # Определяем имя и роль для меню
+    # Пользователь найден — определяем имя и роль для меню
     role: str | None = None
     if isinstance(user, dict):
         role = user.get("role")
