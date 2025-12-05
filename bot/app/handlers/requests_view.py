@@ -8,7 +8,7 @@ router = Router()
 
 @router.message(F.text == "📨 Мои заявки")
 async def my_requests(message: Message):
-    user = await api_client.get_user_by_telegram(message.from_user.id)
+    user = await api_client.get_user_by_telegram(message.chat.id)
     if not user:
         return await message.answer("Вы не зарегистрированы. Нажмите /start.")
 

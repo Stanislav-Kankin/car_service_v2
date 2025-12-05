@@ -13,7 +13,7 @@ async def _send_garage(message: Message):
     Сейчас только чтение списка машин. Добавление/редактирование
     сделаем отдельными хэндлерами.
     """
-    user = await api_client.get_user_by_telegram(message.from_user.id)
+    user = await api_client.get_user_by_telegram(message.chat.id)
     if not user:
         await message.answer(
             "Похоже, вы ещё не зарегистрированы.\n"

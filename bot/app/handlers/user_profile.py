@@ -10,7 +10,7 @@ async def _send_profile(message: Message):
     """
     Общая логика показа профиля (чтобы использовать и из message, и из callback).
     """
-    user = await api_client.get_user_by_telegram(message.from_user.id)
+    user = await api_client.get_user_by_telegram(message.chat.id)
 
     if not user:
         await message.answer(

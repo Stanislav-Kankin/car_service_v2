@@ -141,7 +141,7 @@ async def request_create_start(message: Message, state: FSMContext):
     """Стартовый шаг: проверяем пользователя и наличие машин, спрашиваем локацию."""
     await state.clear()
 
-    tg_id = message.from_user.id
+    tg_id = message.chat.id
     user = await api_client.get_user_by_telegram(tg_id)
 
     if not user:

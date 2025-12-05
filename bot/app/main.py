@@ -22,15 +22,14 @@ from .config import config
 from .handlers.general import router as general_router
 from .handlers.user_registration import router as user_registration_router
 from .handlers.user_profile import router as user_profile_router
+from .handlers.user_garage import router as user_garage_router
 from .handlers.requests_create import router as requests_create_router
 from .handlers.requests_view import router as requests_view_router
 from .handlers.sto_registration import router as sto_registration_router
 from .handlers.sto_offers import router as sto_offers_router
-
-from .handlers.user_garage import router as user_garage_router
-# from .handlers.raiting_bonus import router as raiting_bonus_router
-# from .handlers.admin import router as admin_router
 # from .handlers.chat import router as chat_router
+# from .handlers.rating_bonus import router as rating_bonus_router
+# from .handlers.admin import router as admin_router
 
 
 def setup_logging() -> None:
@@ -84,17 +83,17 @@ async def main() -> None:
     dp = Dispatcher(storage=storage)
 
     # Подключаем роутеры по слоям/доменам
-    dp.include_router(general_router)
     dp.include_router(user_registration_router)
-    dp.include_router(user_profile_router)
     dp.include_router(sto_registration_router)
+    dp.include_router(user_profile_router)
+    dp.include_router(user_garage_router)
     dp.include_router(requests_create_router)
     dp.include_router(requests_view_router)
     dp.include_router(sto_offers_router)
-    dp.include_router(user_garage_router)
-    # dp.include_router(raiting_bonus_router)
-    # dp.include_router(admin_router)
     # dp.include_router(chat_router)
+    # dp.include_router(rating_bonus_router)
+    # dp.include_router(admin_router)
+    dp.include_router(general_router)
 
     logging.info("Бот запущен. Ожидаем обновления...")
     await dp.start_polling(bot)
