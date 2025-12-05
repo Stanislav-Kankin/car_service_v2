@@ -6,15 +6,19 @@ from ..api_client import api_client
 router = Router()
 
 
-@router.message(F.text == "🚗 Мой гараж")
-async def garage_show(message: Message):
-    """Простой просмотр гаража пользователя.
+async def _send_garage(message: Message):
+    """
+    Общая логика показа гаража.
 
-    Пока только список машин. Добавление/редактирование сделаем отдельными шагами.
+    Сейчас только чтение списка машин. Добавление/редактирование
+    сделаем отдельными хэндлерами.
     """
     user = await api_client.get_user_by_telegram(message.from_user.id)
     if not user:
-        await message.answer("Вы ещё не зарегистрированы. Напишите /start")
+        await message.answer(
+            "Похоже, вы ещё не зарегистрированы.\n"
+            "Нажмите /start, чтобы пройти простую регистрацию. 🙂"
+        )
         return
 
     cars = await api_client.list_cars_by_user(user["id"])
@@ -41,8 +45,19 @@ async def garage_show(message: Message):
     await message.answer("\n".join(lines))
 
 
+@router.message(F.text == "🚗 Мой гараж")
+async def garage_show_legacy(message: Message):
+    """
+    Старый вход по текстовой кнопке.
+    Оставляем для совместимости со старыми клавиатурами.
+    """
+    await _send_garage(message)
+
+
 @router.callback_query(F.data == "main:garage")
 async def garage_show_from_menu(callback: CallbackQuery):
-    """Обработчик нажатия на пункт "🚗 Мой гараж" в инлайн-меню."""
-    await garage_show(callback.message)
+    """
+    Обработчик нажатия на пункт "🚗 Мой гараж" в инлайн-меню.
+    """
+    await _send_garage(callback.message)
     await callback.answer()

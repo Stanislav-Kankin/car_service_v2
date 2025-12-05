@@ -178,16 +178,19 @@ async def request_create_start(message: Message, state: FSMContext):
     await state.set_s
     tate(RequestCreateStates.waiting_location)
 
+
 @router.callback_query(F.data == "main:new_request")
 async def request_create_start_from_menu(callback: CallbackQuery, state: FSMContext):
-    """Старт создания заявки из инлайн-меню."""
+    """
+    Старт создания заявки из главного инлайн-меню.
+    """
     await request_create_start(callback.message, state)
     await callback.answer()
-
 
 # -----------------------------
 # Шаг 1 — Локация
 # -----------------------------
+
 
 @router.message(RequestCreateStates.waiting_location)
 async def request_location(message: Message, state: FSMContext):

@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from ..api_client import api_client
 
+from ..api_client import api_client
 
 router = Router()
 
@@ -38,7 +38,9 @@ async def my_requests(message: Message):
 
 @router.callback_query(F.data == "main:my_requests")
 async def my_requests_from_menu(callback: CallbackQuery):
-    """Вход в список заявок из главного инлайн-меню."""
+    """
+    Вход в список заявок из главного инлайн-меню.
+    """
     await my_requests(callback.message)
     await callback.answer()
 

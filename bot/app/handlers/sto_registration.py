@@ -75,6 +75,21 @@ async def sto_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
+@router.callback_query(F.data == "main:sto_menu")
+async def sto_menu_entry(callback: CallbackQuery):
+    """
+    Вход в раздел СТО из главного инлайн-меню.
+
+    Пока просто информируем, что раздел в разработке.
+    Потом сюда повесим нормальный кабинет СТО.
+    """
+    await callback.answer()
+    await callback.message.answer(
+        "Раздел СТО будет доработан.\n"
+        "Сейчас доступны регистрация СТО и работа с откликами по заявкам."
+    )
+
+
 # -------------------------------------------------
 # Тип организации
 # -------------------------------------------------
