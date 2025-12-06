@@ -234,6 +234,30 @@ class APIClient:
             f"/api/v1/service-centers/by-user/{user_id}",
         )
 
+    async def get_my_service_center(self, telegram_id: int) -> Any:
+        """
+        Определить СТО, привязанный к владельцу с указанным telegram_id.
+
+        Логика:
+        1) Ищем пользователя по telegram_id.
+        2) Берём его user_id.
+        3) Ищем все service-centers по этому user_id.
+        4) Возвращаем первый (или None, если не найдено).
+        """
+        user = await self.get_user_by_telegram(telegram_id)
+        if not user:
+            return None
+
+        user_id = user["id"] if isinstance(user, dict) else getattr(user, "id", None)
+        if not user_id:
+            return None
+
+        sc_list = await self.list_service_centers_by_user(user_id)
+        if isinstance(sc_list, list) and sc_list:
+            return sc_list[0]
+
+        return None
+
     # ------------------------------------------------------------------
     # OFFERS (отклики СТО на заявки)
     # ------------------------------------------------------------------

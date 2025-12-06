@@ -4,13 +4,19 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    ReplyKeyboardRemove,
 )
 from aiogram.fsm.context import FSMContext
+from aiogram.filters import CommandStart
 
 from ..api_client import api_client
+from ..states.user_states import UserRegistration
 
 router = Router()
+
+
+# ---------------------------------------------------------------------------
+# Главное меню
+# ---------------------------------------------------------------------------
 
 
 def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
@@ -18,7 +24,7 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
     Инлайн-меню главного экрана.
 
     role:
-      - "client"        -> только клиентские пункты
+      - "client"        -> только клиентские пункты + кнопка регистрации СТО
       - "service_owner" -> добавляем меню СТО
       - "admin"         -> можно будет добавить отдельные пункты
     """
@@ -47,7 +53,7 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
         ],
     ]
 
-    # Кнопка "Меню СТО" только для владельцев сервисов и админов
+    # Для владельцев СТО / админов — меню СТО
     if role in ("service_owner", "admin"):
         buttons.append(
             [
@@ -57,76 +63,99 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
                 ),
             ]
         )
+    else:
+        # Для обычных клиентов — кнопка регистрации сервиса
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="🔧 Зарегистрировать СТО",
+                    callback_data="main:sto_register",
+                ),
+            ]
+        )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-@router.message(F.text == "/start")
+# ---------------------------------------------------------------------------
+# /start
+# ---------------------------------------------------------------------------
+
+
+@router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     """
-    Старт:
+    Точка входа.
 
-    - очищаем FSM;
-    - ищем пользователя в backend;
-    - если нет — запускаем сценарий регистрации (FSM UserRegistration);
-    - если есть — убираем старую reply-клаву и показываем главное инлайн-меню.
+    Если пользователь уже есть в backend:
+      - приветствуем по имени,
+      - показываем главное меню в зависимости от роли.
+
+    Если нет — запускаем FSM регистрации UserRegistration.
     """
     await state.clear()
 
     user = await api_client.get_user_by_telegram(message.from_user.id)
 
-    if user is None:
-        from ..states.user_states import UserRegistration  # локальный импорт, чтобы избежать циклов
+    if user:
+        # Уже зарегистрирован
+        full_name = None
+        role = None
 
-        await state.set_state(UserRegistration.waiting_full_name)
+        if isinstance(user, dict):
+            full_name = user.get("full_name") or user.get("name")
+            role = user.get("role")
 
+        if not full_name:
+            full_name = message.from_user.full_name
+
+        await message.answer(f"Рады снова видеть, {full_name}!")
         await message.answer(
-            "Привет! 👋\n"
-            "Похоже, вы здесь впервые.\n\n"
-            "Давайте зарегистрируемся, это займёт одну минуту!",
-            reply_markup=ReplyKeyboardRemove(),
+            "Выберите действие из меню ниже 👇",
+            reply_markup=get_main_menu(role),
         )
-        await message.answer("Введите ваше имя:")
         return
 
-    # Пользователь найден — определяем имя и роль для меню
-    role: str | None = None
-    if isinstance(user, dict):
-        role = user.get("role")
-        name = (
-            user.get("full_name")
-            or user.get("name")
-            or (message.from_user.full_name if message.from_user else None)
-            or "друг"
-        )
-    else:
-        name = message.from_user.full_name or message.from_user.first_name or "друг"
+    # Пользователь не найден — запускаем регистрацию
+    await state.set_state(UserRegistration.waiting_full_name)
 
     await message.answer(
-        f"Рады снова видеть, {name}!",
-        reply_markup=ReplyKeyboardRemove(),
+        "Привет! 👋\n"
+        "Похоже, вы здесь впервые.\n\n"
+        "Давайте зарегистрируемся, это займёт одну минуту.\n\n"
+        "Введите ваше имя / ФИО:",
     )
 
-    await message.answer(
-        "Выберите действие из меню ниже 👇",
-        reply_markup=get_main_menu(role),
-    )
+
+# ---------------------------------------------------------------------------
+# Кнопка «В меню» из любых сценариев
+# ---------------------------------------------------------------------------
 
 
 @router.callback_query(F.data == "main:menu")
-async def main_menu_callback(callback: CallbackQuery, state: FSMContext):
+async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     """
     Универсальный возврат в главное меню из любой точки.
     """
     await state.clear()
-    user = await api_client.get_user_by_telegram(callback.from_user.id)
 
+    user = await api_client.get_user_by_telegram(callback.from_user.id)
     role: str | None = None
     if isinstance(user, dict):
         role = user.get("role")
 
-    await callback.message.edit_text(
-        "Выберите действие из меню ниже 👇",
-        reply_markup=get_main_menu(role),
-    )
+    # Чтобы не плодить сообщения — редактируем текст последнего
+    try:
+        await callback.message.edit_text(
+            "Выберите действие из меню ниже 👇",
+            reply_markup=get_main_menu(role),
+        )
+    except Exception:
+        # Если сообщение уже не отредактировать (например, старое),
+        # просто отправляем новое.
+        await callback.message.answer(
+            "Выберите действие из меню ниже 👇",
+            reply_markup=get_main_menu(role),
+        )
+
     await callback.answer()

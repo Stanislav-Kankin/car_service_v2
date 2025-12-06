@@ -1,4 +1,5 @@
 import logging
+
 from aiogram import Router, F
 from aiogram.types import (
     Message,
@@ -17,9 +18,9 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 
-# -------------------------------------------------
+# ---------------------------------------------------------------------------
 # FSM регистрации СТО
-# -------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 class STORegister(StatesGroup):
@@ -33,9 +34,28 @@ class STORegister(StatesGroup):
     waiting_confirm = State()
 
 
-# -------------------------------------------------
+# ---------------------------------------------------------------------------
+# Список специализаций (максимально близко к v1)
+# код -> подпись
+# ---------------------------------------------------------------------------
+
+SERVICE_SPECIALIZATION_OPTIONS: list[tuple[str, str]] = [
+    ("wash", "🧼 Автомойка"),
+    ("tire", "🛞 Шиномонтаж"),
+    ("electric", "⚡ Автоэлектрик"),
+    ("mechanic", "🔧 Слесарные работы"),
+    ("paint", "🎨 Малярные / кузовные"),
+    ("maint", "🛠️ ТО / обслуживание"),
+    ("agg_turbo", "🌀 Турбины"),
+    ("agg_starter", "🔋 Стартеры"),
+    ("agg_generator", "⚡ Генераторы"),
+    ("agg_steering", "🛞 Рулевые рейки"),
+]
+
+
+# ---------------------------------------------------------------------------
 # Клавиатуры
-# -------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 def kb_org_type() -> InlineKeyboardMarkup:
@@ -63,88 +83,84 @@ def kb_org_type() -> InlineKeyboardMarkup:
     )
 
 
-def kb_specs(selected: list[str]) -> InlineKeyboardMarkup:
-    all_specs = [
-        ("Автомеханика", "mech"),
-        ("Шиномонтаж", "tire"),
-        ("Электрика", "elec"),
-        ("Диагностика", "diag"),
-        ("Кузовной", "body"),
-        ("Агрегатный ремонт", "agg"),
-    ]
+def kb_specs(selected: set[str]) -> InlineKeyboardMarkup:
+    """
+    Клава выбора специализаций.
 
+    selected — множество кодов из SERVICE_SPECIALIZATION_OPTIONS.
+    """
     rows: list[list[InlineKeyboardButton]] = []
-    for title, key in all_specs:
-        mark = "✅ " if key in selected else ""
+
+    for code, label in SERVICE_SPECIALIZATION_OPTIONS:
+        mark = "✅ " if code in selected else ""
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"{mark}{title}",
-                    callback_data=f"sto_spec_{key}",
+                    text=f"{mark}{label}",
+                    callback_data=f"sto_spec:{code}",
                 )
             ]
         )
 
+    # Управляющие кнопки
     rows.append(
         [
             InlineKeyboardButton(
-                text="Готово",
-                callback_data="sto_spec_ok",
+                text="✅ Готово",
+                callback_data="sto_spec:done",
             )
         ]
     )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="❌ Отмена",
+                callback_data="sto_spec:cancel",
+            )
+        ]
+    )
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# -------------------------------------------------
-# Старт регистрации
-# -------------------------------------------------
+# ---------------------------------------------------------------------------
+# Общий старт регистрации
+# ---------------------------------------------------------------------------
 
 
 async def _start_sto_registration(message: Message, state: FSMContext):
-    """
-    Общая логика старта регистрации СТО.
-    Используем и из старого callback, и из нового main:sto_register.
-    """
     await state.clear()
     await state.set_state(STORegister.waiting_org_type)
-    await message.edit_text(
-        "Регистрация автосервиса.\n\nВыберите тип организации:",
+    await message.answer(
+        "Регистрация автосервиса.\n\n"
+        "Выберите тип организации:",
         reply_markup=kb_org_type(),
     )
 
 
+# Старый вход (если ещё где-то остался)
 @router.callback_query(F.data == "menu_service")
-async def sto_start_legacy(call: CallbackQuery, state: FSMContext):
-    """
-    Старый вход (menu_service), оставляем для совместимости.
-    """
-    await _start_sto_registration(call.message, state)
-    await call.answer()
+async def sto_start_legacy(callback: CallbackQuery, state: FSMContext):
+    await _start_sto_registration(callback.message, state)
+    await callback.answer()
 
 
+# Новый вход из главного меню (кнопка «🔧 Зарегистрировать СТО»)
 @router.callback_query(F.data == "main:sto_register")
-async def sto_start_from_main(call: CallbackQuery, state: FSMContext):
-    """
-    Новый вход из главного меню:
-    кнопка "🔧 Зарегистрировать СТО" для клиентов.
-    """
-    await _start_sto_registration(call.message, state)
-    await call.answer()
+async def sto_start_from_main(callback: CallbackQuery, state: FSMContext):
+    await _start_sto_registration(callback.message, state)
+    await callback.answer()
 
 
-# -------------------------------------------------
-# Меню СТО
-# -------------------------------------------------
+# ---------------------------------------------------------------------------
+# Меню СТО (для уже зарегистрированных владельцев)
+# ---------------------------------------------------------------------------
 
 
 @router.callback_query(F.data == "main:sto_menu")
 async def sto_menu_entry(callback: CallbackQuery):
     """
-    Вход в раздел СТО из главного инлайн-меню.
-
-    Для владельца СТО показываем его сервис (пока без редактирования).
-    Если сервисов нет — подсказываем про регистрацию.
+    Вход в раздел СТО из главного меню.
     """
     tg_id = callback.message.chat.id
 
@@ -162,7 +178,7 @@ async def sto_menu_entry(callback: CallbackQuery):
     if not user:
         await callback.message.answer(
             "Пользователь не найден в системе.\n"
-            "Сначала пройдите регистрацию через /start."
+            "Сначала пройдите регистрацию через /start.",
         )
         await callback.answer()
         return
@@ -197,10 +213,12 @@ async def sto_menu_entry(callback: CallbackQuery):
         await callback.answer()
         return
 
-    # Пока берём первый сервис (в будущем поддержим несколько)
     sc = sc_list[0]
 
     specs = sc.get("specializations") or []
+    if isinstance(specs, dict):
+        # на всякий случай, если backend хранит иначе
+        specs = list(specs.values())
     specs_text = ", ".join(specs) if specs else "—"
 
     text = (
@@ -217,51 +235,39 @@ async def sto_menu_entry(callback: CallbackQuery):
     await callback.answer()
 
 
-# -------------------------------------------------
-# Тип организации
-# -------------------------------------------------
+# ---------------------------------------------------------------------------
+# Шаги регистрации СТО
+# ---------------------------------------------------------------------------
 
 
 @router.callback_query(STORegister.waiting_org_type)
-async def sto_org_type(call: CallbackQuery, state: FSMContext):
+async def sto_org_type(callback: CallbackQuery, state: FSMContext):
     """
-    Обработка выбора типа организации для регистрации СТО.
+    Выбор типа организации.
     """
-    # Разрешаем только наши callback-и
-    if call.data not in ("sto_type_ind", "sto_type_comp", "sto_back_menu"):
-        await call.answer()
-        return
-
-    # Кнопка "⬅️ В меню"
-    if call.data == "sto_back_menu":
+    if callback.data == "sto_back_menu":
         await state.clear()
-        await call.message.edit_text("Регистрация СТО отменена.")
-        await call.answer()
+        await callback.message.edit_text("Регистрация СТО отменена.")
+        await callback.answer()
         return
 
-    # Сохраняем выбранный тип
-    org_type = "individual" if call.data == "sto_type_ind" else "company"
+    if callback.data not in ("sto_type_ind", "sto_type_comp"):
+        await callback.answer()
+        return
+
+    org_type = "individual" if callback.data == "sto_type_ind" else "company"
     await state.update_data(org_type=org_type)
 
-    # Переходим к следующему шагу — ввод названия
     await state.set_state(STORegister.waiting_name)
-    await call.message.edit_text(
+    await callback.message.edit_text(
         "Введите название сервиса.\n"
-        "Если вы частный мастер — укажите ваше имя."
+        "Если вы частный мастер — укажите ваше имя.",
     )
-    await call.answer()
-
-
-# -------------------------------------------------
-# Название
-# -------------------------------------------------
+    await callback.answer()
 
 
 @router.message(STORegister.waiting_name, F.text)
 async def sto_name(message: Message, state: FSMContext):
-    """
-    Ввод названия сервиса для регистрации СТО.
-    """
     name = (message.text or "").strip()
     if not name:
         await message.answer("Введите название сервиса, пожалуйста.")
@@ -272,184 +278,201 @@ async def sto_name(message: Message, state: FSMContext):
     await message.answer("Введите адрес сервиса (строкой).")
 
 
-# -------------------------------------------------
-# Адрес текстом
-# -------------------------------------------------
-
-
 @router.message(STORegister.waiting_address_text, F.text)
-async def sto_addr(message: Message, state: FSMContext):
-    txt = (message.text or "").strip()
-    if not txt:
+async def sto_address(message: Message, state: FSMContext):
+    addr = (message.text or "").strip()
+    if not addr:
         await message.answer("Введите адрес строкой.")
         return
 
-    await state.update_data(address_text=txt)
+    await state.update_data(address_text=addr)
     await state.set_state(STORegister.waiting_geo)
     await message.answer(
-        "Отправьте геолокацию сервиса.",
+        "Теперь отправьте геолокацию сервиса.\n\n"
+        "Используйте кнопку 📎 → «Геопозиция».",
         reply_markup=ReplyKeyboardRemove(),
     )
 
 
-# -------------------------------------------------
-# Геолокация
-# -------------------------------------------------
-
-
 @router.message(STORegister.waiting_geo, F.location)
 async def sto_geo(message: Message, state: FSMContext):
-    lat = message.location.latitude
-    lon = message.location.longitude
-
-    await state.update_data(latitude=lat, longitude=lon)
+    await state.update_data(
+        latitude=message.location.latitude,
+        longitude=message.location.longitude,
+    )
     await state.set_state(STORegister.waiting_phone)
-    await message.answer("Введите телефон сервиса.")
-
-
-# -------------------------------------------------
-# Телефон
-# -------------------------------------------------
+    await message.answer("Введите контактный телефон сервиса.")
 
 
 @router.message(STORegister.waiting_phone, F.text)
 async def sto_phone(message: Message, state: FSMContext):
     phone = (message.text or "").strip()
+    if not phone:
+        await message.answer("Введите телефон сервиса.")
+        return
+
     await state.update_data(phone=phone)
-
     await state.set_state(STORegister.waiting_website)
-    await message.answer("Введите сайт или соцсети (или напишите «Пропустить»).")
-
-
-# -------------------------------------------------
-# Сайт / соцсети
-# -------------------------------------------------
-
-
-@router.message(STORegister.waiting_website, F.text)
-async def sto_site(message: Message, state: FSMContext):
-    txt = (message.text or "").strip()
-    website = None if txt.lower() in ("пропустить", "-", "skip") else txt
-    await state.update_data(website=website)
-
-    await state.update_data(specializations=[])
-    await state.set_state(STORegister.waiting_specs)
     await message.answer(
-        "Выберите специализации:",
-        reply_markup=kb_specs([]),
+        "Введите сайт или ссылку на соцсети.\n"
+        "Если сайта нет — напишите «пропустить».",
     )
 
 
-# -------------------------------------------------
-# Выбор спецов
-# -------------------------------------------------
+@router.message(STORegister.waiting_website, F.text)
+async def sto_website(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    website = None if txt.lower() in ("пропустить", "нет", "-", "no") else txt
+
+    await state.update_data(website=website)
+    await state.update_data(specializations=set())
+
+    await state.set_state(STORegister.waiting_specs)
+    await message.answer(
+        "Выберите специализации сервиса:\n\n"
+        "Можно выбрать несколько пунктов, потом нажать «✅ Готово».",
+        reply_markup=kb_specs(set()),
+    )
 
 
 @router.callback_query(STORegister.waiting_specs)
-async def sto_specs(call: CallbackQuery, state: FSMContext):
+async def sto_specs(callback: CallbackQuery, state: FSMContext):
     """
-    Выбор специализаций для СТО.
+    Выбор специализаций.
     """
     data = await state.get_data()
-    selected = data.get("specializations", [])
+    selected: set[str] = set(data.get("specializations") or [])
 
-    # Клик по конкретной специализации
-    if call.data.startswith("sto_spec_"):
-        key = call.data.split("_", 2)[2]
+    if callback.data.startswith("sto_spec:"):
+        _, code = callback.data.split(":", maxsplit=1)
 
-        if key in selected:
-            selected.remove(key)
+        # Отмена
+        if code == "cancel":
+            await state.clear()
+            await callback.message.edit_text("Регистрация СТО отменена.")
+            await callback.answer()
+            return
+
+        # Готово -> переход к подтверждению
+        if code == "done":
+            await state.set_state(STORegister.waiting_confirm)
+            profile = await state.get_data()
+            specs_codes: set[str] = set(profile.get("specializations") or [])
+
+            # человек мог вообще ничего не выбрать
+            if not specs_codes:
+                specs_text = "— (специализации не выбраны)"
+            else:
+                labels = []
+                for c, lbl in SERVICE_SPECIALIZATION_OPTIONS:
+                    if c in specs_codes:
+                        labels.append(lbl)
+                specs_text = ", ".join(labels) if labels else "—"
+
+            text = (
+                "Проверьте данные:\n\n"
+                f"Тип: {profile.get('org_type')}\n"
+                f"Название: {profile.get('name')}\n"
+                f"Адрес: {profile.get('address_text')}\n"
+                f"Телефон: {profile.get('phone')}\n"
+                f"Сайт: {profile.get('website') or '—'}\n"
+                f"Специализации: {specs_text}\n\n"
+                "Подтвердить регистрацию?"
+            )
+
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Подтвердить",
+                            callback_data="sto_reg_yes",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="❌ Отмена",
+                            callback_data="sto_reg_no",
+                        )
+                    ],
+                ]
+            )
+
+            await callback.message.edit_text(text, reply_markup=kb)
+            await callback.answer()
+            return
+
+        # Обычное переключение специализации
+        codes_available = {c for c, _ in SERVICE_SPECIALIZATION_OPTIONS}
+        if code not in codes_available:
+            await callback.answer()
+            return
+
+        if code in selected:
+            selected.remove(code)
         else:
-            selected.append(key)
+            selected.add(code)
 
         await state.update_data(specializations=selected)
 
-        # Обновляем клавиатуру, но спокойно переживаем "message is not modified"
         try:
-            await call.message.edit_reply_markup(reply_markup=kb_specs(selected))
+            await callback.message.edit_reply_markup(
+                reply_markup=kb_specs(selected)
+            )
         except TelegramBadRequest as e:
-            # Если Телега ругается, что ничего не изменилось — просто игнорируем
+            # Игнорируем "message is not modified"
             if "message is not modified" not in str(e):
                 logger.exception("Ошибка обновления клавиатуры спецов: %s", e)
 
-        await call.answer()
+        await callback.answer()
         return
 
-    # Кнопка "Готово"
-    if call.data == "sto_spec_ok":
-        await state.set_state(STORegister.waiting_confirm)
-        profile = await state.get_data()
-
-        text = (
-            "Проверьте данные:\n\n"
-            f"Тип: {profile['org_type']}\n"
-            f"Название: {profile['name']}\n"
-            f"Адрес: {profile['address_text']}\n"
-            f"Телефон: {profile['phone']}\n"
-            f"Сайт: {profile['website']}\n"
-            f"Специализации: {', '.join(profile['specializations']) or '—'}\n\n"
-            "Подтвердить регистрацию?"
-        )
-
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Подтвердить", callback_data="sto_reg_yes")],
-                [InlineKeyboardButton(text="❌ Отмена", callback_data="sto_reg_no")],
-            ]
-        )
-
-        await call.message.edit_text(text, reply_markup=kb)
-        await call.answer()
-        return
-
-    # На всякий случай — остальные коллбеки просто игнорируем
-    await call.answer()
-
-
-# -------------------------------------------------
-# Завершение регистрации
-# -------------------------------------------------
+    # Остальное игнорируем
+    await callback.answer()
 
 
 @router.callback_query(STORegister.waiting_confirm)
-async def sto_finish(call: CallbackQuery, state: FSMContext):
+async def sto_finish(callback: CallbackQuery, state: FSMContext):
     """
-    Финальный шаг регистрации СТО:
-    - при "sto_reg_no" отменяем;
-    - при подтверждении создаём запись сервис-центра в backend
-      и обновляем роль пользователя на service_owner.
+    Финальный шаг: создаём СТО и меняем роль пользователя.
     """
-    if call.data == "sto_reg_no":
+    if callback.data == "sto_reg_no":
         await state.clear()
-        await call.message.edit_text("Регистрация СТО отменена.")
-        await call.answer()
+        await callback.message.edit_text("Регистрация СТО отменена.")
+        await callback.answer()
+        return
+
+    if callback.data != "sto_reg_yes":
+        await callback.answer()
         return
 
     data = await state.get_data()
-    tg_id = call.from_user.id
+    tg_id = callback.from_user.id
 
     try:
         user = await api_client.get_user_by_telegram(tg_id)
     except Exception as e:
         logger.exception("Ошибка запроса пользователя при регистрации СТО: %s", e)
-        await call.message.edit_text(
+        await callback.message.edit_text(
             "Не удалось получить данные пользователя 😔\n"
             "Попробуйте ещё раз с команды /start."
         )
-        await call.answer()
+        await callback.answer()
         return
 
     if not user:
-        await call.message.edit_text(
+        await callback.message.edit_text(
             "Пользователь не найден в системе.\n"
             "Сначала завершите регистрацию как клиента через /start."
         )
-        await call.answer()
+        await callback.answer()
         return
 
     user_id = user["id"]
 
-    # Приводим payload к схеме backend-а (address вместо address_text)
+    # Переводим выбранные спец-коды в список строк (так же, как в v1)
+    specs_codes: set[str] = set(data.get("specializations") or [])
+    specializations = list(specs_codes)
+
     payload = {
         "user_id": user_id,
         "org_type": data.get("org_type"),
@@ -459,32 +482,32 @@ async def sto_finish(call: CallbackQuery, state: FSMContext):
         "longitude": data.get("longitude"),
         "phone": data.get("phone"),
         "website": data.get("website"),
-        "specializations": data.get("specializations"),
+        "specializations": specializations,
     }
 
     try:
         created = await api_client.create_service_center(payload)
     except Exception as e:
         logger.exception("Ошибка регистрации СТО: %s", e)
-        await call.message.edit_text(
+        await callback.message.edit_text(
             "Не удалось зарегистрировать СТО 😔 Попробуйте позже."
         )
-        await call.answer()
+        await callback.answer()
         return
 
-    # После успешной регистрации переводим пользователя в роль service_owner
+    # Обновляем роль пользователя
     try:
         await api_client.update_user(user_id, {"role": "service_owner"})
     except Exception as e:
         logger.exception(
             "Не удалось обновить роль пользователя до service_owner: %s", e
         )
-        # Не фейлим регистрацию СТО, просто логируем
 
     await state.clear()
 
-    await call.message.edit_text(
-        f"СТО зарегистрировано успешно! 🎉\n\nID: {created.get('id')}\n"
+    await callback.message.edit_text(
+        f"СТО зарегистрировано успешно! 🎉\n\n"
+        f"ID: {created.get('id')}\n"
         "Теперь вам доступно «🛠 Меню СТО» в главном меню.",
     )
-    await call.answer()
+    await callback.answer()
