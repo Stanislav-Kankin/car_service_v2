@@ -419,7 +419,16 @@ async def car_vin_ok(callback: CallbackQuery, state: FSMContext):
 # ---------- Общая отмена сценария ----------
 
 
-@router.callback_query(StateFilter(CarCreate), F.data == "car_create:cancel")
+@router.callback_query(
+    StateFilter(
+        CarCreate.choosing_brand,
+        CarCreate.choosing_model,
+        CarCreate.choosing_year,
+        CarCreate.choosing_license_plate,
+        CarCreate.choosing_vin,
+    ),
+    F.data == "car_create:cancel",
+)
 async def car_create_cancel(callback: CallbackQuery, state: FSMContext):
     """
     Отмена из любого шага создания авто.

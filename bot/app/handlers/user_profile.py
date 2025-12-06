@@ -5,56 +5,45 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
-from aiogram.fsm.context import FSMContext
 
 from ..api_client import api_client
-from ..states.user_states import CarCreate
 
 router = Router()
 
 
-def get_garage_keyboard(has_cars: bool) -> InlineKeyboardMarkup:
-    buttons: list[list[InlineKeyboardButton]] = [
-        [
-            InlineKeyboardButton(
-                text="➕ Добавить авто",
-                callback_data="garage:add",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text="⬅️ В меню",
-                callback_data="main:menu",
-            ),
-        ],
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def get_car_create_keyboard() -> InlineKeyboardMarkup:
+def get_profile_keyboard() -> InlineKeyboardMarkup:
+    """
+    Кнопки под профилем:
+    - Редактировать (пока заглушка)
+    - В главное меню
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="⬅️ Назад",
-                    callback_data="car_create:back",
+                    text="✏️ Редактировать профиль",
+                    callback_data="profile:edit",
                 ),
+            ],
+            [
                 InlineKeyboardButton(
-                    text="❌ Отмена",
-                    callback_data="car_create:cancel",
+                    text="⬅️ В меню",
+                    callback_data="main:menu",
                 ),
             ],
         ]
     )
 
 
-async def _send_garage(message: Message, telegram_id: int):
+async def _send_profile(message: Message, telegram_id: int) -> None:
     """
-    Показ списка машин пользователя.
+    Общая логика показа профиля.
 
-    ВАЖНО: telegram_id передаём явно, т.к. для callback message.from_user = бот.
+    ВАЖНО: сюда явно передаём telegram_id пользователя,
+    потому что для callback message.from_user = бот.
     """
     user = await api_client.get_user_by_telegram(telegram_id)
+
     if not user:
         await message.answer(
             "Похоже, вы ещё не зарегистрированы.\n"
@@ -62,250 +51,76 @@ async def _send_garage(message: Message, telegram_id: int):
         )
         return
 
-    user_id = user["id"] if isinstance(user, dict) else getattr(user, "id", None)
-    if not user_id:
-        await message.answer("Не удалось определить пользователя. Попробуйте позже.")
-        return
-
-    try:
-        cars = await api_client.list_cars_by_user(user_id)
-    except Exception:
-        await message.answer("Не удалось загрузить гараж. Попробуйте позже.")
-        return
-
-    if not cars:
-        text = (
-            "<b>🚗 Мой гараж</b>\n\n"
-            "У вас пока нет добавленных машин.\n"
-            "Нажмите «➕ Добавить авто», чтобы добавить первую."
-        )
-        has_cars = False
+    # user может прийти как dict (из backend) или как объект (на будущее)
+    if isinstance(user, dict):
+        full_name = user.get("full_name") or "—"
+        phone = user.get("phone") or "—"
+        city = user.get("city") or "—"
+        role = user.get("role") or "client"
+        bonus = user.get("bonus_balance")
     else:
-        lines = ["<b>🚗 Мой гараж</b>", ""]
-        for idx, car in enumerate(cars, start=1):
-            brand = car.get("brand") or "—"
-            model = car.get("model") or "—"
-            year = car.get("year") or "—"
-            plate = car.get("license_plate") or "—"
-            vin = car.get("vin") or "—"
+        full_name = getattr(user, "full_name", None) or "—"
+        phone = getattr(user, "phone", None) or "—"
+        city = getattr(user, "city", None) or "—"
+        role = getattr(user, "role", None) or "client"
+        bonus = getattr(user, "bonus_balance", None)
 
-            lines.append(f"<b>#{idx}</b> {brand} {model}".strip())
-            lines.append(f"  Год: {year}")
-            lines.append(f"  Госномер: {plate}")
-            lines.append(f"  VIN: {vin}")
-            lines.append("")
+    role_names = {
+        "client": "Клиент",
+        "service_owner": "Владелец СТО",
+        "admin": "Администратор",
+    }
+    role_text = role_names.get(str(role), "Клиент")
 
-        text = "\n".join(lines)
-        has_cars = True
+    lines = [
+        "<b>👤 Профиль</b>",
+        "",
+        f"<b>Имя:</b> {full_name}",
+        f"<b>Телефон:</b> {phone}",
+        f"<b>Город:</b> {city}",
+        f"<b>Роль:</b> {role_text}",
+    ]
+
+    if bonus is not None:
+        lines.append(f"<b>Бонусы:</b> {bonus}")
+
+    text = "\n".join(lines)
 
     await message.answer(
         text,
-        reply_markup=get_garage_keyboard(has_cars),
+        reply_markup=get_profile_keyboard(),
     )
 
 
-# --- входы в гараж ---
+# -------- входы в профиль --------
 
 
-@router.message(F.text == "🚗 Мой гараж")
-async def garage_show_legacy(message: Message):
-    await _send_garage(message, telegram_id=message.from_user.id)
+@router.message(F.text == "👤 Профиль")
+async def profile_show_legacy(message: Message):
+    """
+    Старый вариант входа по текстовой кнопке.
+    """
+    await _send_profile(message, telegram_id=message.from_user.id)
 
 
-@router.callback_query(F.data == "main:garage")
-async def garage_show_from_menu(callback: CallbackQuery):
-    await _send_garage(callback.message, telegram_id=callback.from_user.id)
+@router.callback_query(F.data == "main:profile")
+async def profile_show_from_menu(callback: CallbackQuery):
+    """
+    Вход из главного инлайн-меню.
+    ВАЖНО: брать id из callback.from_user, а не callback.message.from_user.
+    """
+    await _send_profile(callback.message, telegram_id=callback.from_user.id)
     await callback.answer()
 
 
-# --- добавление авто ---
-
-
-@router.callback_query(F.data == "garage:add")
-async def garage_add_start(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(CarCreate.choosing_brand)
+@router.callback_query(F.data == "profile:edit")
+async def profile_edit_stub(callback: CallbackQuery):
+    """
+    Заглушка для редактирования профиля.
+    Потом сюда подвяжем нормальный FSM.
+    """
+    await callback.answer()
     await callback.message.answer(
-        "Давайте добавим вашу машину.\n\n"
-        "Введите <b>марку</b> (например, BMW, Kia, Lada):",
-        reply_markup=get_car_create_keyboard(),
+        "Редактирование профиля скоро будет доступно 🤓\n"
+        "Пока вы можете изменить данные через поддержку или повторную регистрацию.",
     )
-    await callback.answer()
-
-
-@router.message(CarCreate.choosing_brand, F.text)
-async def car_create_brand(message: Message, state: FSMContext):
-    brand = (message.text or "").strip()
-    if not brand:
-        await message.answer(
-            "Марка не распознана. Пожалуйста, введите текстом.",
-            reply_markup=get_car_create_keyboard(),
-        )
-        return
-
-    await state.update_data(brand=brand)
-    await state.set_state(CarCreate.choosing_model)
-
-    await message.answer(
-        "Введите <b>модель</b> (например, 3 Series, Rio, Vesta):",
-        reply_markup=get_car_create_keyboard(),
-    )
-
-
-@router.message(CarCreate.choosing_model, F.text)
-async def car_create_model(message: Message, state: FSMContext):
-    model = (message.text or "").strip()
-    if not model:
-        await message.answer(
-            "Модель не распознана. Пожалуйста, введите текстом.",
-            reply_markup=get_car_create_keyboard(),
-        )
-        return
-
-    await state.update_data(model=model)
-    await state.set_state(CarCreate.choosing_year)
-
-    await message.answer(
-        "Введите <b>год выпуска</b> (4 цифры) или напишите «пропустить»:",
-        reply_markup=get_car_create_keyboard(),
-    )
-
-
-@router.message(CarCreate.choosing_year, F.text)
-async def car_create_year(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    year: int | None = None
-
-    if text.lower() != "пропустить":
-        if not text.isdigit() or len(text) != 4:
-            await message.answer(
-                "Пожалуйста, введите год в формате 4 цифр (например, 2015) "
-                "или напишите «пропустить».",
-                reply_markup=get_car_create_keyboard(),
-            )
-            return
-        year = int(text)
-
-    await state.update_data(year=year)
-    await state.set_state(CarCreate.choosing_license_plate)
-
-    await message.answer(
-        "Введите <b>госномер</b> (как в СТС) или напишите «пропустить»:",
-        reply_markup=get_car_create_keyboard(),
-    )
-
-
-@router.message(CarCreate.choosing_license_plate, F.text)
-async def car_create_plate(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    plate = None if text.lower() == "пропустить" else text or None
-
-    await state.update_data(license_plate=plate)
-    await state.set_state(CarCreate.choosing_vin)
-
-    await message.answer(
-        "Введите <b>VIN</b> или напишите «пропустить»:",
-        reply_markup=get_car_create_keyboard(),
-    )
-
-
-@router.message(CarCreate.choosing_vin, F.text)
-async def car_create_vin(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    vin = None if text.lower() == "пропустить" else text or None
-
-    # тут message.from_user.id — это всегда живой пользователь, тк это message-хендлер
-    user = await api_client.get_user_by_telegram(message.from_user.id)
-    if not user:
-        await message.answer(
-            "Не удалось определить пользователя. Попробуйте ещё раз через /start.",
-        )
-        await state.clear()
-        return
-
-    user_id = user["id"] if isinstance(user, dict) else getattr(user, "id", None)
-    if not user_id:
-        await message.answer("Не удалось определить пользователя. Попробуйте позже.")
-        await state.clear()
-        return
-
-    data = await state.get_data()
-
-    payload = {
-        "user_id": user_id,
-        "brand": data.get("brand"),
-        "model": data.get("model"),
-        "year": data.get("year"),
-        "license_plate": data.get("license_plate"),
-        "vin": vin,
-    }
-
-    try:
-        await api_client.create_car(payload)
-    except Exception:
-        await message.answer(
-            "Не удалось сохранить машину. Попробуйте позже.",
-        )
-        await state.clear()
-        return
-
-    await message.answer("Машина успешно добавлена в гараж! 🚗")
-
-    await state.clear()
-    # Показываем обновлённый гараж
-    await _send_garage(message, telegram_id=message.from_user.id)
-
-
-# --- кнопки Назад / Отмена во время создания авто ---
-
-
-@router.callback_query(CarCreate, F.data == "car_create:cancel")
-async def car_create_cancel(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.answer("Добавление машины отменено.")
-    await _send_garage(callback.message, telegram_id=callback.from_user.id)
-    await callback.answer()
-
-
-@router.callback_query(CarCreate, F.data == "car_create:back")
-async def car_create_back(callback: CallbackQuery, state: FSMContext):
-    """
-    Примитивный «Назад» между шагами.
-    Просто возвращаемся на предыдущий вопрос.
-    """
-    current = await state.get_state()
-
-    if current == CarCreate.choosing_model.state:
-        await state.set_state(CarCreate.choosing_brand)
-        await callback.message.answer(
-            "Вернулись на шаг выбора марки.\n\n"
-            "Введите <b>марку</b> автомобиля:",
-            reply_markup=get_car_create_keyboard(),
-        )
-    elif current == CarCreate.choosing_year.state:
-        await state.set_state(CarCreate.choosing_model)
-        await callback.message.answer(
-            "Вернулись на шаг выбора модели.\n\n"
-            "Введите <b>модель</b> автомобиля:",
-            reply_markup=get_car_create_keyboard(),
-        )
-    elif current == CarCreate.choosing_license_plate.state:
-        await state.set_state(CarCreate.choosing_year)
-        await callback.message.answer(
-            "Вернулись на шаг указания года.\n\n"
-            "Введите год выпуска (4 цифры) или напишите «пропустить»:",
-            reply_markup=get_car_create_keyboard(),
-        )
-    elif current == CarCreate.choosing_vin.state:
-        await state.set_state(CarCreate.choosing_license_plate)
-        await callback.message.answer(
-            "Вернулись на шаг указания госномера.\n\n"
-            "Введите госномер или напишите «пропустить»:",
-            reply_markup=get_car_create_keyboard(),
-        )
-    else:
-        # На всякий случай — если что-то пошло не так, просто выходим
-        await state.clear()
-        await callback.message.answer("Сценарий сброшен.")
-        await _send_garage(callback.message, telegram_id=callback.from_user.id)
-
-    await callback.answer()
