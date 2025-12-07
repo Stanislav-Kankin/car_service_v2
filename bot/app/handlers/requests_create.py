@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -953,36 +953,375 @@ async def req_car_selected(callback: CallbackQuery, state: FSMContext):
 # ---------------------------------------------------------------------------
 
 
+async def _find_suitable_service_centers_for_request(
+    request: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """
+    Подбор подходящих СТО под заявку.
+
+    Логика:
+    - Всегда фильтруем по is_active=True.
+    - Если у заявки ЕСТЬ координаты:
+        * используем их;
+        * радиус берём из заявки, но не больше 400 км;
+        * если радиуса нет — ставим 400 км по умолчанию.
+    - Если координат НЕТ:
+        * НИЧЕГО не передаём по latitude/longitude/radius_km → backend вернёт все СТО.
+    - Если есть категория услуги — передаём её как specializations.
+    """
+    params: Dict[str, Any] = {"is_active": True}
+
+    latitude = request.get("latitude")
+    longitude = request.get("longitude")
+    radius_km = request.get("radius_km")
+    service_category = request.get("service_category")
+
+    # Категория услуги → специализации СТО
+    if service_category:
+        params["specializations"] = service_category
+
+    MAX_RADIUS_KM = 400
+
+    # Если есть гео – фильтруем по гео + радиусу
+    if latitude is not None and longitude is not None:
+        params["latitude"] = latitude
+        params["longitude"] = longitude
+
+        # если радиуса нет – ставим 400 как дефолт
+        if not isinstance(radius_km, (int, float)) or radius_km <= 0:
+            radius_km = MAX_RADIUS_KM
+
+        # ограничиваем сверху
+        radius_km = min(radius_km, MAX_RADIUS_KM)
+        params["radius_km"] = radius_km
+
+    # Если гео нет – НЕ добавляем latitude/longitude/radius_km,
+    # backend должен вернуть все активные СТО с нужной категорией.
+
+    try:
+        sc_list = await api_client.list_service_centers(params=params)
+    except Exception:
+        return []
+
+    return sc_list or []
+
+
 @router.callback_query(
     StateFilter(RequestCreateFSM.choosing_work_mode),
     F.data.in_(("req_work:list", "req_work:all")),
 )
 async def req_work_mode_selected(callback: CallbackQuery, state: FSMContext):
+    """
+    Пользователь выбрал режим работы с СТО после создания заявки.
+    - req_work:list  — пока оставляем заглушкой (сделаем позже)
+    - req_work:all   — подбираем подходящие СТО и шлём им уведомления
+    """
     data = await state.get_data()
     request_id = data.get("created_request_id")
 
+    if not request_id:
+        await state.clear()
+        await callback.message.edit_text(
+            "Не удалось найти созданную заявку. Попробуйте создать её заново."
+        )
+        await _back_to_main_menu(callback.message, telegram_id=callback.from_user.id)
+        await callback.answer()
+        return
+
+    # Берём актуальную заявку из backend
+    try:
+        request = await api_client.get_request(request_id)
+    except Exception:
+        request = None
+
+    if not request:
+        await state.clear()
+        await callback.message.edit_text(
+            "Не удалось загрузить данные заявки. Попробуйте позже."
+        )
+        await _back_to_main_menu(callback.message, telegram_id=callback.from_user.id)
+        await callback.answer()
+        return
+
+    # Ветка «Выбрать СТО из списка» — пока аккуратная заглушка
     if callback.data.endswith("list"):
         text = (
-            f"Заявка №{request_id} сохранена.\n\n"
-            "Режим «Выбрать СТО из списка» пока в разработке.\n"
-            "Скоро здесь появится список подходящих сервисов.\n\n"
-            "Пока вы можете посмотреть заявку в разделе «Мои заявки»."
+            f"✅ Заявка <b>№{request_id}</b> создана.\n\n"
+            "Режим «Выбрать СТО из списка» будет доработан на следующем этапе.\n"
+            "Пока вы можете:\n"
+            "• посмотреть заявку в разделе «📄 Мои заявки»,\n"
+            "• или воспользоваться кнопкой «🔍 Найти СТО рядом» в главном меню."
         )
-    else:
-        text = (
-            f"Заявка №{request_id} сохранена.\n\n"
-            "Режим «Отправить всем подходящим СТО» "
-            "будет добавлен в следующем этапе разработки.\n\n"
-            "Пока вы можете посмотреть заявку в разделе «Мои заявки»."
+
+        await state.clear()
+        await callback.message.edit_text(text)
+        await _back_to_main_menu(callback.message, telegram_id=callback.from_user.id)
+        await callback.answer()
+        return
+
+    # Ветка «Отправить всем подходящим СТО»
+    # 1) подбираем сервисы
+    service_centers = await _find_suitable_service_centers_for_request(request)
+
+    if not service_centers:
+        await state.clear()
+        await callback.message.edit_text(
+            f"✅ Заявка <b>№{request_id}</b> создана.\n\n"
+            "Но подходящих автосервисов поблизости пока не нашлось.\n"
+            "Попробуйте другой район или позже загляните в раздел «📄 Мои заявки»."
         )
+        await _back_to_main_menu(callback.message, telegram_id=callback.from_user.id)
+        await callback.answer()
+        return
+
+    # 2) обновляем статус заявки → sent
+    try:
+        await api_client.update_request(
+            request_id,
+            {"status": "sent"},
+        )
+    except Exception:
+        # не критично для пользователя – главное, что сервисы уже оповещены
+        pass
+
+    # 3) Шлём уведомления всем найденным СТО
+    sent_count = await _notify_services_about_request(
+        bot=callback.message.bot,
+        request=request,
+        service_centers=service_centers,
+    )
+
+
+    text = (
+        f"✅ Заявка <b>№{request_id}</b> отправлена "
+        f"в {sent_count} подходящих автосервис(ов).\n\n"
+        "Как только кто-то из них откликнется, его предложение "
+        "появится в разделе «📄 Мои заявки»."
+    )
 
     await state.clear()
     await callback.message.edit_text(text)
-
-    # Возвращаем главное меню
     await _back_to_main_menu(callback.message, telegram_id=callback.from_user.id)
     await callback.answer()
 
+
+async def _notify_services_about_request(
+    bot: Bot,
+    request: Dict[str, Any],
+    service_centers: List[Dict[str, Any]],
+) -> int:
+    """
+    Рассылаем уведомление о новой заявке всем найденным СТО.
+
+    bot              – экземпляр Bot (берём из callback.message.bot)
+    request          – dict с данными заявки
+    service_centers  – список dict'ов с данными СТО (как вернул backend)
+
+    Возвращаем количество СТО, которым реально что-то отправили.
+    """
+    sent_count = 0
+
+    if not service_centers:
+        return 0
+
+    req_id = request.get("id")
+    car = request.get("car") or {}
+    category = request.get("service_category") or "—"
+    address = request.get("address_text") or "—"
+    description = request.get("description") or "—"
+
+    car_text_parts: List[str] = []
+    if car.get("brand"):
+        car_text_parts.append(car["brand"])
+    if car.get("model"):
+        car_text_parts.append(car["model"])
+    if car.get("year"):
+        car_text_parts.append(str(car["year"]))
+    car_text = " ".join(car_text_parts) if car_text_parts else "не указано"
+
+    base_text = (
+        f"🆕 <b>Новая заявка №{req_id}</b>\n\n"
+        f"🚗 Авто: {car_text}\n"
+        f"🛠 Категория: {category}\n"
+        f"📍 Адрес / район: {address}\n\n"
+        "<b>Описание проблемы:</b>\n"
+        f"{description}\n\n"
+        "Чтобы посмотреть все детали и откликнуться, "
+        "используйте раздел «Заявки клиентов» в меню СТО."
+    )
+
+    for sc in service_centers:
+        # предполагаем, что backend отдаёт user_id владельца сервиса
+        owner_user_id: Optional[int] = sc.get("user_id")
+        if not owner_user_id:
+            continue
+
+        try:
+            owner = await api_client.get_user(owner_user_id)
+        except Exception:
+            owner = None
+
+        if not isinstance(owner, dict):
+            continue
+
+        tg_id = owner.get("telegram_id")
+        if not tg_id:
+            continue
+
+        try:
+            await bot.send_message(chat_id=tg_id, text=base_text)
+        except Exception:
+            # не роняем цикл, если какому-то владельцу не удалось доставить
+            continue
+
+        # если у заявки есть сохранённые file_id фото – отправим и их
+        photos: List[str] = request.get("photos") or []
+        for file_id in photos:
+            try:
+                await bot.send_photo(chat_id=tg_id, photo=file_id)
+            except Exception:
+                pass
+
+        sent_count += 1
+
+    return sent_count
+
+
+@router.callback_query(
+    StateFilter(RequestCreateFSM.choosing_work_mode),
+    F.data.startswith("req_sc:"),
+)
+async def req_service_center_selected(callback: CallbackQuery, state: FSMContext):
+    """
+    Пользователь выбрал конкретный автосервис из списка.
+    Фиксируем его в заявке и отправляем заявку этому сервису.
+    """
+    fsm_data = await state.get_data()
+    request_id = fsm_data.get("request_id")
+
+    if not request_id:
+        await callback.message.answer(
+            "Не удалось связать выбор сервиса с заявкой. "
+            "Попробуйте создать заявку заново.",
+        )
+        await state.clear()
+        await callback.answer()
+        return
+
+    try:
+        _, sc_id_str = callback.data.split(":", maxsplit=1)
+        service_center_id = int(sc_id_str)
+    except (ValueError, IndexError):
+        await callback.answer()
+        return
+
+    # Обновляем заявку: привязываем выбранный сервис и переводим в статус "sent"
+    try:
+        await api_client.update_request(
+            request_id,
+            {
+                "status": "sent",
+                "distribution_mode": "select",
+                "service_center_id": service_center_id,
+            },
+        )
+    except Exception:
+        await callback.message.answer(
+            "Не получилось отправить заявку в выбранный сервис. Попробуйте позже.",
+        )
+        await state.clear()
+        await callback.answer()
+        return
+
+    await callback.message.answer(
+        f"✅ Заявка №{request_id} отправлена в выбранный автосервис.\n\n"
+        "Как только сервис ответит, его предложение появится в разделе «📄 Мои заявки».",
+    )
+
+    await state.clear()
+    await callback.answer()
+
+
+# ---------- Подбор подходящих СТО ----------
+
+async def _find_suitable_service_centers(fsm_data: dict) -> list[dict]:
+    """
+    Подбираем СТО по данным заявки.
+    Здесь мы просто прокидываем параметры в backend,
+    а фильтрацию делаем там.
+    """
+    params: dict[str, object] = {}
+
+    service_category = fsm_data.get("service_category")
+    if service_category:
+        params["service_category"] = service_category
+
+    # флаги эвакуатор / выездной мастер (если были собраны при создании заявки)
+    if fsm_data.get("need_tow_truck"):
+        params["has_tow_truck"] = True
+    if fsm_data.get("need_mobile_master"):
+        params["has_mobile_service"] = True
+
+    # гео + радиус (если есть)
+    lat = fsm_data.get("location_lat")
+    lon = fsm_data.get("location_lon")
+    radius_km = fsm_data.get("search_radius_km")
+    if lat is not None and lon is not None and radius_km:
+        params["latitude"] = lat
+        params["longitude"] = lon
+        params["radius_km"] = radius_km
+
+    try:
+        service_centers = await api_client.list_service_centers(params=params or None)
+    except Exception:  # на всякий случай не валим бота
+        import logging
+        logging.exception("Не удалось получить список СТО для заявки")
+        service_centers = []
+
+    # backend может вернуть что угодно, нам достаточно списка dict-ов
+    return list(service_centers or [])
+
+
+def _build_service_centers_keyboard(service_centers: list[dict]) -> InlineKeyboardMarkup:
+    """
+    Клавиатура выбора СТО для режима «Выбрать из списка».
+    callback_data: req_sc:<service_center_id>
+    """
+    buttons: list[list[InlineKeyboardButton]] = []
+
+    for sc in service_centers[:10]:  # не спамим, максимум 10 штук
+        sc_id = sc.get("id")
+        name = sc.get("name") or "Без названия"
+        city = sc.get("city") or ""
+        address = sc.get("address_text") or ""
+
+        title_parts = [name]
+        if city:
+            title_parts.append(city)
+        if address:
+            title_parts.append(address)
+
+        title = " — ".join(title_parts)
+
+        if sc_id is None:
+            continue
+
+        buttons.append([
+            InlineKeyboardButton(
+                text=title[:64],  # ограничим длину подписи
+                callback_data=f"req_sc:{sc_id}",
+            )
+        ])
+
+    # строка "Назад / Отмена"
+    buttons.append([
+        InlineKeyboardButton(
+            text="❌ Отменить",
+            callback_data="req_create:cancel",
+        )
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # ---------------------------------------------------------------------------
 # Общая отмена сценария

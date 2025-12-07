@@ -28,7 +28,7 @@ from .handlers.requests_view import router as requests_view_router
 from .handlers.sto_registration import router as sto_registration_router
 from .handlers.sto_offers import router as sto_offers_router
 # from .handlers.chat import router as chat_router
-# from .handlers.rating_bonus import router as rating_bonus_router
+from .handlers.rating_bonus import router as rating_bonus_router
 # from .handlers.admin import router as admin_router
 
 
@@ -91,7 +91,7 @@ async def main() -> None:
     dp.include_router(requests_view_router)
     dp.include_router(sto_offers_router)
     # dp.include_router(chat_router)
-    # dp.include_router(rating_bonus_router)
+    dp.include_router(rating_bonus_router)
     # dp.include_router(admin_router)
     dp.include_router(general_router)
 

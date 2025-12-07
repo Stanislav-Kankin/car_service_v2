@@ -51,6 +51,12 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
                 callback_data="main:my_requests",
             ),
         ],
+        [
+            InlineKeyboardButton(
+                text="🎁 Мои бонусы",
+                callback_data="main:bonus",
+            ),
+        ],
     ]
 
     # Для владельцев СТО / админов — меню СТО
