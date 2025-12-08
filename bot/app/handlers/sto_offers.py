@@ -9,9 +9,14 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+import logging
 
 from ..api_client import api_client
 from .general import get_main_menu
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -46,6 +51,9 @@ OFFER_STATUS_LABELS: Dict[str, str] = {
 OFFER_ACCEPT_STATUS = "accepted"          # OfferStatus.ACCEPTED.value
 REQUEST_ACCEPT_STATUS = "accepted_by_service"  # RequestStatus.ACCEPTED_BY_SERVICE.value
 
+
+class STOOfferFSM(StatesGroup):
+    waiting_text = State()
 
 # ---------------------------------------------------------------------------
 # Вспомогательные функции
@@ -883,21 +891,166 @@ async def sto_request_view(callback: CallbackQuery):
     await callback.answer()
 
 
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 @router.callback_query(F.data.startswith("sto:offer_start:"))
-async def sto_offer_start(callback: CallbackQuery):
+async def sto_offer_start(callback: CallbackQuery, state: FSMContext):
     """
-    Заготовка под FSM отклика СТО.
-    На следующем шаге превратим это в полноценный сценарий: цена → срок → комментарий.
+    Старт отклика СТО: просим одним сообщением указать все условия.
     """
     try:
-        _, _, req_id_str = callback.data.split(":", maxsplit=2)
-        request_id = int(req_id_str)
-    except (ValueError, AttributeError):
-        await callback.answer()
+        _, _, raw_req_id = callback.data.split(":", maxsplit=2)
+        request_id = int(raw_req_id)
+    except (ValueError, IndexError):
+        await callback.answer("Некорректные данные заявки.")
         return
 
-    await callback.message.answer(
+    await state.clear()
+    await state.update_data(request_id=request_id)
+    await state.set_state(STOOfferFSM.waiting_text)
+
+    await callback.message.edit_text(
         f"Вы выбрали заявку №{request_id}.\n\n"
-        "На следующем шаге мы добавим форму для ввода цены, срока и комментария.",
+        "Отправьте <b>одним сообщением</b> условия для клиента: стоимость, "
+        "сроки, когда можете принять автомобиль и т.п.\n\n"
+        "Например:\n"
+        "<i>Работа будет стоить 5000 ₽, сделаем за 2–3 часа, "
+        "завтра в 11:30 свободно.</i>",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="❌ Отменить отклик",
+                        callback_data=f"sto:offer_cancel:{request_id}",
+                    )
+                ]
+            ]
+        ),
     )
     await callback.answer()
+
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+@router.callback_query(F.data.startswith("sto:offer_start:"))
+async def sto_offer_start(callback: CallbackQuery, state: FSMContext):
+    """
+    Старт отклика СТО: просим одним сообщением указать все условия.
+    """
+    try:
+        _, _, raw_req_id = callback.data.split(":", maxsplit=2)
+        request_id = int(raw_req_id)
+    except (ValueError, IndexError):
+        await callback.answer("Некорректные данные заявки.")
+        return
+
+    await state.clear()
+    await state.update_data(request_id=request_id)
+    await state.set_state(STOOfferFSM.waiting_text)
+
+    await callback.message.edit_text(
+        f"Вы выбрали заявку №{request_id}.\n\n"
+        "Отправьте <b>одним сообщением</b> условия для клиента: стоимость, "
+        "сроки, когда можете принять автомобиль и т.п.\n\n"
+        "Например:\n"
+        "<i>Работа будет стоить 5000 ₽, сделаем за 2–3 часа, "
+        "завтра в 11:30 свободно.</i>",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="❌ Отменить отклик",
+                        callback_data=f"sto:offer_cancel:{request_id}",
+                    )
+                ]
+            ]
+        ),
+    )
+    await callback.answer()
+
+@router.message(STOOfferFSM.waiting_text)
+async def sto_offer_text(message: Message, state: FSMContext):
+    """
+    Менеджер СТО отправляет одним сообщением условия для клиента.
+    Мы создаём Offer с этим текстом в поле comment.
+    """
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer(
+            "Сообщение пустое 😕\n"
+            "Пожалуйста, напишите условия для клиента одним сообщением."
+        )
+        return
+
+    data = await state.get_data()
+    request_id = data.get("request_id")
+    if not request_id:
+        await state.clear()
+        await message.answer(
+            "Не удалось определить заявку.\n"
+            "Откройте её заново через «📥 Заявки клиентов» и повторите отклик."
+        )
+        return
+
+    # Находим СТО, привязанный к текущему пользователю
+    try:
+        sc = await api_client.get_my_service_center(message.from_user.id)
+    except Exception as e:
+        logger.exception("Ошибка при получении СТО для отклика: %s", e)
+        sc = None
+
+    if not isinstance(sc, dict):
+        await state.clear()
+        await message.answer(
+            "Не удалось определить, к какому автосервису вы привязаны.\n"
+            "Проверьте, что вы завершили регистрацию СТО."
+        )
+        return
+
+    service_center_id = sc.get("id")
+    if not service_center_id:
+        await state.clear()
+        await message.answer(
+            "Некорректные данные автосервиса. Попробуйте позже."
+        )
+        return
+
+    payload = {
+        "request_id": int(request_id),
+        "service_center_id": int(service_center_id),
+        # цена/сроки менеджер пишет в свободной форме
+        "comment": text,
+    }
+
+    try:
+        await api_client.create_offer(payload)
+    except Exception as e:
+        logger.exception("Не удалось создать отклик СТО: %s", e)
+        await state.clear()
+        await message.answer(
+            "Не получилось отправить отклик 😔\n"
+            "Попробуйте ещё раз чуть позже."
+        )
+        return
+
+    await state.clear()
+    await message.answer(
+        "✅ Ваше предложение отправлено клиенту!\n\n"
+        "Клиент увидит его в разделе «📄 Мои заявки» "
+        "и сможет согласиться, отказаться или написать вам.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📥 Заявки клиентов",
+                        callback_data="sto:requests_list",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ В меню СТО",
+                        callback_data="main:sto_menu",
+                    )
+                ],
+            ]
+        ),
+    )
