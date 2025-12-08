@@ -13,3 +13,19 @@ class CarCreate(StatesGroup):
     choosing_year = State()
     choosing_license_plate = State()
     choosing_vin = State()
+
+
+class RequestCreateFSM(StatesGroup):
+    choosing_location = State()
+    choosing_car_movable = State()
+    choosing_radius = State()
+    choosing_category = State()
+    choosing_description = State()
+    choosing_photos = State()
+    choosing_hide_phone = State()
+
+    # НОВОЕ:
+    choosing_day = State()
+    choosing_time_range = State()
+
+    confirm = State()
