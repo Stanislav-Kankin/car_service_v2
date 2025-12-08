@@ -967,11 +967,12 @@ async def sto_offer_start(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
+
 @router.message(STOOfferFSM.waiting_text)
 async def sto_offer_text(message: Message, state: FSMContext):
     """
     Менеджер СТО отправляет одним сообщением условия для клиента.
-    Мы создаём Offer с этим текстом в поле comment.
+    Мы создаём Offer с этим текстом в поле comment и уведомляем клиента.
     """
     text = (message.text or "").strip()
     if not text:
@@ -991,7 +992,7 @@ async def sto_offer_text(message: Message, state: FSMContext):
         )
         return
 
-    # Находим СТО, привязанный к текущему пользователю
+    # 1. Находим СТО по текущему менеджеру
     try:
         sc = await api_client.get_my_service_center(message.from_user.id)
     except Exception as e:
@@ -1017,12 +1018,13 @@ async def sto_offer_text(message: Message, state: FSMContext):
     payload = {
         "request_id": int(request_id),
         "service_center_id": int(service_center_id),
-        # цена/сроки менеджер пишет в свободной форме
+        # менеджер пишет условия в свободной форме
         "comment": text,
     }
 
+    # 2. Создаём Offer в backend
     try:
-        await api_client.create_offer(payload)
+        offer = await api_client.create_offer(payload)
     except Exception as e:
         logger.exception("Не удалось создать отклик СТО: %s", e)
         await state.clear()
@@ -1032,6 +1034,41 @@ async def sto_offer_text(message: Message, state: FSMContext):
         )
         return
 
+    # 3. Уведомляем клиента о новом отклике
+    try:
+        # получаем заявку
+        req = await api_client.get_request(int(request_id))
+        user_id = None
+        if isinstance(req, dict):
+            user_id = req.get("user_id")
+
+        client = None
+        client_tg_id = None
+        if user_id is not None:
+            client = await api_client.get_user(int(user_id))
+            if isinstance(client, dict):
+                client_tg_id = client.get("telegram_id")
+
+        sc_name = sc.get("name") or f"СТО #{service_center_id}"
+
+        if client_tg_id:
+            await message.bot.send_message(
+                chat_id=client_tg_id,
+                text=(
+                    f"📩 <b>Новый отклик по вашей заявке №{request_id}</b>\n\n"
+                    f"<b>Автосервис:</b> {sc_name}\n\n"
+                    f"{text}\n\n"
+                    "Посмотреть все предложения вы можете в разделе "
+                    "«📄 Мои заявки»."
+                ),
+            )
+    except Exception as e:
+        # Не роняем поток, если уведомление не удалось — просто логируем
+        logger.exception(
+            "Не удалось отправить уведомление клиенту о новом отклике: %s", e
+        )
+
+    # 4. Завершаем FSM и отвечаем менеджеру
     await state.clear()
     await message.answer(
         "✅ Ваше предложение отправлено клиенту!\n\n"

@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
@@ -38,17 +38,20 @@ async def create_request(
     response_model=List[RequestRead],
 )
 async def get_requests_for_service_centers(
+    specializations: List[str] | None = Query(
+        None,
+        description="Коды специализаций СТО (tire, mechanic и т.п.)",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Список заявок для СТО.
+    Список заявок для просмотра СТО.
 
-    Пока просто возвращаем все активные заявки (NEW / SENT / IN_WORK),
-    без фильтрации по специализациям и гео.
+    Если переданы specializations — вернём только заявки с такими категориями.
     """
     requests = await RequestsService.list_requests_for_service_centers(
         db,
-        specializations=None,
+        specializations=specializations,
     )
     return requests
 

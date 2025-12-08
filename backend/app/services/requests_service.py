@@ -155,10 +155,9 @@ class RequestsService:
         specializations: Optional[list[str]] = None,
     ) -> List[Request]:
         """
-        Заготовка под выборку «подходящих заявок для СТО».
+        Список активных заявок для отображения СТО.
 
-        Пока просто возвращаем все активные заявки (NEW / SENT / IN_WORK).
-        Потом сюда добавим фильтрацию по гео и специализациям.
+        Если переданы specializations — фильтруем только по этим категориям.
         """
         active_statuses = [
             RequestStatus.NEW,
@@ -166,13 +165,12 @@ class RequestsService:
             RequestStatus.IN_WORK,
         ]
 
-        stmt = (
-            select(Request)
-            .where(Request.status.in_(active_statuses))
-            .order_by(Request.created_at.desc())
-        )
+        stmt = select(Request).where(Request.status.in_(active_statuses))
 
-        # TODO: в будущем добавить фильтр по specializations и гео
+        if specializations:
+            stmt = stmt.where(Request.service_category.in_(specializations))
+
+        stmt = stmt.order_by(Request.created_at.desc())
 
         result = await db.execute(stmt)
         return list(result.scalars().all())

@@ -202,22 +202,18 @@ class APIClient:
         """
         Список заявок для СТО.
 
-        Сейчас backend сам возвращает все активные заявки (NEW / SENT / IN_WORK),
-        фильтр по специализациям временно не используем, чтобы не ловить 422
-        из-за валидации query-параметров.
-
-        Параметр specializations оставляем в сигнатуре "на будущее".
+        Если передан список specializations — отправляем его как query-параметры,
+        чтобы backend вернул только подходящие заявки.
         """
+        params: Dict[str, Any] = {}
+        if specializations:
+            # yarl/aiohttp корректно превратят list в несколько значений
+            params["specializations"] = specializations
+
         return await self._request(
             "GET",
             "/api/v1/requests/for-service-centers",
-        )
-
-    async def update_request(self, request_id: int, data: Dict[str, Any]) -> Any:
-        return await self._request(
-            "PATCH",
-            f"/api/v1/requests/{request_id}",
-            data,
+            params=params,
         )
 
     # ------------------------------------------------------------------
