@@ -1217,12 +1217,14 @@ async def _find_suitable_service_centers_for_request(
 async def req_work_mode_selected(callback: CallbackQuery, state: FSMContext):
     """
     Пользователь выбрал режим работы с СТО после создания заявки.
-    - req_work:list  — пока аккуратная заглушка (сделаем позже)
-    - req_work:all   — подбираем подходящие СТО и шлём им уведомления
 
-    Здесь же реализован fallback:
-    1) сначала ищем по гео (если есть);
-    2) если по гео пусто, но у заявки есть координаты — ищем по профилю без гео.
+    Режимы:
+    - req_work:list  — показываем список подходящих СТО, пользователь выбирает один
+    - req_work:all   — отправляем заявку всем подходящим СТО
+
+    Доп. логика:
+    - Если в заданном радиусе никого не нашли, делаем фолбэк:
+      ищем все подходящие СТО по профилю (без фильтра по гео).
     """
     data = await state.get_data()
     request_id = data.get("created_request_id")
@@ -1251,93 +1253,115 @@ async def req_work_mode_selected(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # Ветка «📋 Выбрать СТО из списка» — пока заглушка
-    if callback.data.endswith("list"):
-        await state.clear()
-        await callback.message.edit_text(
-            f"✅ Заявка <b>№{request_id}</b> создана.\n\n"
-            "Режим «Выбрать СТО из списка» будет доработан на следующем этапе.\n"
-            "Пока вы можете:\n"
-            "• посмотреть заявку в разделе «📄 Мои заявки»,\n"
-            "• или воспользоваться кнопкой «🔍 Найти СТО рядом» в главном меню."
-        )
-        await _back_to_main_menu(callback.message, telegram_id=callback.from_user.id)
-        await callback.answer()
-        return
+    mode = "list" if callback.data.endswith("list") else "all"
 
-    # Ветка «📡 Отправить всем подходящим СТО»
-    # 1) сначала пробуем искать по гео
-    service_centers_geo = await _find_suitable_service_centers_for_request(
-        request,
-        use_geo=True,
-    )
-
+    # --- 1) Подбираем СТО: сначала в радиусе, потом фолбэк без гео ---
     used_fallback = False
-    service_centers = service_centers_geo
 
-    # 2) если по гео пусто, но координаты есть — ищем без гео, только по профилю
-    if not service_centers_geo and request.get("latitude") is not None and request.get("longitude") is not None:
-        service_centers_any = await _find_suitable_service_centers_for_request(
-            request,
-            use_geo=False,
+    # поиск с учётом гео/радиуса (если они есть в заявке)
+    service_centers = await _find_suitable_service_centers_for_request(request)
+
+    # если никого не нашли, а в заявке есть гео — пробуем ещё раз без гео
+    latitude = request.get("latitude")
+    longitude = request.get("longitude")
+    radius_km = request.get("radius_km")
+
+    if not service_centers and latitude is not None and longitude is not None:
+        request_no_geo = dict(request)
+        request_no_geo.pop("latitude", None)
+        request_no_geo.pop("longitude", None)
+        request_no_geo.pop("radius_km", None)
+
+        service_centers = await _find_suitable_service_centers_for_request(
+            request_no_geo
         )
-        if service_centers_any:
-            service_centers = service_centers_any
+        if service_centers:
             used_fallback = True
 
-    # 3) вообще ничего не нашли
+    # если и после фолбэка пусто — честно говорим, что никого нет
     if not service_centers:
         await state.clear()
         await callback.message.edit_text(
             f"✅ Заявка <b>№{request_id}</b> создана.\n\n"
-            "Но пока не нашлось подходящих автосервисов по вашему запросу.\n"
-            "Попробуйте изменить район или позже загляните в раздел «📄 Мои заявки»."
+            "Но подходящих автосервисов по вашему профилю пока не нашлось.\n"
+            "Попробуйте другой район или позже загляните в раздел «📄 Мои заявки»."
         )
         await _back_to_main_menu(callback.message, telegram_id=callback.from_user.id)
         await callback.answer()
         return
 
-    # 4) отправляем уведомления всем найденным СТО
-    sent_count = 0
-    for sc in service_centers:
-        sc_tg_id = sc.get("telegram_chat_id") or sc.get("telegram_id")
-        if not sc_tg_id:
-            continue
+    # --- 2) Ветка «📋 Выбрать СТО из списка» ---
+    if mode == "list":
+        lines: list[str] = [f"✅ Заявка <b>№{request_id}</b> создана.\n"]
 
-        try:
-            await _notify_service_center_about_request(sc_tg_id, request)
-            sent_count += 1
-        except Exception as e:
-            logging.exception(
-                "Error while notifying service center %s about request %s: %s",
-                sc.get("id"),
-                request_id,
-                e,
-            )
-
-    # 5) финальный текст для клиента
-    if sent_count == 0:
-        text = (
-            f"✅ Заявка <b>№{request_id}</b> создана.\n\n"
-            "Мы подобрали подходящие СТО, но не удалось отправить им уведомление.\n"
-            "Попробуйте позже или свяжитесь с поддержкой."
-        )
-    else:
-        if used_fallback:
-            extra = (
-                "\n\nСначала мы искали сервисы рядом с указанной локацией, "
-                "но ничего не нашли, поэтому отправили заявку подходящим СТО "
-                "по вашему профилю в других районах."
+        if used_fallback and radius_km:
+            lines.append(
+                f"В радиусе <b>{radius_km} км</b> подходящих автосервисов не нашли.\n"
+                "Показаны сервисы подходящего профиля без ограничения по расстоянию.\n"
             )
         else:
-            extra = (
-                "\n\nЗаявка отправлена подходящим автосервисам рядом с указанной локацией."
-            )
+            lines.append("Нашли несколько подходящих автосервисов:\n")
 
+        for idx, sc in enumerate(service_centers[:10], start=1):
+            name = sc.get("name") or "Без названия"
+            city = sc.get("city") or ""
+            address = sc.get("address_text") or ""
+
+            line_parts = [name]
+            if city:
+                line_parts.append(city)
+            if address:
+                line_parts.append(address)
+
+            line = f"{idx}. " + " — ".join(line_parts)
+            lines.append(line)
+
+        lines.append("\nВыберите нужный сервис из списка ниже 👇")
+
+        text = "\n".join(lines)
+
+        # остаёмся в состоянии choosing_work_mode,
+        # т.к. обработчик выбора СТО ждёт его же (req_service_center_selected)
+        await callback.message.edit_text(
+            text,
+            reply_markup=_build_service_centers_keyboard(service_centers),
+        )
+        await callback.answer()
+        return
+
+    # --- 3) Ветка «📡 Отправить всем подходящим» ---
+    sent_count = 0
+    try:
+        sent_count = await _notify_services_about_request(
+            bot=callback.message.bot,
+            request=request,
+            service_centers=service_centers,
+        )
+    except Exception:
+        # не валим сценарий, просто считаем, что никому не отправили
+        sent_count = 0
+
+    if used_fallback and radius_km:
+        radius_info = (
+            f"В радиусе <b>{radius_km} км</b> подходящих автосервисов не нашли.\n"
+            "Заявка отправлена в сервисы подходящего профиля без ограничения по расстоянию.\n\n"
+        )
+    else:
+        radius_info = ""
+
+    if sent_count > 0:
+        text = (
+            f"✅ Заявка <b>№{request_id}</b> создана и отправлена "
+            f"в <b>{sent_count}</b> подходящих автосервисов.\n\n"
+            f"{radius_info}"
+            "Как только сервисы ответят, их предложения появятся в разделе «📄 Мои заявки»."
+        )
+    else:
         text = (
             f"✅ Заявка <b>№{request_id}</b> создана.\n\n"
-            f"Мы отправили вашу заявку <b>{sent_count}</b> подходящим автосервисам."
-            f"{extra}"
+            f"{radius_info}"
+            "Однако не удалось отправить уведомления автосервисам.\n"
+            "Попробуйте позже или свяжитесь с поддержкой."
         )
 
     await state.clear()

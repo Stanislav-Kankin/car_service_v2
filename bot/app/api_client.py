@@ -36,6 +36,20 @@ class APIClient:
         """
         url = f"{self.base_url}{endpoint}"
 
+        # Нормализуем query-параметры:
+        # - булевы значения → "true"/"false"
+        # - None выкидываем
+        if params:
+            safe_params: Dict[str, Any] = {}
+            for key, value in params.items():
+                if value is None:
+                    continue
+                if isinstance(value, bool):
+                    safe_params[key] = "true" if value else "false"
+                else:
+                    safe_params[key] = value
+            params = safe_params or None
+
         async with aiohttp.ClientSession() as session:
             async with session.request(method, url, json=data, params=params) as resp:
                 if resp.status >= 400:
