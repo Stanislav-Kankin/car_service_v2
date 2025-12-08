@@ -34,23 +34,23 @@ async def create_request(
 
 
 @router.get(
-    "/{request_id}",
-    response_model=RequestRead,
+    "/for-service-centers",
+    response_model=List[RequestRead],
 )
-async def get_request(
-    request_id: int,
+async def get_requests_for_service_centers(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Получить заявку по ID.
+    Список заявок для СТО.
+
+    Пока просто возвращаем все активные заявки (NEW / SENT / IN_WORK),
+    без фильтрации по специализациям и гео.
     """
-    request = await RequestsService.get_request_by_id(db, request_id)
-    if not request:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Request not found",
-        )
-    return request
+    requests = await RequestsService.list_requests_for_service_centers(
+        db,
+        specializations=None,
+    )
+    return requests
 
 
 @router.get(
@@ -69,23 +69,23 @@ async def get_requests_by_user(
 
 
 @router.get(
-    "/for-service-centers",
-    response_model=List[RequestRead],
+    "/{request_id}",
+    response_model=RequestRead,
 )
-async def get_requests_for_service_centers(
+async def get_request(
+    request_id: int,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Список заявок для СТО.
-
-    Пока просто возвращаем все активные заявки (NEW / SENT / IN_WORK).
-    Без фильтрации по специализациям и гео — добавим позже.
+    Получить заявку по ID.
     """
-    requests = await RequestsService.list_requests_for_service_centers(
-        db,
-        specializations=None,
-    )
-    return requests
+    request = await RequestsService.get_request_by_id(db, request_id)
+    if not request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Request not found",
+        )
+    return request
 
 
 @router.patch(
