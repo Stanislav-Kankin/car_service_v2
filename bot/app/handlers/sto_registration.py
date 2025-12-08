@@ -160,78 +160,78 @@ async def sto_start_from_main(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "main:sto_menu")
 async def sto_menu_entry(callback: CallbackQuery):
     """
-    Вход в раздел СТО из главного меню.
+    Вход в меню СТО из главного меню.
+    Показываем краткую инфу по сервису и даём кнопки действий.
     """
-    tg_id = callback.message.chat.id
+    telegram_id = callback.from_user.id
 
-    try:
-        user = await api_client.get_user_by_telegram(tg_id)
-    except Exception as e:
-        logger.exception("Ошибка запроса пользователя в Меню СТО: %s", e)
+    # 1. Получаем пользователя по Telegram ID
+    user = await api_client.get_user_by_telegram(telegram_id)
+    if not isinstance(user, dict) or user.get("role") != "service_owner":
         await callback.message.answer(
-            "Не удалось получить данные пользователя 😔\n"
-            "Попробуйте ещё раз с команды /start."
+            "Похоже, вы ещё не зарегистрированы как владелец автосервиса.\n"
+            "Перейдите в раздел «Регистрация СТО» в главном меню.",
         )
         await callback.answer()
         return
 
-    if not user:
+    user_id = user["id"]
+
+    # 2. Ищем СТО, привязанные к пользователю
+    service_centers = await api_client.list_service_centers_by_user(user_id)
+    if not isinstance(service_centers, list) or not service_centers:
         await callback.message.answer(
-            "Пользователь не найден в системе.\n"
-            "Сначала пройдите регистрацию через /start.",
+            "У вас пока нет зарегистрированных автосервисов.\n"
+            "Зайдите в раздел «Регистрация СТО», чтобы создать профиль.",
         )
         await callback.answer()
         return
 
-    if user.get("role") != "service_owner":
-        await callback.message.answer(
-            "Раздел СТО доступен только владельцам автосервисов.\n\n"
-            "Если вы хотите подключить свой сервис и получать заявки от клиентов, "
-            "используйте кнопку «🔧 Зарегистрировать СТО» в главном меню."
-        )
-        await callback.answer()
-        return
+    sc = service_centers[0]  # пока берём первый сервис
 
-    # Пользователь – владелец СТО, получаем привязанные сервисы
-    try:
-        sc_list = await api_client.list_service_centers_by_user(user["id"])
-    except Exception as e:
-        logger.exception("Ошибка получения списка СТО: %s", e)
-        await callback.message.answer(
-            "Не удалось получить данные СТО 😔\n"
-            "Попробуйте чуть позже."
-        )
-        await callback.answer()
-        return
+    name = sc.get("name") or "Без названия"
+    city = sc.get("city") or ""
+    address = sc.get("address") or ""
+    specializations = sc.get("specializations") or []
 
-    if not sc_list:
-        await callback.message.answer(
-            "У вас ещё нет зарегистрированного автосервиса.\n\n"
-            "Нажмите «🔧 Зарегистрировать СТО» в главном меню, "
-            "чтобы создать профиль сервиса и начать получать заявки."
-        )
-        await callback.answer()
-        return
+    if isinstance(specializations, dict):
+        specs_text = ", ".join(str(v) for v in specializations.values())
+    elif isinstance(specializations, list):
+        specs_text = ", ".join(str(v) for v in specializations)
+    else:
+        specs_text = str(specializations)
 
-    sc = sc_list[0]
+    text_lines = [
+        "<b>🛠 Меню СТО</b>",
+        "",
+        f"<b>{name}</b>",
+    ]
+    if city or address:
+        text_lines.append(f"📍 {city}, {address}".strip(", "))
+    if specs_text:
+        text_lines.append(f"🔧 Специализации: {specs_text}")
 
-    specs = sc.get("specializations") or []
-    if isinstance(specs, dict):
-        # на всякий случай, если backend хранит иначе
-        specs = list(specs.values())
-    specs_text = ", ".join(specs) if specs else "—"
+    text_lines.append("")
+    text_lines.append("Выберите действие из меню ниже 👇")
 
-    text = (
-        "Ваш автосервис:\n\n"
-        f"Название: {sc.get('name') or '—'}\n"
-        f"Адрес: {sc.get('address') or '—'}\n"
-        f"Телефон: {sc.get('phone') or '—'}\n"
-        f"Сайт: {sc.get('website') or '—'}\n"
-        f"Специализации: {specs_text}\n\n"
-        "Позже здесь добавим редактирование профиля и управление заявками."
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📥 Заявки клиентов",
+                    callback_data="sto:req_list",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ В главное меню",
+                    callback_data="main:menu",
+                )
+            ],
+        ]
     )
 
-    await callback.message.answer(text)
+    await callback.message.answer("\n".join(text_lines), reply_markup=kb)
     await callback.answer()
 
 

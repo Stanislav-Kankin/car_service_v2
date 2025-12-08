@@ -195,6 +195,24 @@ class APIClient:
             f"/api/v1/requests/by-user/{user_id}",
         )
 
+    async def list_requests_for_service_centers(
+        self,
+        specializations: Optional[list[str]] = None,
+    ) -> Any:
+        """
+        Список заявок для СТО.
+
+        Пока backend сам возвращает все активные заявки (NEW / SENT / IN_WORK),
+        фильтр по специализациям временно не передаём, чтобы не ловить 422
+        из-за валидации query-параметров.
+
+        Параметр specializations оставляем в сигнатуре "на будущее".
+        """
+        return await self._request(
+            "GET",
+            "/api/v1/requests/for-service-centers",
+        )
+
     async def update_request(self, request_id: int, data: Dict[str, Any]) -> Any:
         return await self._request(
             "PATCH",

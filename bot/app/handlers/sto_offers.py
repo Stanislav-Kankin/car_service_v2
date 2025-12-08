@@ -678,3 +678,226 @@ async def request_offer_choose(callback: CallbackQuery):
         ),
     )
     await callback.answer()
+
+# ---------------------------------------------------------------------------
+# БЛОК: Заявки клиентов для СТО
+# ---------------------------------------------------------------------------
+
+
+async def _get_service_center_for_owner(telegram_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Внутренний helper: по telegram_id владельца находим его СТО.
+    Пока берём первый сервис из списка.
+    """
+    user = await api_client.get_user_by_telegram(telegram_id)
+    if not isinstance(user, dict) or user.get("role") != "service_owner":
+        return None
+
+    user_id = user["id"]
+    sc_list = await api_client.list_service_centers_by_user(user_id)
+
+    if not isinstance(sc_list, list) or not sc_list:
+        return None
+
+    return sc_list[0]
+
+
+@router.callback_query(F.data == "sto:req_list")
+async def sto_requests_list(callback: CallbackQuery):
+    """
+    Список заявок клиентов для СТО.
+    """
+    telegram_id = callback.from_user.id
+
+    sc = await _get_service_center_for_owner(telegram_id)
+    if not sc:
+        await callback.message.answer(
+            "Похоже, у вас ещё нет зарегистрированного автосервиса "
+            "или ваш профиль не является владельцем СТО.\n\n"
+            "Зайдите в раздел «Регистрация СТО» в главном меню.",
+        )
+        await callback.answer()
+        return
+
+    specs = sc.get("specializations") or []
+    if isinstance(specs, dict):
+        specializations = [str(v) for v in specs.values()]
+    elif isinstance(specs, list):
+        specializations = [str(v) for v in specs]
+    else:
+        specializations = []
+
+    try:
+        requests = await api_client.list_requests_for_service_centers(
+            specializations=specializations,
+        )
+    except Exception:
+        await callback.message.answer(
+            "Не удалось получить список заявок. Попробуйте позже.",
+        )
+        await callback.answer()
+        return
+
+    if not isinstance(requests, list) or not requests:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ В меню СТО",
+                        callback_data="main:sto_menu",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ В главное меню",
+                        callback_data="main:menu",
+                    )
+                ],
+            ]
+        )
+        await callback.message.answer(
+            "Сейчас нет активных заявок, подходящих под ваш автосервис.",
+            reply_markup=kb,
+        )
+        await callback.answer()
+        return
+
+    lines: List[str] = [
+        "<b>📥 Заявки клиентов</b>",
+        "",
+        "Выберите заявку, чтобы посмотреть детали и откликнуться:",
+        "",
+    ]
+
+    buttons: List[List[InlineKeyboardButton]] = []
+
+    for req in requests[:10]:  # пока ограничимся 10, потом можно сделать пагинацию
+        req_id = req.get("id")
+        category = req.get("service_category") or "Без категории"
+        addr = req.get("address_text") or "Адрес не указан"
+        status_raw = str(req.get("status") or "").lower()
+        status_text = _status_to_text(status_raw)
+
+        lines.append(f"• №{req_id}: {category} — {addr} ({status_text})")
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"Заявка №{req_id}",
+                    callback_data=f"sto:req_view:{req_id}",
+                )
+            ]
+        )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ В меню СТО",
+                callback_data="main:sto_menu",
+            )
+        ]
+    )
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ В главное меню",
+                callback_data="main:menu",
+            )
+        ]
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await callback.message.answer("\n".join(lines), reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sto:req_view:"))
+async def sto_request_view(callback: CallbackQuery):
+    """
+    Карточка конкретной заявки для СТО.
+    """
+    try:
+        _, _, req_id_str = callback.data.split(":", maxsplit=2)
+        request_id = int(req_id_str)
+    except (ValueError, AttributeError):
+        await callback.answer()
+        return
+
+    try:
+        request = await api_client.get_request(request_id)
+    except Exception:
+        request = None
+
+    if not isinstance(request, dict):
+        await callback.message.answer(
+            "Не удалось получить данные по заявке. Попробуйте позже.",
+        )
+        await callback.answer()
+        return
+
+    status_raw = str(request.get("status") or "").lower()
+    status_text = _status_to_text(status_raw)
+
+    category = request.get("service_category") or "Без категории"
+    addr = request.get("address_text") or "Адрес не указан"
+    description = request.get("description") or "Без описания"
+
+    text_lines = [
+        f"<b>Заявка №{request_id}</b>",
+        f"Статус: {status_text}",
+        "",
+        f"🛠 Категория: {category}",
+        f"📍 Адрес / район: {addr}",
+        "",
+        "<b>Описание проблемы:</b>",
+        description,
+        "",
+        "Если заявка вам подходит, вы можете отправить своё предложение.",
+    ]
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✉️ Откликнуться",
+                    callback_data=f"sto:offer_start:{request_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ К списку заявок",
+                    callback_data="sto:req_list",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ В меню СТО",
+                    callback_data="main:sto_menu",
+                )
+            ],
+        ]
+    )
+
+    await callback.message.answer("\n".join(text_lines), reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sto:offer_start:"))
+async def sto_offer_start(callback: CallbackQuery):
+    """
+    Заготовка под FSM отклика СТО.
+    На следующем шаге превратим это в полноценный сценарий: цена → срок → комментарий.
+    """
+    try:
+        _, _, req_id_str = callback.data.split(":", maxsplit=2)
+        request_id = int(req_id_str)
+    except (ValueError, AttributeError):
+        await callback.answer()
+        return
+
+    await callback.message.answer(
+        f"Вы выбрали заявку №{request_id}.\n\n"
+        "На следующем шаге мы добавим форму для ввода цены, срока и комментария.",
+    )
+    await callback.answer()

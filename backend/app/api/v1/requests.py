@@ -68,6 +68,26 @@ async def get_requests_by_user(
     return requests
 
 
+@router.get(
+    "/for-service-centers",
+    response_model=List[RequestRead],
+)
+async def get_requests_for_service_centers(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Список заявок для СТО.
+
+    Пока просто возвращаем все активные заявки (NEW / SENT / IN_WORK).
+    Без фильтрации по специализациям и гео — добавим позже.
+    """
+    requests = await RequestsService.list_requests_for_service_centers(
+        db,
+        specializations=None,
+    )
+    return requests
+
+
 @router.patch(
     "/{request_id}",
     response_model=RequestRead,
