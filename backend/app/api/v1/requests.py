@@ -185,3 +185,56 @@ async def update_request(
             detail="Request not found",
         )
     return request
+
+
+@router.post("/{request_id}/send_to_all", response_model=RequestRead)
+async def send_to_all(
+    request_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Отправить заявку ВСЕМ подходящим СТО
+    """
+    request = await RequestsService.get_request_by_id(db, request_id)
+    if not request:
+        raise HTTPException(404, "Request not found")
+
+    sc_list = await ServiceCentersService.search_service_centers(
+        db,
+        latitude=request.latitude,
+        longitude=request.longitude,
+        radius_km=request.radius_km,
+        specializations=[request.service_category] if request.service_category else None,
+    )
+
+    ids = [sc.id for sc in sc_list]
+
+    updated_request = await RequestsService.distribute_request_to_service_centers(
+        db,
+        request_id=request_id,
+        service_center_ids=ids
+    )
+    return updated_request
+
+
+@router.post("/{request_id}/send_to_service_center", response_model=RequestRead)
+async def send_to_one_service(
+    request_id: int,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Отправить заявки одному выбранному СТО.
+    Формат:
+    { "service_center_id": 5 }
+    """
+    sc_id = data.get("service_center_id")
+    if not sc_id:
+        raise HTTPException(400, "service_center_id is required")
+
+    updated_request = await RequestsService.distribute_request_to_service_centers(
+        db,
+        request_id=request_id,
+        service_center_ids=[sc_id]
+    )
+    return updated_request

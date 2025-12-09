@@ -138,3 +138,32 @@ async def update_service_center(
         )
     sc = await ServiceCentersService.update_service_center(db, sc, data_in)
     return sc
+
+
+@router.get("/for-request/{request_id}", response_model=List[ServiceCenterRead])
+async def get_service_centers_for_request(
+    request_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Вернуть список подходящих СТО для конкретной заявки.
+    """
+    request = await RequestsService.get_request_by_id(db, request_id)
+    if not request:
+        raise HTTPException(404, "Request not found")
+
+    # параметры из заявки
+    latitude = request.latitude
+    longitude = request.longitude
+    radius_km = request.radius_km
+    specializations = [request.service_category] if request.service_category else None
+
+    sc_list = await ServiceCentersService.search_service_centers(
+        db,
+        latitude=latitude,
+        longitude=longitude,
+        radius_km=radius_km,
+        specializations=specializations,
+        is_active=True,
+    )
+    return sc_list
