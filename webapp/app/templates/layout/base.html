@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}CarBot WebApp{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Здесь можно подключить свои стили -->
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-50">
+
+<header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-slate-900 font-bold">
+                C
+            </div>
+            <span class="font-semibold tracking-wide">CarBot</span>
+        </div>
+        <nav class="text-sm text-slate-300">
+            <!-- позже сюда добавим ссылки в ЛК/выход -->
+            <span class="opacity-60">MVP</span>
+        </nav>
+    </div>
+</header>
+
+<main class="max-w-5xl mx-auto px-4 py-8">
+    {% block content %}{% endblock %}
+</main>
+
+<footer class="border-t border-slate-800 bg-slate-900/80 mt-8">
+    <div class="max-w-5xl mx-auto px-4 py-4 text-xs text-slate-500 flex justify-between">
+        <span>CarBot &copy; {{ 2025 }}</span>
+        <span>Sandbox MVP</span>
+    </div>
+</footer>
+
+<script src="/static/js/main.js"></script>
+</body>
+</html>
