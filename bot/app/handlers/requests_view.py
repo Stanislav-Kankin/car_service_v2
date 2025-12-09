@@ -608,6 +608,84 @@ async def request_offer_detail(callback: CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("req_offer:decline:"))
+async def request_offer_decline(callback: CallbackQuery):
+    """
+    Клиент явно отклоняет конкретный отклик.
+    callback_data: req_offer:decline:{request_id}:{offer_id}
+    """
+    try:
+        _, _, raw_req_id, raw_offer_id = callback.data.split(":", maxsplit=3)
+        request_id = int(raw_req_id)
+        offer_id = int(raw_offer_id)
+    except Exception:
+        await callback.answer("Некорректные данные отклика.")
+        return
+
+    # Обновляем статус отклика
+    try:
+        await api_client.update_offer(
+            offer_id,
+            {"status": "rejected"},
+        )
+    except Exception:
+        await callback.message.answer(
+            "Не удалось отклонить это предложение. Попробуйте позже."
+        )
+        await callback.answer()
+        return
+
+    # Пытаемся уведомить СТО, чьё предложение отклонено
+    try:
+        offers, sc_map = await _load_offers_with_sc(request_id)
+        offer = next((o for o in offers if o.get("id") == offer_id), None)
+        if offer:
+            sc_id = offer.get("service_center_id")
+            sc = sc_map.get(sc_id or -1)
+            owner_id = None
+            if isinstance(sc, dict):
+                owner_id = sc.get("owner_id") or sc.get("user_id")
+
+            if owner_id:
+                manager = await api_client.get_user(int(owner_id))
+                if isinstance(manager, dict):
+                    manager_tg = manager.get("telegram_id")
+                    if manager_tg:
+                        await callback.bot.send_message(
+                            chat_id=manager_tg,
+                            text=(
+                                f"❌ Клиент отклонил ваше предложение "
+                                f"по заявке №{request_id}."
+                            ),
+                        )
+    except Exception:
+        # Не мешаем клиентскому UX, если уведомление не удалось
+        pass
+
+    # Обновляем сообщение клиенту
+    await callback.message.edit_text(
+        "❌ Вы отклонили это предложение.\n\n"
+        "Вы можете выбрать другой отклик из списка или дождаться новых.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📨 Отклики по заявке",
+                        callback_data=f"req_offers:list:{request_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ В меню",
+                        callback_data="main:menu",
+                    )
+                ],
+            ]
+        ),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("req_offer:choose:"))
 async def request_offer_choose(callback: CallbackQuery):
     """
@@ -623,7 +701,86 @@ async def request_offer_choose(callback: CallbackQuery):
         await callback.answer("Некорректные данные отклика.")
         return
 
-    # 1) Обновляем отклик — помечаем как принятый клиентом
+    # ------------------------------------------------------------------
+    # 0) Загружаем все отклики по заявке и СТО, чтобы понять,
+    #    не выбран ли уже какой-то сервис.
+    # ------------------------------------------------------------------
+    try:
+        offers, sc_map = await _load_offers_with_sc(request_id)
+    except Exception:
+        offers, sc_map = [], {}
+
+    this_offer = None
+    for o in offers:
+        if int(o.get("id", 0)) == offer_id:
+            this_offer = o
+            break
+
+    # если этот отклик уже принят раньше — просто говорим клиенту
+    if this_offer:
+        st_raw = str(this_offer.get("status") or "").lower()
+        if st_raw == OFFER_ACCEPT_STATUS:
+            await callback.message.edit_text(
+                "✅ Этот сервис уже выбран по данной заявке.\n\n"
+                "При необходимости свяжитесь с сервисом для уточнения деталей.",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="⬅️ К заявке",
+                                callback_data=f"req_view:{request_id}",
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                text="⬅️ В меню",
+                                callback_data="main:menu",
+                            )
+                        ],
+                    ]
+                ),
+            )
+            await callback.answer()
+            return
+
+    # проверяем, нет ли уже другого принятого отклика
+    existing_other_accepted = None
+    for o in offers:
+        oid = int(o.get("id", 0))
+        status_raw = str(o.get("status") or "").lower()
+        if oid != offer_id and status_raw == OFFER_ACCEPT_STATUS:
+            existing_other_accepted = o
+            break
+
+    if existing_other_accepted:
+        # уже есть другой выбранный сервис — не даём выбрать ещё один
+        await callback.message.edit_text(
+            "По этой заявке уже выбран другой автосервис.\n\n"
+            "Вы не можете принять несколько предложений одновременно.\n"
+            "Если нужно изменить выбор, свяжитесь с менеджером проекта.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ К заявке",
+                            callback_data=f"req_view:{request_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ В меню",
+                            callback_data="main:menu",
+                        )
+                    ],
+                ]
+            ),
+        )
+        await callback.answer()
+        return
+
+    # ------------------------------------------------------------------
+    # 1) Обновляем выбранный отклик — помечаем как принятый клиентом
+    # ------------------------------------------------------------------
     try:
         await api_client.update_offer(
             offer_id,
@@ -638,7 +795,9 @@ async def request_offer_choose(callback: CallbackQuery):
         await callback.answer()
         return
 
+    # ------------------------------------------------------------------
     # 2) Обновляем заявку — привязываем выбранный сервис и переводим статус
+    # ------------------------------------------------------------------
     try:
         await api_client.update_request(
             request_id,
@@ -653,13 +812,80 @@ async def request_offer_choose(callback: CallbackQuery):
             "Сервис выбран, но не удалось обновить статус заявки.\n"
             "Если что-то пойдёт не так — напишите менеджеру.",
         )
-        await callback.answer()
-        return
+        # продолжаем, чтобы хотя бы уведомить СТО
+        # не делаем return
 
+    # ------------------------------------------------------------------
+    # 3) Уведомляем выбранный сервис и отклоняем остальных
+    # ------------------------------------------------------------------
+
+    # Уведомление выбранного сервиса
+    try:
+        chosen_sc = sc_map.get(service_center_id or -1)
+        if isinstance(chosen_sc, dict):
+            owner_id = chosen_sc.get("owner_id") or chosen_sc.get("user_id")
+            if owner_id:
+                manager = await api_client.get_user(int(owner_id))
+                if isinstance(manager, dict):
+                    manager_tg = manager.get("telegram_id")
+                    if manager_tg:
+                        await callback.bot.send_message(
+                            chat_id=manager_tg,
+                            text=(
+                                f"✅ Клиент выбрал ваше предложение "
+                                f"по заявке №{request_id}.\n\n"
+                                "Свяжитесь с клиентом для уточнения деталей."
+                            ),
+                        )
+    except Exception:
+        # если не получилось уведомить сервис — не мешаем клиенту
+        pass
+
+    # Отказ всем остальным СТО по этой заявке
+    for off in offers:
+        other_offer_id = off.get("id")
+        if not other_offer_id or int(other_offer_id) == offer_id:
+            continue
+
+        other_sc_id = off.get("service_center_id")
+
+        # 3.1. Ставим статус REJECTED в backend
+        try:
+            await api_client.update_offer(
+                int(other_offer_id),
+                {"status": "rejected"},
+            )
+        except Exception:
+            # не критично, идём дальше
+            pass
+
+        # 3.2. Отправляем уведомление этому сервису, что клиент выбрал другого
+        try:
+            sc = sc_map.get(other_sc_id or -1)
+            if isinstance(sc, dict):
+                owner_id = sc.get("owner_id") or sc.get("user_id")
+                if owner_id:
+                    manager = await api_client.get_user(int(owner_id))
+                    if isinstance(manager, dict):
+                        manager_tg = manager.get("telegram_id")
+                        if manager_tg:
+                            await callback.bot.send_message(
+                                chat_id=manager_tg,
+                                text=(
+                                    f"❌ Клиент выбрал другой сервис по заявке №{request_id}.\n"
+                                    "Ваше предложение отмечено как отклонённое."
+                                ),
+                            )
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # 4) Сообщаем клиенту об успехе
+    # ------------------------------------------------------------------
     await callback.message.edit_text(
         "✅ Вы выбрали сервис по этой заявке.\n\n"
-        "Мы уведомим сервис о вашем выборе.\n"
-        "В следующем шаге мы добавим полноценный чат по заявке.",
+        "Мы уведомили выбранный сервис и отклонили остальные предложения.\n"
+        "В следующем шаге добавим полноценный чат по заявке.",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [

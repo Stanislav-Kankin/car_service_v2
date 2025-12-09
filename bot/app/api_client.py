@@ -216,6 +216,18 @@ class APIClient:
             params=params,
         )
 
+    async def update_request(self, request_id: int, data: Dict[str, Any]) -> Any:
+        """
+        Частичное обновление заявки.
+        data — словарь с полями, которые хотим обновить
+        (совместим с схемой RequestUpdate на backend).
+        """
+        return await self._request(
+            "PATCH",
+            f"/api/v1/requests/{request_id}",
+            data=data,
+        )
+
     # ------------------------------------------------------------------
     # SERVICE CENTERS (СТО)
     # ------------------------------------------------------------------

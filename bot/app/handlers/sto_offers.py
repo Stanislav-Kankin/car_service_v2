@@ -1034,6 +1034,8 @@ async def sto_offer_text(message: Message, state: FSMContext):
         )
         return
 
+    offer_id = offer.get("id")
+
     # 3. Уведомляем клиента о новом отклике
     try:
         # получаем заявку
@@ -1052,15 +1054,43 @@ async def sto_offer_text(message: Message, state: FSMContext):
         sc_name = sc.get("name") or f"СТО #{service_center_id}"
 
         if client_tg_id:
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Принять условия",
+                            callback_data=(
+                                f"req_offer:choose:{request_id}:{offer_id}:{service_center_id}"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="❌ Отклонить предложение",
+                            callback_data=(
+                                f"req_offer:decline:{request_id}:{offer_id}"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="📄 Все предложения по заявке",
+                            callback_data=f"req_offers:list:{request_id}",
+                        )
+                    ],
+                ]
+            )
+
             await message.bot.send_message(
                 chat_id=client_tg_id,
                 text=(
                     f"📩 <b>Новый отклик по вашей заявке №{request_id}</b>\n\n"
                     f"<b>Автосервис:</b> {sc_name}\n\n"
                     f"{text}\n\n"
-                    "Посмотреть все предложения вы можете в разделе "
-                    "«📄 Мои заявки»."
+                    "Вы можете сразу принять или отклонить это предложение, "
+                    "либо посмотреть все отклики в разделе «📄 Мои заявки»."
                 ),
+                reply_markup=kb,
             )
     except Exception as e:
         # Не роняем поток, если уведомление не удалось — просто логируем
@@ -1073,13 +1103,13 @@ async def sto_offer_text(message: Message, state: FSMContext):
     await message.answer(
         "✅ Ваше предложение отправлено клиенту!\n\n"
         "Клиент увидит его в разделе «📄 Мои заявки» "
-        "и сможет согласиться, отказаться или написать вам.",
+        "и в уведомлении в чате.",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
                         text="📥 Заявки клиентов",
-                        callback_data="sto:requests_list",
+                        callback_data="sto:req_list",
                     )
                 ],
                 [
