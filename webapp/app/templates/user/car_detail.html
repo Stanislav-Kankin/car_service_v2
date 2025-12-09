@@ -1,0 +1,65 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Автомобиль #{{ car.id }} — CarBot{% endblock %}
+
+{% block content %}
+<div class="mt-8 space-y-6">
+    <a href="/me/garage" class="text-xs text-slate-400 hover:text-emerald-400 transition">
+        ← Вернуться в гараж
+    </a>
+
+    <div class="relative">
+        <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
+
+        <div class="relative z-10 p-6 md:p-8 space-y-6">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                    <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
+                        Автомобиль #{{ car.id }}
+                    </p>
+                    <h1 class="text-2xl font-semibold">
+                        {{ car.brand or "Марка не указана" }}
+                        {% if car.model %} {{ car.model }}{% endif %}
+                    </h1>
+                    {% if car.year %}
+                        <p class="text-sm text-slate-300 mt-1">
+                            {{ car.year }} г.в.
+                        </p>
+                    {% endif %}
+                    {% if car.license_plate %}
+                        <p class="text-sm text-slate-400 mt-1">
+                            Номер: {{ car.license_plate }}
+                        </p>
+                    {% endif %}
+                </div>
+
+                <div class="flex flex-col items-start md:items-end gap-2">
+                    <a href="/me/requests/new?car_id={{ car.id }}"
+                       class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                        Создать заявку для этого авто
+                        <span class="text-lg">★</span>
+                    </a>
+                    <p class="text-xs text-slate-400 max-w-xs">
+                        На следующем шаге вы выберете тип услуги (СТО, помощь в дороге и т.п.) и заполните анкету.
+                    </p>
+                </div>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-4 text-sm text-slate-300">
+                <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                    <p class="text-xs text-slate-400 mb-1">VIN</p>
+                    <p>{{ car.vin or "Не указан" }}</p>
+                </div>
+                <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                    <p class="text-xs text-slate-400 mb-1">Год выпуска</p>
+                    <p>{{ car.year or "Не указан" }}</p>
+                </div>
+                <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                    <p class="text-xs text-slate-400 mb-1">Гос. номер</p>
+                    <p>{{ car.license_plate or "Не указан" }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

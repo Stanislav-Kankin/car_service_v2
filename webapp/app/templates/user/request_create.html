@@ -1,0 +1,25 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Новая заявка — CarBot{% endblock %}
+
+{% block content %}
+<div class="mt-8 space-y-4">
+    <a href="/me/garage" class="text-xs text-slate-400 hover:text-emerald-400 transition">
+        ← Вернуться в гараж
+    </a>
+
+    <h1 class="text-2xl font-semibold">Новая заявка</h1>
+
+    <p class="text-sm text-slate-300">
+        Здесь будет мастер создания заявки в стиле "модуль в воздухе, как монетка в Марио":
+        выбор типа услуги (ТОПЛИВО / АВТОМОЙКА / ПОМОЩЬ В ДОРОГЕ / СТО / ЗАПЧАСТИ),
+        затем анкета заявки.
+    </p>
+
+    {% if car_id %}
+        <p class="text-xs text-slate-400">
+            Текущий автомобиль: ID {{ car_id }} — на следующем шаге подставим его автоматически.
+        </p>
+    {% endif %}
+</div>
+{% endblock %}
