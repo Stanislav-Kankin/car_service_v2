@@ -1466,7 +1466,7 @@ async def _notify_services_about_request(
     desc = (request.get("description") or "").strip() or "Описание не указано"
     addr = (request.get("address_text") or "").strip() or "Адрес не указан"
 
-    # на будущее можно подтянуть инфу по машине, пока оставим текстом
+    # Инфа по машине (если есть)
     car_info = ""
     car = request.get("car")
     if isinstance(car, dict):
@@ -1475,7 +1475,26 @@ async def _notify_services_about_request(
         if brand or model:
             car_info = f"{brand} {model}".strip()
 
-    base_title = f"📥 Новая заявка №{request_id}" if request_id else "📥 Новая заявка"
+    # Телеграм клиента (для кнопки "Написать клиенту")
+    client_tg_id: Optional[int] = None
+    user_id = request.get("user_id")
+    if user_id:
+        try:
+            user = await api_client.get_user(int(user_id))
+            if isinstance(user, dict):
+                client_tg_id = user.get("telegram_id")
+        except Exception as e:
+            logging.exception(
+                "Не удалось получить данные клиента для заявки %s: %s",
+                request_id,
+                e,
+            )
+
+    base_title = (
+        f"📥 Новая заявка №{request_id:04d}"
+        if request_id is not None
+        else "📥 Новая заявка"
+    )
 
     for sc in service_centers:
         try:
@@ -1522,14 +1541,26 @@ async def _notify_services_about_request(
 
             base_text = "\n".join(text_lines)
 
+            # --- Кнопки под заявкой для СТО ---
+            first_row: List[InlineKeyboardButton] = [
+                InlineKeyboardButton(
+                    text="✉️ Ответить на заявку",
+                    callback_data=f"sto:req_view:{request_id}",
+                )
+            ]
+
+            # Если знаем Telegram клиента — добавляем кнопку "Написать клиенту"
+            if client_tg_id:
+                first_row.append(
+                    InlineKeyboardButton(
+                        text="💬 Написать клиенту",
+                        url=f"tg://user?id={client_tg_id}",
+                    )
+                )
+
             kb = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="✉️ Ответить на заявку",
-                            callback_data=f"sto:req_view:{request_id}",
-                        )
-                    ],
+                    first_row,
                     [
                         InlineKeyboardButton(
                             text="📥 Все заявки клиентов",
@@ -1539,7 +1570,7 @@ async def _notify_services_about_request(
                 ]
             )
 
-            # 1) сообщение с текстом
+            # 1) сообщение с текстом и кнопками
             await bot.send_message(chat_id=tg_id, text=base_text, reply_markup=kb)
 
             # 2) если у заявки есть сохранённые фото – отправим и их

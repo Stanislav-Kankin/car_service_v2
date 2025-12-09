@@ -300,6 +300,15 @@ class APIClient:
 
         return None
 
+    async def list_service_centers_by_user(self, user_id: int) -> Any:
+        """
+        Список СТО, привязанных к конкретному пользователю (владельцу).
+        """
+        return await self._request(
+            "GET",
+            f"/api/v1/service-centers/by-user/{user_id}",
+        )
+
     # ------------------------------------------------------------------
     # OFFERS (отклики СТО)
     # ------------------------------------------------------------------

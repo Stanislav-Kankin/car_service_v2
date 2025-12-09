@@ -54,6 +54,7 @@ REQUEST_ACCEPT_STATUS = "accepted_by_service"  # RequestStatus.ACCEPTED_BY_SERVI
 
 class STOOfferFSM(StatesGroup):
     waiting_text = State()
+    waiting_decline_reason = State()
 
 # ---------------------------------------------------------------------------
 # Вспомогательные функции
@@ -893,79 +894,255 @@ async def sto_request_view(callback: CallbackQuery):
     await callback.answer()
 
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+def _build_sto_request_status_kb(current_status: str, request_id: int) -> InlineKeyboardMarkup:
+    """
+    Клавиатура под карточкой заявки для СТО после смены статуса.
+    Если заявка уже завершена или отменена – убираем кнопки смены статуса.
+    """
+    rows: List[List[InlineKeyboardButton]] = []
+
+    if current_status not in ("done", "cancelled"):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🛠 В работе",
+                    callback_data=f"sto:req_status:in_work:{request_id}",
+                )
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ Завершить",
+                    callback_data=f"sto:req_status:done:{request_id}",
+                )
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить",
+                    callback_data=f"sto:req_status:cancelled:{request_id}",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="📥 Все заявки клиентов",
+                callback_data="sto:req_list",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ В меню СТО",
+                callback_data="main:sto_menu",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ В главное меню",
+                callback_data="main:menu",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data.startswith("sto:req_status:"))
+async def sto_request_status_change(callback: CallbackQuery):
+    """
+    Менеджер СТО меняет статус заявки:
+    sto:req_status:{status}:{request_id}
+      - status: in_work / done / cancelled
+    """
+    import logging
+
+    try:
+        _, _, status_key, raw_req_id = callback.data.split(":", maxsplit=3)
+        request_id = int(raw_req_id)
+    except Exception:
+        await callback.answer("Некорректные данные статуса.")
+        return
+
+    # Определяем новый статус заявки в терминах backend
+    status_map = {
+        "in_work": ("in_work", "🛠 Заявка взята в работу."),
+        "done": ("done", "✅ Заявка завершена."),
+        "cancelled": ("cancelled", "❌ Заявка отменена."),
+    }
+
+    if status_key not in status_map:
+        await callback.answer("Неизвестный статус.")
+        return
+
+    new_status_value, status_message_for_client = status_map[status_key]
+
+    # Определяем, к какому СТО привязан этот менеджер
+    sc = await _get_service_center_for_owner(callback.from_user.id)
+    if not sc or not sc.get("id"):
+        await callback.message.answer(
+            "Не удалось определить ваш автосервис. Попробуйте позже.",
+        )
+        await callback.answer()
+        return
+
+    sc_id = int(sc["id"])
+
+    # Получаем заявку и проверяем, что именно этот СТО является ответственным
+    try:
+        request = await api_client.get_request(request_id)
+    except Exception as e:
+        logging.exception("Не удалось получить заявку %s: %s", request_id, e)
+        await callback.message.answer(
+            "Не удалось обновить заявку. Попробуйте позже.",
+        )
+        await callback.answer()
+        return
+
+    if not isinstance(request, dict):
+        await callback.message.answer(
+            "Заявка не найдена.",
+        )
+        await callback.answer()
+        return
+
+    req_sc_id = request.get("service_center_id")
+    if not req_sc_id or int(req_sc_id) != sc_id:
+        await callback.message.answer(
+            "Вы не являетесь ответственным сервисом по этой заявке.",
+        )
+        await callback.answer()
+        return
+
+    # Обновляем статус заявки в backend
+    try:
+        await api_client.update_request(
+            request_id,
+            {"status": new_status_value},
+        )
+    except Exception as e:
+        logging.exception("Не удалось обновить статус заявки %s: %s", request_id, e)
+        await callback.message.answer(
+            "Не удалось обновить статус заявки. Попробуйте позже.",
+        )
+        await callback.answer()
+        return
+
+    # Уведомляем клиента о смене статуса
+    try:
+        user_id = request.get("user_id")
+        if user_id:
+            user = await api_client.get_user(int(user_id))
+            if isinstance(user, dict):
+                client_tg = user.get("telegram_id")
+                if client_tg:
+                    await callback.bot.send_message(
+                        chat_id=client_tg,
+                        text=(
+                            f"{status_message_for_client}\n\n"
+                            f"Заявка №{request_id:04d}."
+                        ),
+                    )
+    except Exception:
+        logging.exception("Не удалось отправить уведомление клиенту о смене статуса.")
+
+    # Обновляем сообщение для СТО
+    base_text = callback.message.text or ""
+    status_suffix = {
+        "in_work": "\n\nТекущий статус: 🛠 в работе.",
+        "done": "\n\nТекущий статус: ✅ завершена.",
+        "cancelled": "\n\nТекущий статус: ❌ отменена.",
+    }.get(status_key, "")
+
+    new_text = base_text.split("\n\nТекущий статус:", 1)[0] + status_suffix
+
+    await callback.message.edit_text(
+        new_text,
+        reply_markup=_build_sto_request_status_kb(new_status_value, request_id),
+    )
+    await callback.answer("Статус заявки обновлён.")
+
 
 @router.callback_query(F.data.startswith("sto:offer_start:"))
 async def sto_offer_start(callback: CallbackQuery, state: FSMContext):
     """
-    Старт отклика СТО: просим одним сообщением указать все условия.
+    Менеджер СТО выбрал заявку → предлагаем:
+    - отправить условия
+    - отказаться от клиента
+    - отменить отклик
     """
     try:
         _, _, raw_req_id = callback.data.split(":", maxsplit=2)
         request_id = int(raw_req_id)
-    except (ValueError, IndexError):
+    except:
         await callback.answer("Некорректные данные заявки.")
         return
 
     await state.clear()
     await state.update_data(request_id=request_id)
-    await state.set_state(STOOfferFSM.waiting_text)
 
     await callback.message.edit_text(
         f"Вы выбрали заявку №{request_id}.\n\n"
-        "Отправьте <b>одним сообщением</b> условия для клиента: стоимость, "
-        "сроки, когда можете принять автомобиль и т.п.\n\n"
-        "Например:\n"
-        "<i>Работа будет стоить 5000 ₽, сделаем за 2–3 часа, "
-        "завтра в 11:30 свободно.</i>",
+        "Отправьте <b>одним сообщением</b> условия для клиента: стоимость, сроки, "
+        "когда можете принять автомобиль и т.п.\n\n"
+        "ИЛИ нажмите «Отказать клиенту», если не можете взять заявку.",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="❌ Отменить отклик",
+                        text="❌ Отказать клиенту",
+                        callback_data=f"sto:decline_client:{request_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="✖ Отменить отклик",
                         callback_data=f"sto:offer_cancel:{request_id}",
                     )
-                ]
+                ],
             ]
         ),
     )
     await callback.answer()
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-@router.callback_query(F.data.startswith("sto:offer_start:"))
-async def sto_offer_start(callback: CallbackQuery, state: FSMContext):
-    """
-    Старт отклика СТО: просим одним сообщением указать все условия.
-    """
+@router.callback_query(F.data.startswith("sto:offer_cancel:"))
+async def sto_offer_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text(
+        "Отклик отменён.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="📥 Заявки клиентов", callback_data="sto:req_list")],
+                [InlineKeyboardButton(text="⬅️ В меню СТО", callback_data="main:sto_menu")],
+            ]
+        ),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sto:decline_client:"))
+async def sto_offer_decline_start(callback: CallbackQuery, state: FSMContext):
     try:
-        _, _, raw_req_id = callback.data.split(":", maxsplit=2)
-        request_id = int(raw_req_id)
-    except (ValueError, IndexError):
+        _, _, req_id = callback.data.split(":", maxsplit=2)
+        request_id = int(req_id)
+    except:
         await callback.answer("Некорректные данные заявки.")
         return
 
-    await state.clear()
     await state.update_data(request_id=request_id)
-    await state.set_state(STOOfferFSM.waiting_text)
+    await state.set_state(STOOfferFSM.waiting_decline_reason)
 
     await callback.message.edit_text(
-        f"Вы выбрали заявку №{request_id}.\n\n"
-        "Отправьте <b>одним сообщением</b> условия для клиента: стоимость, "
-        "сроки, когда можете принять автомобиль и т.п.\n\n"
-        "Например:\n"
-        "<i>Работа будет стоить 5000 ₽, сделаем за 2–3 часа, "
-        "завтра в 11:30 свободно.</i>",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="❌ Отменить отклик",
-                        callback_data=f"sto:offer_cancel:{request_id}",
-                    )
-                ]
-            ]
-        ),
+        f"Укажите причину отказа по заявке №{request_id} одним сообщением.\n\n"
+        "<i>Например: нет нужных запчастей</i>",
     )
     await callback.answer()
 
@@ -984,47 +1161,44 @@ async def sto_offer_text(message: Message, state: FSMContext):
         )
         return
 
+    # 1. Достаём из FSM id заявки
     data = await state.get_data()
     request_id = data.get("request_id")
     if not request_id:
         await state.clear()
         await message.answer(
-            "Не удалось определить заявку.\n"
-            "Откройте её заново через «📥 Заявки клиентов» и повторите отклик."
+            "Не удалось определить заявку для отклика.\n"
+            "Попробуйте ещё раз выбрать заявку из списка."
         )
         return
 
-    # 1. Находим СТО по текущему менеджеру
+    # 2. Находим СТО, от имени которого пишет менеджер
     try:
         sc = await api_client.get_my_service_center(message.from_user.id)
     except Exception as e:
-        logger.exception("Ошибка при получении СТО для отклика: %s", e)
+        logger.exception("Не удалось получить сервис по telegram_id менеджера: %s", e)
         sc = None
 
-    if not isinstance(sc, dict):
+    if not isinstance(sc, dict) or not sc.get("id"):
         await state.clear()
         await message.answer(
-            "Не удалось определить, к какому автосервису вы привязаны.\n"
-            "Проверьте, что вы завершили регистрацию СТО."
+            "Не удалось определить ваш автосервис.\n"
+            "Проверьте, что вы зарегистрировали СТО и привязаны как владелец."
         )
         return
 
-    service_center_id = sc.get("id")
-    if not service_center_id:
-        await state.clear()
-        await message.answer(
-            "Некорректные данные автосервиса. Попробуйте позже."
-        )
-        return
+    service_center_id = int(sc["id"])
+    sc_name = (sc.get("name") or "").strip() or f"СТО #{service_center_id}"
 
-    payload = {
+    # 3. Формируем payload для создания отклика
+    payload: Dict[str, Any] = {
         "request_id": int(request_id),
-        "service_center_id": int(service_center_id),
-        # менеджер пишет условия в свободной форме
+        "service_center_id": service_center_id,
+        # цену/сроки можно будет парсить отдельно, пока всё в тексте
         "comment": text,
     }
 
-    # 2. Создаём Offer в backend
+    # 4. Создаём Offer в backend
     try:
         offer = await api_client.create_offer(payload)
     except Exception as e:
@@ -1036,76 +1210,89 @@ async def sto_offer_text(message: Message, state: FSMContext):
         )
         return
 
-    offer_id = offer.get("id")
+    offer_id: Optional[int] = None
+    if isinstance(offer, dict) and offer.get("id"):
+        try:
+            offer_id = int(offer["id"])
+        except Exception:
+            offer_id = None
 
-    # 3. Уведомляем клиента о новом отклике
+    # 5. Ищем клиента по заявке, чтобы отправить ему уведомление
+    client_tg_id: Optional[int] = None
     try:
-        # получаем заявку
         req = await api_client.get_request(int(request_id))
-        user_id = None
-        if isinstance(req, dict):
-            user_id = req.get("user_id")
+    except Exception as e:
+        logger.exception("Не удалось получить заявку %s: %s", request_id, e)
+        req = None
 
-        client = None
-        client_tg_id = None
-        if user_id is not None:
-            client = await api_client.get_user(int(user_id))
+    if isinstance(req, dict):
+        user_id = req.get("user_id")
+        if user_id:
+            try:
+                client = await api_client.get_user(int(user_id))
+            except Exception as e:
+                logger.exception("Не удалось получить пользователя %s: %s", user_id, e)
+                client = None
+
             if isinstance(client, dict):
                 client_tg_id = client.get("telegram_id")
 
-        sc_name = sc.get("name") or f"СТО #{service_center_id}"
+    # 6. Отправляем клиенту сообщение о новом отклике
+    if client_tg_id:
+        # Кнопки для клиента
+        buttons: List[List[InlineKeyboardButton]] = []
 
-        if client_tg_id:
-            kb = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="✅ Принять условия",
-                            callback_data=(
-                                f"req_offer:choose:{request_id}:{offer_id}:{service_center_id}"
-                            ),
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text="❌ Отклонить предложение",
-                            callback_data=(
-                                f"req_offer:decline:{request_id}:{offer_id}"
-                            ),
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text="📄 Все предложения по заявке",
-                            callback_data=f"req_offers:list:{request_id}",
-                        )
-                    ],
+        if offer_id is not None:
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text="✅ Принять условия",
+                        callback_data=f"req_offer:choose:{int(request_id)}:{offer_id}:{service_center_id}",
+                    )
+                ]
+            )
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text="❌ Отклонить предложение",
+                        callback_data=f"req_offer:decline:{int(request_id)}:{offer_id}",
+                    )
                 ]
             )
 
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="💬 Написать менеджеру",
+                    url=f"tg://user?id={message.from_user.id}",
+                )
+            ]
+        )
+
+        kb_client = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+        try:
             await message.bot.send_message(
                 chat_id=client_tg_id,
                 text=(
-                    f"📩 <b>Новый отклик по вашей заявке №{request_id}</b>\n\n"
+                    f"📩 <b>Новый отклик по вашей заявке №{int(request_id):04d}</b>\n\n"
                     f"<b>Автосервис:</b> {sc_name}\n\n"
                     f"{text}\n\n"
-                    "Вы можете сразу принять или отклонить это предложение, "
-                    "либо посмотреть все отклики в разделе «📄 Мои заявки»."
+                    "Вы можете принять или отклонить это предложение "
+                    "в этом сообщении или в разделе «📄 Мои заявки»."
                 ),
-                reply_markup=kb,
+                reply_markup=kb_client,
             )
-    except Exception as e:
-        # Не роняем поток, если уведомление не удалось — просто логируем
-        logger.exception(
-            "Не удалось отправить уведомление клиенту о новом отклике: %s", e
-        )
+        except Exception as e:
+            logger.exception(
+                "Не удалось отправить клиенту уведомление об отклике: %s", e
+            )
 
-    # 4. Завершаем FSM и отвечаем менеджеру
+    # 7. Очищаем FSM и отвечаем менеджеру
     await state.clear()
     await message.answer(
-        "✅ Ваше предложение отправлено клиенту!\n\n"
-        "Клиент увидит его в разделе «📄 Мои заявки» "
-        "и в уведомлении в чате.",
+        "✅ Ваше предложение отправлено клиенту.\n\n"
+        "Клиент получит уведомление и сможет принять или отклонить условия.",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
