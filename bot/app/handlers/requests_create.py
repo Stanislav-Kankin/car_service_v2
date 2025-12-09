@@ -1258,8 +1258,14 @@ async def req_work_mode_selected(callback: CallbackQuery, state: FSMContext):
     # --- 1) Подбираем СТО: сначала в радиусе, потом фолбэк без гео ---
     used_fallback = False
 
-    # поиск с учётом гео/радиуса (если они есть в заявке)
-    service_centers = await _find_suitable_service_centers_for_request(request)
+    # Для режима "список" используем гео,
+    # для режима "отправить всем" игнорируем координаты (шлём всем по профилю)
+    use_geo = callback.data == "req_work:list"
+
+    service_centers = await _find_suitable_service_centers_for_request(
+        request,
+        use_geo=use_geo,
+    )
 
     # если никого не нашли, а в заявке есть гео — пробуем ещё раз без гео
     latitude = request.get("latitude")
@@ -1450,78 +1456,119 @@ async def _notify_services_about_request(
     service_centers: List[Dict[str, Any]],
 ) -> int:
     """
-    Рассылаем уведомление о новой заявке всем найденным СТО.
-
-    bot              – экземпляр Bot (берём из callback.message.bot)
-    request          – dict с данными заявки
-    service_centers  – список dict'ов с данными СТО (как вернул backend)
-
-    Возвращаем количество СТО, которым реально что-то отправили.
+    Рассылаем уведомление о новой заявке всем найденным СТО
+    И фиксируем распределение заявки в backend (RequestDistribution).
     """
     sent_count = 0
+    sent_sc_ids: List[int] = []
 
-    if not service_centers:
-        return 0
+    request_id = request.get("id")
+    desc = (request.get("description") or "").strip() or "Описание не указано"
+    addr = (request.get("address_text") or "").strip() or "Адрес не указан"
 
-    req_id = request.get("id")
-    car = request.get("car") or {}
-    category = request.get("service_category") or "—"
-    address = request.get("address_text") or "—"
-    description = request.get("description") or "—"
+    # на будущее можно подтянуть инфу по машине, пока оставим текстом
+    car_info = ""
+    car = request.get("car")
+    if isinstance(car, dict):
+        brand = (car.get("brand") or "").strip()
+        model = (car.get("model") or "").strip()
+        if brand or model:
+            car_info = f"{brand} {model}".strip()
 
-    car_text_parts: List[str] = []
-    if car.get("brand"):
-        car_text_parts.append(car["brand"])
-    if car.get("model"):
-        car_text_parts.append(car["model"])
-    if car.get("year"):
-        car_text_parts.append(str(car["year"]))
-    car_text = " ".join(car_text_parts) if car_text_parts else "не указано"
-
-    base_text = (
-        f"🆕 <b>Новая заявка №{req_id}</b>\n\n"
-        f"🚗 Авто: {car_text}\n"
-        f"🛠 Категория: {category}\n"
-        f"📍 Адрес / район: {address}\n\n"
-        "<b>Описание проблемы:</b>\n"
-        f"{description}\n\n"
-        "Чтобы посмотреть все детали и откликнуться, "
-        "используйте раздел «Заявки клиентов» в меню СТО."
-    )
+    base_title = f"📥 Новая заявка №{request_id}" if request_id else "📥 Новая заявка"
 
     for sc in service_centers:
-        # предполагаем, что backend отдаёт user_id владельца сервиса
-        owner_user_id: Optional[int] = sc.get("user_id")
-        if not owner_user_id:
-            continue
-
         try:
-            owner = await api_client.get_user(owner_user_id)
-        except Exception:
-            owner = None
+            sc_id = sc.get("id")
+            if not sc_id:
+                continue
 
-        if not isinstance(owner, dict):
-            continue
+            owner_user_id = sc.get("user_id")
+            if not owner_user_id:
+                continue
 
-        tg_id = owner.get("telegram_id")
-        if not tg_id:
-            continue
-
-        try:
-            await bot.send_message(chat_id=tg_id, text=base_text)
-        except Exception:
-            # не роняем цикл, если какому-то владельцу не удалось доставить
-            continue
-
-        # если у заявки есть сохранённые file_id фото – отправим и их
-        photos: List[str] = request.get("photos") or []
-        for file_id in photos:
+            # находим владельца СТО и его telegram_id
             try:
-                await bot.send_photo(chat_id=tg_id, photo=file_id)
-            except Exception:
-                pass
+                owner = await api_client.get_user(int(owner_user_id))
+            except Exception as e:
+                logging.exception("Не удалось получить данные владельца СТО: %s", e)
+                continue
 
-        sent_count += 1
+            if not isinstance(owner, dict):
+                continue
+
+            tg_id = owner.get("telegram_id")
+            if not tg_id:
+                continue
+
+            sc_name = (sc.get("name") or "").strip() or f"Автосервис #{sc_id}"
+
+            text_lines = [
+                base_title,
+                "",
+                f"<b>Автосервис:</b> {sc_name}",
+            ]
+            if car_info:
+                text_lines.append(f"<b>Автомобиль:</b> {car_info}")
+            text_lines.append(f"<b>Адрес/место:</b> {addr}")
+            text_lines.append("")
+            text_lines.append("<b>Описание проблемы:</b>")
+            text_lines.append(desc)
+            text_lines.append("")
+            text_lines.append(
+                "Чтобы отправить клиенту условия (цена, срок, комментарий), "
+                "нажмите кнопку ниже и напишите одно сообщение."
+            )
+
+            base_text = "\n".join(text_lines)
+
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✉️ Ответить на заявку",
+                            callback_data=f"sto:req_view:{request_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="📥 Все заявки клиентов",
+                            callback_data="sto:req_list",
+                        )
+                    ],
+                ]
+            )
+
+            # 1) сообщение с текстом
+            await bot.send_message(chat_id=tg_id, text=base_text, reply_markup=kb)
+
+            # 2) если у заявки есть сохранённые фото – отправим и их
+            photos: List[str] = request.get("photos") or []
+            for file_id in photos:
+                try:
+                    await bot.send_photo(chat_id=tg_id, photo=file_id)
+                except Exception:
+                    # фото не критичны, не роняем сценарий
+                    pass
+
+            sent_count += 1
+            sent_sc_ids.append(int(sc_id))
+
+        except Exception as e:
+            logging.exception("Ошибка при отправке заявки в СТО: %s", e)
+            continue
+
+    # После успешной рассылки фиксируем распределение заявки по СТО в backend
+    if request_id and sent_sc_ids:
+        try:
+            await api_client.distribute_request(int(request_id), sent_sc_ids)
+        except Exception as e:
+            logging.exception(
+                "Не удалось зафиксировать распределение заявки %s по СТО %s: %s",
+                request_id,
+                sent_sc_ids,
+                e,
+            )
 
     return sent_count
 
@@ -1556,6 +1603,7 @@ async def req_service_center_selected(callback: CallbackQuery, state: FSMContext
         return
 
     # Обновляем заявку: привязываем выбранный сервис и переводим в статус "sent"
+        # Обновляем заявку: привязываем выбранный сервис и переводим в статус "sent"
     try:
         await api_client.update_request(
             request_id,
@@ -1572,6 +1620,20 @@ async def req_service_center_selected(callback: CallbackQuery, state: FSMContext
         await state.clear()
         await callback.answer()
         return
+
+    # Фиксируем распределение заявки: она отправлена КОНКРЕТНО этому СТО
+    try:
+        await api_client.distribute_request(
+            request_id,
+            [service_center_id],
+        )
+    except Exception as e:
+        logging.exception(
+            "Не удалось зафиксировать распределение заявки %s для СТО %s: %s",
+            request_id,
+            service_center_id,
+            e,
+        )
 
     # Пытаемся уведомить выбранное СТО так же, как в режиме «отправить всем»
     try:

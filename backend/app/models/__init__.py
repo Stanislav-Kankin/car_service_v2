@@ -4,6 +4,7 @@ from .car import Car
 from .request import Request, RequestStatus
 from .offer import Offer, OfferStatus
 from .bonus import BonusTransaction, BonusReason
+from .request_distribution import RequestDistribution, RequestDistributionStatus
 
 __all__ = [
     "User",
@@ -16,4 +17,6 @@ __all__ = [
     "OfferStatus",
     "BonusTransaction",
     "BonusReason",
+    "RequestDistribution",
+    "RequestDistributionStatus",
 ]

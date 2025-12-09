@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import logging
 import aiohttp
 
@@ -59,28 +59,19 @@ class APIClient:
                 if resp.status == 204:
                     return None
 
+                # Пытаемся распарсить JSON
                 content_type = resp.headers.get("Content-Type", "")
                 if "application/json" in content_type:
                     return await resp.json()
 
+                # fallback — обычный текст
                 return await resp.text()
 
     # ------------------------------------------------------------------
-    # USERS
+    # USERS (пользователи)
     # ------------------------------------------------------------------
 
     async def create_user(self, data: Dict[str, Any]) -> Any:
-        """
-        Создание пользователя.
-
-        Ожидает payload:
-        {
-            "telegram_id": int,
-            "full_name": str,
-            "phone": str,
-            "city": str
-        }
-        """
         return await self._request(
             "POST",
             "/api/v1/users/",
@@ -89,8 +80,8 @@ class APIClient:
 
     async def get_user_by_telegram(self, telegram_id: int) -> Any:
         """
-        Вернёт dict с пользователем или None, если пользователь не найден (404).
-        Все остальные ошибки по-прежнему пробрасываем дальше.
+        Получить пользователя по telegram_id.
+        Если backend вернёт 404 — возвращаем None, а не кидаем исключение.
         """
         try:
             return await self._request(
@@ -99,7 +90,7 @@ class APIClient:
             )
         except Exception as e:
             msg = str(e)
-            if "API error 404" in msg:
+            if "404" in msg:
                 logger.info("User with telegram_id=%s not found in backend", telegram_id)
                 return None
             # остальные ошибки — настоящие, их не глушим
@@ -200,7 +191,7 @@ class APIClient:
         specializations: Optional[list[str]] = None,
     ) -> Any:
         """
-        Список заявок для СТО.
+        Список заявок для СТО (СТАРЫЙ режим — по специализациям).
 
         Если передан список specializations — отправляем его как query-параметры,
         чтобы backend вернул только подходящие заявки.
@@ -225,7 +216,29 @@ class APIClient:
         return await self._request(
             "PATCH",
             f"/api/v1/requests/{request_id}",
-            data=data,
+            data,
+        )
+
+    async def distribute_request(self, request_id: int, service_center_ids: List[int]) -> Any:
+        """
+        Зафиксировать, каким СТО была отправлена заявка.
+        Вызывает backend-эндпоинт POST /api/v1/requests/{request_id}/distribute.
+        """
+        payload = {"service_center_ids": service_center_ids}
+        return await self._request(
+            "POST",
+            f"/api/v1/requests/{request_id}/distribute",
+            payload,
+        )
+
+    async def list_requests_for_service_center(self, service_center_id: int) -> Any:
+        """
+        Список заявок, которые были разосланы КОНКРЕТНОМУ СТО.
+        Использует RequestDistribution на backend-е.
+        """
+        return await self._request(
+            "GET",
+            f"/api/v1/requests/for-service-center/{service_center_id}",
         )
 
     # ------------------------------------------------------------------
@@ -256,53 +269,45 @@ class APIClient:
         )
 
     async def list_service_centers(
-        self, params: Optional[Dict[str, Any]] = None
+        self,
+        params: Optional[Dict[str, Any]] = None,
     ) -> Any:
+        """
+        Список СТО.
+
+        """
         return await self._request(
             "GET",
             "/api/v1/service-centers/",
             params=params,
         )
 
-    async def list_service_centers_by_user(self, user_id: int) -> Any:
-        """
-        Получить все СТО, привязанные к пользователю.
-        Обычно будет одно.
-        """
-        return await self._request(
-            "GET",
-            f"/api/v1/service-centers/by-user/{user_id}",
-        )
-
     async def get_my_service_center(self, telegram_id: int) -> Any:
         """
-        Определить СТО, привязанный к владельцу с указанным telegram_id.
-
-        Логика:
-        1) Ищем пользователя по telegram_id.
-        2) Берём его user_id.
-        3) Ищем все service-centers по этому user_id.
-        4) Возвращаем первый (или None, если не найдено).
+        Удобный метод: по telegram_id менеджера получить привязанный сервис.
         """
         user = await self.get_user_by_telegram(telegram_id)
-        if not user:
+        if not isinstance(user, dict):
             return None
 
-        user_id = user["id"] if isinstance(user, dict) else getattr(user, "id", None)
+        user_id = user.get("id")
         if not user_id:
             return None
 
-        sc_list = await self.list_service_centers_by_user(user_id)
+        sc_list = await self.list_service_centers_by_user(int(user_id))
         if isinstance(sc_list, list) and sc_list:
             return sc_list[0]
 
         return None
 
     # ------------------------------------------------------------------
-    # OFFERS (отклики СТО на заявки)
+    # OFFERS (отклики СТО)
     # ------------------------------------------------------------------
 
     async def create_offer(self, data: Dict[str, Any]) -> Any:
+        """
+        Создать отклик СТО на заявку.
+        """
         return await self._request(
             "POST",
             "/api/v1/offers/",
@@ -310,6 +315,9 @@ class APIClient:
         )
 
     async def update_offer(self, offer_id: int, data: Dict[str, Any]) -> Any:
+        """
+        Частичное обновление отклика (статус, комментарий и т.п.).
+        """
         return await self._request(
             "PATCH",
             f"/api/v1/offers/{offer_id}",
@@ -317,6 +325,9 @@ class APIClient:
         )
 
     async def list_offers_by_request(self, request_id: int) -> Any:
+        """
+        Получить список откликов по заявке.
+        """
         return await self._request(
             "GET",
             f"/api/v1/offers/by-request/{request_id}",

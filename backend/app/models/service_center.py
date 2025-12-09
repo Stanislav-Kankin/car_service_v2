@@ -69,7 +69,14 @@ class ServiceCenter(Base):
         nullable=False,
     )
 
-    # Связи
+    # -------- связи --------
     owner = relationship("User", back_populates="service_centers")
     offers = relationship("Offer", back_populates="service_center")
     requests = relationship("Request", back_populates="service_center")
+
+    # распределения заявок по этому СТО
+    request_distributions = relationship(
+        "RequestDistribution",
+        back_populates="service_center",
+        cascade="all, delete-orphan",
+    )

@@ -714,6 +714,9 @@ async def _get_service_center_for_owner(telegram_id: int) -> Optional[Dict[str, 
 async def sto_requests_list(callback: CallbackQuery):
     """
     Список заявок клиентов для СТО.
+
+    Теперь СТО видит только те заявки, которые реально были ему разосланы:
+    backend использует таблицу request_distribution.
     """
     telegram_id = callback.from_user.id
 
@@ -727,19 +730,19 @@ async def sto_requests_list(callback: CallbackQuery):
         await callback.answer()
         return
 
-    specs = sc.get("specializations") or []
-    if isinstance(specs, dict):
-        specializations = [str(v) for v in specs.values()]
-    elif isinstance(specs, list):
-        specializations = [str(v) for v in specs]
-    else:
-        specializations = []
-
-    try:
-        requests = await api_client.list_requests_for_service_centers(
-            specializations=specializations,
+    sc_id = sc.get("id")
+    if not sc_id:
+        await callback.message.answer(
+            "Не удалось определить ваш автосервис. Попробуйте позже.",
         )
-    except Exception:
+        await callback.answer()
+        return
+
+    # Получаем заявки, которые backend реально разослал этому СТО
+    try:
+        requests = await api_client.list_requests_for_service_center(int(sc_id))
+    except Exception as e:
+        logger.exception("Не удалось получить заявки для СТО %s: %s", sc_id, e)
         await callback.message.answer(
             "Не удалось получить список заявок. Попробуйте позже.",
         )
@@ -763,21 +766,20 @@ async def sto_requests_list(callback: CallbackQuery):
                 ],
             ]
         )
-        await callback.message.answer(
-            "Сейчас нет активных заявок, подходящих под ваш автосервис.",
+        await callback.message.edit_text(
+            "Пока нет заявок, отправленных в ваш автосервис.\n\n"
+            "Как только клиенты будут выбирать ваш профиль или отправлять "
+            "заявки по вашему профилю, они появятся здесь.",
             reply_markup=kb,
         )
         await callback.answer()
         return
 
-    lines: List[str] = [
-        "<b>📥 Заявки клиентов</b>",
-        "",
-        "Выберите заявку, чтобы посмотреть детали и откликнуться:",
-        "",
-    ]
-
+    # Формируем список заявок
+    lines: List[str] = []
     buttons: List[List[InlineKeyboardButton]] = []
+
+    lines.append("<b>📥 Заявки клиентов</b>\n")
 
     for req in requests[:10]:  # пока ограничимся 10, потом можно сделать пагинацию
         req_id = req.get("id")
@@ -816,7 +818,7 @@ async def sto_requests_list(callback: CallbackQuery):
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    await callback.message.answer("\n".join(lines), reply_markup=kb)
+    await callback.message.edit_text("\n".join(lines), reply_markup=kb)
     await callback.answer()
 
 

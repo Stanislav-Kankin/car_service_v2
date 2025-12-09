@@ -47,6 +47,18 @@ OFFER_ACCEPT_STATUS = "accepted"          # OfferStatus.ACCEPTED.value
 REQUEST_ACCEPT_STATUS = "accepted_by_service"  # RequestStatus.ACCEPTED_BY_SERVICE.value
 
 
+def _format_request_number(request_id: int | None) -> str:
+    """
+    Форматируем номер заявки как четырёхзначный: 0001, 0002, ...
+    """
+    if not request_id:
+        return "—"
+    try:
+        return f"{int(request_id):04d}"
+    except Exception:
+        return str(request_id)
+
+
 # ---------------------------------------------------------------------------
 # Вспомогательные функции
 # ---------------------------------------------------------------------------
@@ -105,7 +117,7 @@ def _build_requests_list_kb(requests: List[Dict[str, Any]]) -> InlineKeyboardMar
         for req in requests:
             req_id = req.get("id")
             status = _status_to_text(req.get("status"))
-            text = f"#{req_id} — {status}"
+            text = f"#{_format_request_number(req_id)} — {status}"
             rows.append(
                 [
                     InlineKeyboardButton(
@@ -402,7 +414,7 @@ async def request_detail(callback: CallbackQuery):
     hide_phone_text = "Скрыт" if hide_phone else "Показывается СТО"
 
     text_lines: List[str] = [
-        f"<b>Заявка №{request_id}</b>",
+        f"<b>Заявка №{_format_request_number(request_id)}</b>",
         "",
         f"<b>Статус:</b> {status}",
         f"<b>Категория:</b> {category}",

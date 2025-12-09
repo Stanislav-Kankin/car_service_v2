@@ -9,6 +9,7 @@ from backend.app.schemas.request import (
     RequestRead,
     RequestUpdate,
 )
+from backend.app.schemas.request_distribution import RequestDistributeIn
 from backend.app.services.requests_service import RequestsService
 
 router = APIRouter(
@@ -17,6 +18,9 @@ router = APIRouter(
 )
 
 
+# ---------------------------------------------------------------------------
+# Создание заявки
+# ---------------------------------------------------------------------------
 @router.post(
     "/",
     response_model=RequestRead,
@@ -33,6 +37,10 @@ async def create_request(
     return request
 
 
+# ---------------------------------------------------------------------------
+# (СТАРОЕ) Список заявок для СТО по специализациям
+# Сейчас в боте не используется, но оставляем как запасной вариант.
+# ---------------------------------------------------------------------------
 @router.get(
     "/for-service-centers",
     response_model=List[RequestRead],
@@ -45,17 +53,78 @@ async def get_requests_for_service_centers(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Список заявок для просмотра СТО.
+    Список заявок для просмотра СТО (старый режим, по специализациям).
 
     Если переданы specializations — вернём только заявки с такими категориями.
     """
-    requests = await RequestsService.list_requests_for_service_centers(
+    requests = await RequestsService.list_requests_for_service_centers_by_specializations(
         db,
         specializations=specializations,
     )
     return requests
 
 
+# ---------------------------------------------------------------------------
+# НОВОЕ: распределение заявки по конкретным СТО
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{request_id}/distribute",
+    response_model=RequestRead,
+    status_code=status.HTTP_200_OK,
+)
+async def distribute_request_to_service_centers(
+    request_id: int,
+    payload: RequestDistributeIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Зафиксировать, каким СТО была отправлена заявка.
+
+    Ожидает тело:
+    {
+        "service_center_ids": [1, 2, 3]
+    }
+    """
+    request = await RequestsService.distribute_request_to_service_centers(
+        db,
+        request_id=request_id,
+        service_center_ids=payload.service_center_ids,
+    )
+    if not request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Request not found",
+        )
+    return request
+
+
+# ---------------------------------------------------------------------------
+# НОВОЕ: список заявок для конкретного СТО
+# ---------------------------------------------------------------------------
+@router.get(
+    "/for-service-center/{service_center_id}",
+    response_model=List[RequestRead],
+)
+async def get_requests_for_service_center(
+    service_center_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Список заявок, которые были разосланы КОНКРЕТНОМУ СТО.
+
+    Использует RequestDistribution, поэтому:
+    - СТО видит только те заявки, которые реально ему отправили.
+    """
+    requests = await RequestsService.list_requests_for_service_center(
+        db,
+        service_center_id=service_center_id,
+    )
+    return requests
+
+
+# ---------------------------------------------------------------------------
+# Список заявок по пользователю
+# ---------------------------------------------------------------------------
 @router.get(
     "/by-user/{user_id}",
     response_model=List[RequestRead],
@@ -71,6 +140,9 @@ async def get_requests_by_user(
     return requests
 
 
+# ---------------------------------------------------------------------------
+# Получить заявку по ID
+# ---------------------------------------------------------------------------
 @router.get(
     "/{request_id}",
     response_model=RequestRead,
@@ -91,6 +163,9 @@ async def get_request(
     return request
 
 
+# ---------------------------------------------------------------------------
+# Частичное обновление заявки
+# ---------------------------------------------------------------------------
 @router.patch(
     "/{request_id}",
     response_model=RequestRead,

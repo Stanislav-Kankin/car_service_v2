@@ -1,9 +1,14 @@
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.models.request import Request, RequestStatus
+from backend.app.models import (
+    Request,
+    RequestStatus,
+    RequestDistribution,
+    RequestDistributionStatus,
+)
 from backend.app.schemas.request import (
     RequestCreate,
     RequestRead,
@@ -147,15 +152,16 @@ class RequestsService:
         return list(result.scalars().all())
 
     # ------------------------------------------------------------------
-    # Заготовка под выборку заявок для СТО
+    # СТАРЫЙ способ: список заявок для СТО по специализациям
+    # (оставляем как запасной/для админки, но в боте использовать не будем)
     # ------------------------------------------------------------------
     @staticmethod
-    async def list_requests_for_service_centers(
+    async def list_requests_for_service_centers_by_specializations(
         db: AsyncSession,
         specializations: Optional[list[str]] = None,
     ) -> List[Request]:
         """
-        Список активных заявок для отображения СТО.
+        Список активных заявок для отображения СТО (старый режим, по категориям).
 
         Если переданы specializations — фильтруем только по этим категориям.
         """
@@ -171,6 +177,88 @@ class RequestsService:
             stmt = stmt.where(Request.service_category.in_(specializations))
 
         stmt = stmt.order_by(Request.created_at.desc())
+
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    # ------------------------------------------------------------------
+    # НОВОЕ: распределение заявки по конкретным СТО
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def distribute_request_to_service_centers(
+        db: AsyncSession,
+        request_id: int,
+        service_center_ids: List[int],
+    ) -> Optional[Request]:
+        """
+        Зафиксировать, каким СТО была отправлена заявка.
+
+        1) Проверяем, что заявка существует.
+        2) Удаляем старые записи распределения (если вдруг были).
+        3) Создаём новые записи RequestDistribution со статусом SENT.
+        4) Меняем статус заявки на SENT.
+        """
+        request = await RequestsService.get_request_by_id(db, request_id)
+        if not request:
+            return None
+
+        # На всякий случай чистим старое распределение
+        await db.execute(
+            delete(RequestDistribution).where(
+                RequestDistribution.request_id == request_id
+            )
+        )
+
+        # Создаём новые записи
+        for sc_id in service_center_ids:
+            dist = RequestDistribution(
+                request_id=request_id,
+                service_center_id=sc_id,
+                status=RequestDistributionStatus.SENT,
+            )
+            db.add(dist)
+
+        # Обновляем статус заявки
+        request.status = RequestStatus.SENT
+
+        await db.commit()
+        await db.refresh(request)
+        return request
+
+    # ------------------------------------------------------------------
+    # НОВОЕ: список заявок для конкретного СТО (только "его" заявки)
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def list_requests_for_service_center(
+        db: AsyncSession,
+        service_center_id: int,
+    ) -> List[Request]:
+        """
+        Список активных заявок, которые были разосланы КОНКРЕТНОМУ СТО.
+
+        Используется модель RequestDistribution:
+        - берём только те заявки, которые были отправлены этому service_center_id;
+        - фильтруем по статусам (new, sent, in_work);
+        - сортируем по дате создания (новые сверху).
+        """
+        active_statuses = [
+            RequestStatus.NEW,
+            RequestStatus.SENT,
+            RequestStatus.IN_WORK,
+        ]
+
+        stmt = (
+            select(Request)
+            .join(
+                RequestDistribution,
+                RequestDistribution.request_id == Request.id,
+            )
+            .where(
+                RequestDistribution.service_center_id == service_center_id,
+                Request.status.in_(active_statuses),
+            )
+            .order_by(Request.created_at.desc())
+        )
 
         result = await db.execute(stmt)
         return list(result.scalars().all())

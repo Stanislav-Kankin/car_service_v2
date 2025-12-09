@@ -73,7 +73,7 @@ class Request(Base):
     # описание проблемы
     description = Column(Text, nullable=False)
 
-    # фото — список ссылок/имён файлов
+    # фото — список file_id / ссылок
     photos = Column(JSON, nullable=True)
 
     # скрывать ли телефон клиента от СТО до явного согласия
@@ -98,11 +98,20 @@ class Request(Base):
         nullable=False,
     )
 
+    # -------- связи --------
     user = relationship("User", back_populates="requests")
     car = relationship("Car", back_populates="requests")
     service_center = relationship("ServiceCenter", back_populates="requests")
+
     offers = relationship(
         "Offer",
+        back_populates="request",
+        cascade="all, delete-orphan",
+    )
+
+    # новые распределения заявки по СТО
+    distributions = relationship(
+        "RequestDistribution",
         back_populates="request",
         cascade="all, delete-orphan",
     )
