@@ -1,0 +1,80 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Заявка #{{ request_obj.id }} — CarBot{% endblock %}
+
+{% block content %}
+<div class="mt-8 space-y-4">
+    <a href="/me/requests"
+       class="text-xs text-slate-400 hover:text-emerald-400 transition">
+        ← Вернуться к списку заявок
+    </a>
+
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
+                Заявка #{{ request_obj.id }}
+            </p>
+            <h1 class="text-2xl font-semibold">
+                {{ request_obj.service_category_label or "Заявка" }}
+            </h1>
+        </div>
+        <div class="text-right text-xs">
+            <div class="mb-1">
+                <span class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-200">
+                    Статус: {{ request_obj.status_label }}
+                </span>
+            </div>
+            <p class="text-slate-500">
+                Создана: {{ request_obj.created_at }}
+            </p>
+        </div>
+    </div>
+
+    <!-- ... блоки с данными, как были ... -->
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-sm space-y-2">
+        <p class="text-xs text-slate-400 mb-1">Телефон</p>
+        <p>
+            {% if request_obj.hide_phone %}
+                Номер скрыт от СТО до вашего явного согласия.
+            {% else %}
+                Номер доступен выбранному сервису.
+            {% endif %}
+        </p>
+    </div>
+
+    {% if sent_all is true %}
+        <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-50">
+            ✅ Заявка отправлена всем подходящим СТО.
+        </div>
+    {% elif chosen_service_id %}
+        <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-50">
+            ✅ Заявка отправлена выбранному сервису (ID {{ chosen_service_id }}).
+        </div>
+    {% endif %}
+
+    <div class="mt-4 flex flex-wrap items-center gap-3 text-xs">
+        {% if can_distribute %}
+            <form method="post" action="/me/requests/{{ request_obj.id }}/send-all">
+                <button
+                    type="submit"
+                    class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2 text-xs font-semibold text-slate-900 shadow-md shadow-emerald-500/30 hover:bg-emerald-400 transition"
+                >
+                    Отправить всем подходящим СТО
+                    <span class="text-base">→</span>
+                </button>
+            </form>
+
+            <a href="/me/requests/{{ request_obj.id }}/choose-service"
+               class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-700 transition">
+                Выбрать СТО из списка
+                <span class="text-base">→</span>
+            </a>
+        {% else %}
+            <p class="text-xs text-slate-500">
+                Отправка заявки СТО доступна только для заявок в статусе «Новая».
+            </p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Мои заявки — CarBot{% endblock %}
+
+{% block content %}
+<div class="mt-8 space-y-4">
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-semibold">Мои заявки</h1>
+            <p class="text-sm text-slate-300">
+                Здесь отображаются все ваши заявки, созданные через бота и веб-приложение.
+            </p>
+        </div>
+        <a href="/me/garage"
+           class="text-xs text-slate-400 hover:text-emerald-400 transition">
+            ← Вернуться в гараж
+        </a>
+    </div>
+
+    {% if error_message %}
+        <div class="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {{ error_message }}
+        </div>
+    {% endif %}
+
+    {% if requests %}
+        <div class="mt-4 space-y-3">
+            {% for r in requests %}
+                <a href="/me/requests/{{ r.id }}"
+                   class="block rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 hover:border-emerald-400/70 hover:bg-slate-900 transition">
+                    <div class="flex items-center justify-between gap-4">
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2 text-xs text-slate-400">
+                                <span>#{{ r.id }}</span>
+                                {% if r.service_category_label %}
+                                    <span class="px-2 py-0.5 rounded-full bg-slate-800 text-emerald-300">
+                                        {{ r.service_category_label }}
+                                    </span>
+                                {% endif %}
+                            </div>
+                            <p class="text-sm font-medium text-slate-50">
+                                {{ r.description[:120] }}{% if r.description|length > 120 %}…{% endif %}
+                            </p>
+                            <p class="text-xs text-slate-500">
+                                Создана: {{ r.created_at }}
+                            </p>
+                        </div>
+                        <div class="text-right text-xs">
+                            <div class="mb-1">
+                                <span class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-200">
+                                    Статус: {{ r.status_label }}
+                                </span>
+                            </div>
+                            <span class="text-emerald-400 text-sm">Открыть →</span>
+                        </div>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="mt-6 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-6 text-sm text-slate-300">
+            <p class="mb-1">У вас пока нет заявок.</p>
+            <p class="text-slate-500">
+                Создайте первую заявку из гаража, выбрав автомобиль и нажав «Создать заявку».
+            </p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

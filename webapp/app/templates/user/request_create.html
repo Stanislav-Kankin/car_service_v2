@@ -11,15 +11,147 @@
     <h1 class="text-2xl font-semibold">Новая заявка</h1>
 
     <p class="text-sm text-slate-300">
-        Здесь будет мастер создания заявки в стиле "модуль в воздухе, как монетка в Марио":
-        выбор типа услуги (ТОПЛИВО / АВТОМОЙКА / ПОМОЩЬ В ДОРОГЕ / СТО / ЗАПЧАСТИ),
-        затем анкета заявки.
+        Заполните анкету для СТО. Сейчас реализован базовый сценарий —
+        заявка в сервисный центр (СТО), как в боте.
     </p>
 
     {% if car_id %}
-        <p class="text-xs text-slate-400">
-            Текущий автомобиль: ID {{ car_id }} — на следующем шаге подставим его автоматически.
-        </p>
+    <p class="text-xs text-slate-400">
+        Заявка создаётся для автомобиля с ID {{ car_id }}.
+    </p>
     {% endif %}
+
+    {% if error_message %}
+    <div class="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100 mt-2">
+        {{ error_message }}
+    </div>
+    {% endif %}
+
+    {% if created_request %}
+    <div class="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-50 mt-2">
+        ✅ Заявка № {{ created_request.id }} успешно создана.
+        <br>
+        Статус: {{ created_request.status }}
+    </div>
+    {% endif %}
+</div>
+
+<div class="mt-6">
+    <div class="relative">
+        <!-- "Модуль в воздухе" -->
+        <div
+            class="absolute inset-0 rounded-3xl bg-slate-900/80 backdrop-blur-2xl border border-slate-800 shadow-2xl shadow-emerald-500/15">
+        </div>
+
+        <div class="relative z-10 p-6 md:p-8 space-y-6">
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
+                        Шаг 1
+                    </p>
+                    <h2 class="text-lg font-semibold">
+                        Анкета заявки в СТО
+                    </h2>
+                </div>
+                <span class="text-xs text-slate-400">
+                    Позже сюда добавим выбор типа услуги (Топливо, Мойка, Помощь и т.п.)
+                </span>
+            </div>
+
+            <form method="post" class="space-y-5">
+                {% if car_id %}
+                <input type="hidden" name="car_id" value="{{ car_id }}">
+                {% else %}
+                <div class="text-xs text-red-300">
+                    Внимание: car_id не передан. На проде сюда должен приходить ID машины.
+                </div>
+                <input type="number" name="car_id" class="hidden" value="1">
+                {% endif %}
+
+                <!-- Адрес -->
+                <div class="space-y-1">
+                    <label class="block text-xs font-semibold text-slate-300">
+                        Адрес или место оказания услуги
+                    </label>
+                    <input type="text" name="address_text"
+                        class="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        placeholder="Например: Москва, Ленинградский проспект, 10">
+                    <p class="text-xs text-slate-500">
+                        Можно ввести адрес текстом. Позже добавим выбор на карте.
+                    </p>
+                </div>
+
+                <!-- Состояние авто -->
+                <div class="space-y-2">
+                    <span class="block text-xs font-semibold text-slate-300">
+                        Состояние автомобиля
+                    </span>
+                    <div class="flex flex-wrap gap-3 text-xs">
+                        <label class="inline-flex items-center gap-2">
+                            <input type="radio" name="is_car_movable" value="movable" checked
+                                class="h-3 w-3 rounded-full border-slate-500 text-emerald-500 focus:ring-emerald-500">
+                            <span>Едет самостоятельно</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2">
+                            <input type="radio" name="is_car_movable" value="not_movable"
+                                class="h-3 w-3 rounded-full border-slate-500 text-emerald-500 focus:ring-emerald-500">
+                            <span>Не едет / нужна эвакуация или выездной мастер</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Радиус -->
+                <div class="space-y-1">
+                    <label class="block text-xs font-semibold text-slate-300">
+                        Радиус поиска СТО, км
+                    </label>
+                    <select name="radius_km"
+                        class="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                        <option value="0">Не важно</option>
+                        <option value="3">3 км</option>
+                        <option value="5" selected>5 км</option>
+                        <option value="10">10 км</option>
+                    </select>
+                    <p class="text-xs text-slate-500">
+                        0 км = без ограничения по радиусу, дальше работает логика backend по подбору СТО.
+                    </p>
+
+                </div>
+
+                <!-- Описание проблемы -->
+                <div class="space-y-1">
+                    <label class="block text-xs font-semibold text-slate-300">
+                        Описание проблемы <span class="text-red-400">*</span>
+                    </label>
+                    <textarea name="description" rows="4" required
+                        class="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        placeholder="Расскажите, что случилось с автомобилем..."></textarea>
+                </div>
+
+                <!-- Скрыть телефон -->
+                <div class="space-y-1">
+                    <label class="inline-flex items-center gap-2 text-xs text-slate-300">
+                        <input type="checkbox" name="hide_phone" value="true"
+                            class="h-3 w-3 rounded border-slate-500 text-emerald-500 focus:ring-emerald-500">
+                        <span>
+                            Скрыть мой номер телефона от СТО (общение только через чат, пока я не разрешу).
+                        </span>
+                    </label>
+                </div>
+
+                <div class="pt-3 flex flex-wrap items-center gap-4">
+                    <button type="submit"
+                        class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                        Создать заявку
+                        <span class="text-lg">→</span>
+                    </button>
+
+                    <span class="text-xs text-slate-500">
+                        После отправки заявка появится в общем списке и будет готова к распределению по СТО.
+                    </span>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 {% endblock %}
