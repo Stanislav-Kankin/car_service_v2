@@ -58,7 +58,7 @@
                 </span>
             </div>
 
-            <form method="post" class="space-y-5">
+            <form method="post" action="/me/requests/create" class="space-y-5">
                 {% if car_id %}
                 <input type="hidden" name="car_id" value="{{ car_id }}">
                 {% else %}

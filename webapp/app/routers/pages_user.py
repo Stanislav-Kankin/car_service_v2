@@ -1,15 +1,15 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from httpx import AsyncClient
 
 from ..api_client import get_backend_client
 from ..dependencies import get_templates
 
 router = APIRouter(
-    prefix="/me",
-    tags=["user"],
+   prefix="/me",
+   tags=["user"],
 )
 
 templates = get_templates()
@@ -154,6 +154,85 @@ async def requests_list(
 
 
 # ---------------------------------------------------------------------------
+# СОЗДАНИЕ ЗАЯВКИ (ВАЖНО: СТАВИМ ДО /requests/{request_id})
+# ---------------------------------------------------------------------------
+@router.get("/requests/create", response_class=HTMLResponse)
+async def request_create_get(
+    request: Request,
+    car_id: int | None = None,
+) -> HTMLResponse:
+    """
+    Форма создания новой заявки.
+    """
+    return templates.TemplateResponse(
+        "user/request_create.html",
+        {
+            "request": request,
+            "car_id": car_id,
+            "created_request": None,
+            "error_message": None,
+        },
+    )
+
+
+@router.post("/requests/create", response_class=HTMLResponse)
+async def request_create_post(
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    car_id: int = Form(...),
+    address_text: str = Form(""),
+    is_car_movable: str = Form("movable"),
+    radius_km: int = Form(5),
+    description: str = Form(...),
+    hide_phone: bool = Form(False),
+) -> HTMLResponse:
+    """
+    Обработка формы создания заявки.
+    """
+    user_id = FAKE_CURRENT_USER_ID
+
+    movable = is_car_movable == "movable"
+    need_tow_truck = not movable
+    need_mobile_master = not movable
+
+    payload = {
+        "user_id": user_id,
+        "car_id": car_id,
+        "latitude": None,
+        "longitude": None,
+        "address_text": address_text or None,
+        "is_car_movable": movable,
+        "need_tow_truck": need_tow_truck,
+        "need_mobile_master": need_mobile_master,
+        "radius_km": radius_km,
+        "service_category": "sto",
+        "description": description,
+        "photos": [],
+        "hide_phone": hide_phone,
+    }
+
+    created_request: dict[str, Any] | None = None
+    error_message: str | None = None
+
+    try:
+        resp = await client.post("/api/v1/requests/", json=payload)
+        resp.raise_for_status()
+        created_request = resp.json()
+    except Exception:
+        error_message = "Не удалось создать заявку. Попробуйте позже."
+
+    return templates.TemplateResponse(
+        "user/request_create.html",
+        {
+            "request": request,
+            "car_id": car_id,
+            "created_request": created_request,
+            "error_message": error_message,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Детали заявки
 # ---------------------------------------------------------------------------
 @router.get("/requests/{request_id}", response_class=HTMLResponse)
@@ -231,17 +310,11 @@ async def request_send_all_post(
 ) -> HTMLResponse:
     """
     Отправка заявки всем подходящим СТО.
-
-    ПРЕДПОЛАГАЕМ, что в backend есть эндпоинт:
-    POST /api/v1/requests/{request_id}/send_to_all
-
-    Если у тебя путь другой — просто поправь строку ниже.
     """
     try:
         resp = await client.post(f"/api/v1/requests/{request_id}/send_to_all")
         resp.raise_for_status()
     except Exception:
-        # даже если backend упал, показываем деталку с ошибкой через флаг
         return await request_detail(
             request_id=request_id,
             request=request,
@@ -268,10 +341,6 @@ async def request_choose_service_get(
 ) -> HTMLResponse:
     """
     Страница выбора конкретного СТО для заявки.
-
-    ПРЕДПОЛАГАЕМ, что в backend есть эндпоинт:
-    GET /api/v1/service-centers/for-request/{request_id}
-    который возвращает список подходящих СТО.
     """
     service_centers: list[dict[str, Any]] = []
     error_message: str | None = None
@@ -304,10 +373,6 @@ async def request_send_to_service_post(
 ) -> HTMLResponse:
     """
     Отправка заявки выбранному СТО.
-
-    ПРЕДПОЛАГАЕМ, что в backend есть эндпоинт:
-    POST /api/v1/requests/{request_id}/send_to_service_center
-    с телом: {"service_center_id": ...}
     """
     try:
         resp = await client.post(
@@ -317,10 +382,10 @@ async def request_send_to_service_post(
         resp.raise_for_status()
     except Exception:
         return await request_detail(
-            request_id=request_id,
-            request=request,
-            client=client,
-            chosen_service_id=None,
+           request_id=request_id,
+           request=request,
+           client=client,
+           chosen_service_id=None,
         )
 
     return await request_detail(
@@ -328,77 +393,4 @@ async def request_send_to_service_post(
         request=request,
         client=client,
         chosen_service_id=service_center_id,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Создание заявки (GET/POST) — как было
-# ---------------------------------------------------------------------------
-@router.get("/requests/new", response_class=HTMLResponse)
-async def request_create_get(
-    request: Request,
-    car_id: int | None = None,
-) -> HTMLResponse:
-    return templates.TemplateResponse(
-        "user/request_create.html",
-        {
-            "request": request,
-            "car_id": car_id,
-            "created_request": None,
-            "error_message": None,
-        },
-    )
-
-
-@router.post("/requests/new", response_class=HTMLResponse)
-async def request_create_post(
-    request: Request,
-    client: AsyncClient = Depends(get_backend_client),
-    car_id: int = Form(...),
-    address_text: str = Form(""),
-    is_car_movable: str = Form("movable"),
-    radius_km: int = Form(5),
-    description: str = Form(...),
-    hide_phone: bool = Form(False),
-) -> HTMLResponse:
-    user_id = FAKE_CURRENT_USER_ID
-
-    movable = is_car_movable == "movable"
-    need_tow_truck = not movable
-    need_mobile_master = not movable
-
-    payload = {
-        "user_id": user_id,
-        "car_id": car_id,
-        "latitude": None,
-        "longitude": None,
-        "address_text": address_text or None,
-        "is_car_movable": movable,
-        "need_tow_truck": need_tow_truck,
-        "need_mobile_master": need_mobile_master,
-        "radius_km": radius_km,
-        "service_category": "sto",
-        "description": description,
-        "photos": [],
-        "hide_phone": hide_phone,
-    }
-
-    created_request: dict[str, Any] | None = None
-    error_message: str | None = None
-
-    try:
-        resp = await client.post("/api/v1/requests/", json=payload)
-        resp.raise_for_status()
-        created_request = resp.json()
-    except Exception:
-        error_message = "Не удалось создать заявку. Попробуйте позже."
-
-    return templates.TemplateResponse(
-        "user/request_create.html",
-        {
-            "request": request,
-            "car_id": car_id,
-            "created_request": created_request,
-            "error_message": error_message,
-        },
     )
