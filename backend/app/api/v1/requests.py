@@ -12,6 +12,8 @@ from backend.app.schemas.request import (
 from backend.app.schemas.request_distribution import RequestDistributeIn
 from backend.app.services.requests_service import RequestsService
 from backend.app.services.service_centers_service import ServiceCentersService
+from backend.app.core.catalogs.service_categories import get_specializations_for_category
+
 
 router = APIRouter(
     prefix="/requests",
@@ -54,7 +56,7 @@ async def send_request_to_all_service_centers(
     Отправка заявки всем подходящим СТО.
 
     1) Берём заявку по ID.
-    2) Ищем подходящие СТО (по гео/радиусу/категории).
+    2) Ищем подходящие СТО (по гео/радиусу/категории через словарь категорий).
     3) Фиксируем распределение через RequestsService.distribute_request_to_service_centers.
     """
     request = await RequestsService.get_request_by_id(db, request_id)
@@ -64,11 +66,14 @@ async def send_request_to_all_service_centers(
             detail="Request not found",
         )
 
-    # ВАЖНО: для service_category="sto" не фильтруем по специализациям —
-    #       берём все активные СТО в радиусе (MVP-поведение).
-    specializations = None
-    if request.service_category and request.service_category not in ("sto",):
-        specializations = [request.service_category]
+    # Специализации по категории заявки (см. catalogs.service_categories)
+    spec_codes = get_specializations_for_category(request.service_category)
+
+    # Если категорию не знаем и это не 'sto' — пробуем 1:1
+    if spec_codes is None and request.service_category and request.service_category not in ("sto",):
+        spec_codes = [request.service_category]
+
+    specializations = spec_codes or None
 
     service_centers = await ServiceCentersService.search_service_centers(
         db,
@@ -296,18 +301,25 @@ async def send_to_all(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Отправить заявку ВСЕМ подходящим СТО
+    Отправить заявку ВСЕМ подходящим СТО (старый эндпоинт, оставлен для совместимости).
+    Логика фильтрации по категориям синхронизирована с новым send_request_to_all_service_centers.
     """
     request = await RequestsService.get_request_by_id(db, request_id)
     if not request:
         raise HTTPException(404, "Request not found")
+
+    spec_codes = get_specializations_for_category(request.service_category)
+    if spec_codes is None and request.service_category and request.service_category not in ("sto",):
+        spec_codes = [request.service_category]
+
+    specializations = spec_codes or None
 
     sc_list = await ServiceCentersService.search_service_centers(
         db,
         latitude=request.latitude,
         longitude=request.longitude,
         radius_km=request.radius_km,
-        specializations=[request.service_category] if request.service_category else None,
+        specializations=specializations,
     )
 
     ids = [sc.id for sc in sc_list]
@@ -315,7 +327,7 @@ async def send_to_all(
     updated_request = await RequestsService.distribute_request_to_service_centers(
         db,
         request_id=request_id,
-        service_center_ids=ids
+        service_center_ids=ids,
     )
     return updated_request
 

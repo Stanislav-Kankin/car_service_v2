@@ -11,6 +11,7 @@ from backend.app.schemas.service_center import (
 )
 from backend.app.services.service_centers_service import ServiceCentersService
 from backend.app.services.requests_service import RequestsService
+from backend.app.core.catalogs.service_categories import get_specializations_for_category
 
 router = APIRouter(
     prefix="/service-centers",
@@ -157,6 +158,11 @@ async def get_service_centers_for_request(
     Подобрать подходящие СТО под конкретную заявку.
 
     Используем данные заявки (гео, радиус, категория услуги).
+
+    Логика категорий:
+    - для 'sto' и категорий без явного маппинга по спецам НЕ режем по специализациям;
+    - для остальных категорий берём список спецов через словарь
+      CATEGORY_TO_SPECIALIZATIONS.
     """
     request = await RequestsService.get_request_by_id(db, request_id)
     if not request:
@@ -165,10 +171,15 @@ async def get_service_centers_for_request(
             detail="Request not found",
         )
 
-    # Для базового кейса "СТО" НЕ режем по специализациям.
-    specializations = None
-    if request.service_category and request.service_category not in ("sto",):
-        specializations = [request.service_category]
+    # Специализации по категории заявки
+    spec_codes = get_specializations_for_category(request.service_category)
+
+    # Если категорию не знаем и это не 'sto' — пробуем 1:1
+    if spec_codes is None and request.service_category and request.service_category not in ("sto",):
+        spec_codes = [request.service_category]
+
+    # Пустой список -> не фильтруем по специализациям
+    specializations = spec_codes or None
 
     has_tow_truck = request.need_tow_truck or None
     is_mobile_service = request.need_mobile_master or None

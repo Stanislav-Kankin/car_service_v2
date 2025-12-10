@@ -17,6 +17,25 @@ templates = get_templates()
 FAKE_CURRENT_USER_ID = 1
 
 
+SERVICE_CATEGORY_LABELS = {
+    "sto": "СТО / общий ремонт",
+    "wash": "Автомойка",
+    "tire": "Шиномонтаж",
+    "electric": "Автоэлектрик",
+    "mechanic": "Слесарные работы",
+    "paint": "Малярные / кузовные работы",
+    "maint": "ТО / обслуживание",
+    "agg_turbo": "Ремонт турбин",
+    "agg_starter": "Ремонт стартеров",
+    "agg_generator": "Ремонт генераторов",
+    "agg_steering": "Рулевые рейки",
+    "mech": "Слесарные работы",
+    "elec": "Автоэлектрик",
+    "body": "Малярные / кузовные работы",
+    "diag": "Диагностика",
+    "agg": "Ремонт агрегатов",
+}
+
 # ---------------------------------------------------------------------------
 # Личный кабинет
 # ---------------------------------------------------------------------------
@@ -137,11 +156,15 @@ async def requests_list(
     for r in requests_data:
         code = r.get("status")
         r["status_label"] = status_labels.get(code, code)
-        cat = r.get("service_category") or ""
-        if cat == "sto":
-            r["service_category_label"] = "СТО"
+
+        cat_code = (r.get("service_category") or "").strip() or None
+        if not cat_code:
+            r["service_category_label"] = "Услуга"
         else:
-            r["service_category_label"] = cat or "Услуга"
+            r["service_category_label"] = SERVICE_CATEGORY_LABELS.get(
+                cat_code,
+                cat_code,  # fallback: сырой код, если не нашли в словаре
+            )
 
     return templates.TemplateResponse(
         "user/request_list.html",
@@ -279,18 +302,20 @@ async def request_detail(
     req_data["status_label"] = status_labels.get(code, code)
 
     # Читабельная категория
-    cat = req_data.get("service_category") or ""
-    if cat == "sto":
-        req_data["service_category_label"] = "СТО"
+    cat_code = (req_data.get("service_category") or "").strip() or None
+    if not cat_code:
+        req_data["service_category_label"] = "Услуга"
     else:
-        req_data["service_category_label"] = cat or "Услуга"
+        req_data["service_category_label"] = SERVICE_CATEGORY_LABELS.get(
+            cat_code,
+            cat_code,
+        )
 
     can_distribute = req_data.get("status") == "new"
 
     # --- 2. Тянем отклики по заявке ---
     offers: list[dict[str, Any]] = []
     try:
-        # ЕСЛИ путь другой — поменяешь тут:
         resp_offers = await client.get(
             f"/api/v1/offers/by-request/{request_id}"
         )
@@ -299,7 +324,6 @@ async def request_detail(
         elif resp_offers.status_code == status.HTTP_404_NOT_FOUND:
             offers = []
         else:
-            # если что-то ещё — считаем, что нет откликов
             offers = []
     except Exception:
         offers = []
@@ -315,6 +339,7 @@ async def request_detail(
             "offers": offers,
         },
     )
+
 
 @router.post(
     "/requests/{request_id}/offers/{offer_id}/accept",
