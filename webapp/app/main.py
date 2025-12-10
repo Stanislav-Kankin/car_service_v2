@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import pages_public, pages_user
+from .routers import pages_public, pages_user, pages_service_center, pages_admin
+from .middleware import UserIDMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -20,9 +21,14 @@ def create_app() -> FastAPI:
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+    # Middleware: user_id из cookie -> request.state.user_id
+    app.add_middleware(UserIDMiddleware)
+
     # Подключение роутеров
     app.include_router(pages_public.router)
     app.include_router(pages_user.router)
+    app.include_router(pages_service_center.router)
+    app.include_router(pages_admin.router)
 
     return app
 

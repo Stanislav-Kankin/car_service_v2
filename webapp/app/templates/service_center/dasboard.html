@@ -1,0 +1,70 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto py-6">
+    <h1 class="text-2xl font-bold mb-4">Мои сервисы</h1>
+
+    {% if error_message %}
+        <div class="mb-4 p-3 bg-red-100 text-red-800 rounded">
+            {{ error_message }}
+        </div>
+    {% endif %}
+
+    {% if service_centers and service_centers|length > 0 %}
+        <div class="mb-4 flex justify-end">
+            <a href="/sc/create" class="px-4 py-2 rounded bg-blue-600 text-white text-sm">
+                + Добавить сервис
+            </a>
+        </div>
+
+        <div class="space-y-3">
+            {% for sc in service_centers %}
+                <div class="border rounded p-4 flex justify-between items-start">
+                    <div>
+                        <div class="font-semibold text-lg">{{ sc.name }}</div>
+                        {% if sc.address %}
+                            <div class="text-sm text-gray-700 mt-1">
+                                📍 {{ sc.address }}
+                            </div>
+                        {% endif %}
+                        {% if sc.phone %}
+                            <div class="text-sm text-gray-700">
+                                ☎ {{ sc.phone }}
+                            </div>
+                        {% endif %}
+                        {% if sc.website %}
+                            <div class="text-sm text-blue-700">
+                                🌐 <a href="{{ sc.website }}" target="_blank" rel="noopener">
+                                    {{ sc.website }}
+                                </a>
+                            </div>
+                        {% endif %}
+                        <div class="mt-1 text-xs text-gray-600">
+                            {% if sc.is_active %}Активен{% else %}Неактивен{% endif %}
+                            ·
+                            {% if sc.is_mobile_service %}Выездной{% else %}Стационарный{% endif %}
+                            ·
+                            {% if sc.has_tow_truck %}Есть эвакуатор{% else %}Без эвакуатора{% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <a href="/sc/edit/{{ sc.id }}" class="px-3 py-1 text-sm rounded bg-gray-100 hover:bg-gray-200">
+                            Редактировать
+                        </a>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="mb-4 p-4 bg-yellow-50 rounded border border-yellow-200">
+            <div class="font-semibold mb-2">У вас пока нет зарегистрированных сервисов.</div>
+            <p class="text-sm text-gray-700">
+                Зарегистрируйте СТО, чтобы получать заявки от клиентов.
+            </p>
+        </div>
+        <a href="/sc/create" class="inline-block px-4 py-2 rounded bg-blue-600 text-white text-sm">
+            + Зарегистрировать СТО
+        </a>
+    {% endif %}
+</div>
+{% endblock %}

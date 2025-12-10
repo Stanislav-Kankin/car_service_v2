@@ -1,0 +1,56 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto py-6 space-y-4">
+    <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold">Поиск пользователя</h1>
+        <a href="/admin/dashboard" class="text-sm text-blue-600 hover:underline">
+            ⬅ Назад в админку
+        </a>
+    </div>
+
+    <form method="post" class="flex items-center space-x-2">
+        <input type="number" name="user_id" min="1" required
+               class="border rounded px-3 py-2 text-sm w-40"
+               placeholder="ID пользователя">
+        <button type="submit"
+                class="px-4 py-2 rounded bg-blue-600 text-white text-sm">
+            Найти
+        </button>
+    </form>
+
+    {% if error_message %}
+        <div class="p-3 bg-red-100 text-red-800 rounded">
+            {{ error_message }}
+        </div>
+    {% endif %}
+
+    {% if user_obj %}
+        <div class="border rounded p-4 bg-gray-50">
+            <div class="text-sm text-gray-700 mb-2">
+                ID: <span class="font-semibold">{{ user_obj.id }}</span>
+            </div>
+            <div class="text-sm text-gray-700 mb-1">
+                Имя: <span class="font-semibold">{{ user_obj.full_name or '—' }}</span>
+            </div>
+            <div class="text-sm text-gray-700 mb-1">
+                Телефон: <span class="font-semibold">{{ user_obj.phone or '—' }}</span>
+            </div>
+            <div class="text-sm text-gray-700 mb-1">
+                Город: <span class="font-semibold">{{ user_obj.city or '—' }}</span>
+            </div>
+            <div class="text-sm text-gray-700 mb-1">
+                Роль: <span class="font-semibold">{{ user_obj.role }}</span>
+            </div>
+            <div class="text-sm text-gray-700 mb-1">
+                Активен: <span class="font-semibold">
+                    {% if user_obj.is_active %}Да{% else %}Нет{% endif %}
+                </span>
+            </div>
+            <div class="text-sm text-gray-700">
+                Telegram ID: <span class="font-semibold">{{ user_obj.telegram_id or '—' }}</span>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
