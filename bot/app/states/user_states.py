@@ -29,3 +29,9 @@ class RequestCreateFSM(StatesGroup):
     choosing_time_range = State()
 
     confirm = State()
+
+
+class CarEdit(StatesGroup):
+    waiting_for_field = State()
+    waiting_for_value = State()
+    confirm_delete = State()

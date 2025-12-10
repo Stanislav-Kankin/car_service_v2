@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
 from ..api_client import api_client
-from ..states.user_states import CarCreate
+from ..states.user_states import CarCreate, CarEdit
 
 router = Router()
 
@@ -17,7 +17,10 @@ router = Router()
 # ---------- Вспомогательные клавиатуры ----------
 
 
-def get_garage_keyboard(has_cars: bool) -> InlineKeyboardMarkup:
+def get_garage_keyboard_for_empty() -> InlineKeyboardMarkup:
+    """
+    Клавиатура, когда в гараже нет машин.
+    """
     buttons: list[list[InlineKeyboardButton]] = [
         [
             InlineKeyboardButton(
@@ -104,28 +107,67 @@ async def _send_garage(message: Message, telegram_id: int):
             "У вас пока нет добавленных машин.\n"
             "Нажмите «➕ Добавить авто», чтобы добавить первую."
         )
-        has_cars = False
-    else:
-        lines = ["<b>🚗 Мой гараж</b>", ""]
-        for idx, car in enumerate(cars, start=1):
-            brand = car.get("brand") or "—"
-            model = car.get("model") or "—"
-            year = car.get("year") or "—"
-            plate = car.get("license_plate") or "—"
-            vin = car.get("vin") or "—"
+        await message.answer(
+            text,
+            reply_markup=get_garage_keyboard_for_empty(),
+        )
+        return
 
-            lines.append(f"<b>#{idx}</b> {brand} {model}".strip())
-            lines.append(f"  Год: {year}")
-            lines.append(f"  Госномер: {plate}")
-            lines.append(f"  VIN: {vin}")
-            lines.append("")
+    # Есть машины
+    lines = ["<b>🚗 Мой гараж</b>", ""]
+    keyboard_rows: list[list[InlineKeyboardButton]] = []
 
-        text = "\n".join(lines)
-        has_cars = True
+    for idx, car in enumerate(cars, start=1):
+        car_id = car.get("id")
+        brand = car.get("brand") or "—"
+        model = car.get("model") or "—"
+        year = car.get("year") or "—"
+        plate = car.get("license_plate") or "—"
+        vin = car.get("vin") or "—"
+
+        lines.append(f"<b>#{idx}</b> {brand} {model}".strip())
+        lines.append(f"  Год: {year}")
+        lines.append(f"  Госномер: {plate}")
+        lines.append(f"  VIN: {vin}")
+        lines.append("")
+
+        if car_id is not None:
+            keyboard_rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"✏️ Изменить #{idx}",
+                        callback_data=f"garage_edit:{car_id}",
+                    ),
+                    InlineKeyboardButton(
+                        text=f"🗑 Удалить #{idx}",
+                        callback_data=f"garage_delete:{car_id}",
+                    ),
+                ]
+            )
+
+    # Внизу — общие действия
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="➕ Добавить авто",
+                callback_data="garage:add",
+            ),
+        ]
+    )
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ В меню",
+                callback_data="main:menu",
+            ),
+        ]
+    )
+
+    text = "\n".join(lines)
 
     await message.answer(
         text,
-        reply_markup=get_garage_keyboard(has_cars),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows),
     )
 
 
@@ -416,7 +458,150 @@ async def car_vin_ok(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ---------- Общая отмена сценария ----------
+# ---------- Редактирование авто ----------
+
+
+@router.callback_query(F.data.startswith("garage_edit:"))
+async def garage_edit_start(callback: CallbackQuery, state: FSMContext):
+    car_id = int(callback.data.split(":")[1])
+    car = await api_client.get_car(car_id)
+
+    if not car:
+        await callback.answer("Машина не найдена.")
+        return
+
+    await state.update_data(car_id=car_id)
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Марка", callback_data="edit_field:brand"),
+                InlineKeyboardButton(text="Модель", callback_data="edit_field:model"),
+            ],
+            [
+                InlineKeyboardButton(text="Год", callback_data="edit_field:year"),
+                InlineKeyboardButton(
+                    text="Гос. номер", callback_data="edit_field:license_plate"
+                ),
+            ],
+            [
+                InlineKeyboardButton(text="VIN", callback_data="edit_field:vin"),
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Отмена", callback_data="garage_cancel"),
+            ],
+        ]
+    )
+
+    await callback.message.answer(
+        f"Что хотите изменить в машине?\n\n🚘 <b>{car.get('brand') or ''} "
+        f"{car.get('model') or ''} ({car.get('year') or '—'})</b>",
+        reply_markup=kb,
+    )
+
+    await state.set_state(CarEdit.waiting_for_field)
+    await callback.answer()
+
+
+@router.callback_query(CarEdit.waiting_for_field, F.data.startswith("edit_field:"))
+async def garage_edit_choose_field(callback: CallbackQuery, state: FSMContext):
+    field = callback.data.split(":")[1]
+    await state.update_data(edit_field=field)
+
+    await callback.message.answer("Введите новое значение:")
+    await state.set_state(CarEdit.waiting_for_value)
+    await callback.answer()
+
+
+@router.message(CarEdit.waiting_for_value)
+async def garage_edit_value(message: Message, state: FSMContext):
+    data = await state.get_data()
+    car_id = data["car_id"]
+    field = data["edit_field"]
+    value_raw = (message.text or "").strip()
+
+    if not value_raw:
+        await message.answer("Значение не может быть пустым. Введите ещё раз.")
+        return
+
+    # Простейшая обработка года
+    if field == "year":
+        if not value_raw.isdigit() or len(value_raw) != 4:
+            await message.answer(
+                "Пожалуйста, введите год в формате 4 цифр (например, 2015)."
+            )
+            return
+        value: int | str = int(value_raw)
+    else:
+        value = value_raw
+
+    payload = {field: value}
+
+    try:
+        await api_client.update_car(car_id, payload)
+        await message.answer("✔ Машина обновлена!")
+    except Exception:
+        await message.answer("❌ Ошибка при обновлении машины. Попробуйте позже.")
+        return
+
+    await state.clear()
+    await _send_garage(message, telegram_id=message.from_user.id)
+
+
+# ---------- Удаление авто ----------
+
+
+@router.callback_query(F.data.startswith("garage_delete:"))
+async def garage_delete_confirm(callback: CallbackQuery, state: FSMContext):
+    car_id = int(callback.data.split(":")[1])
+    await state.update_data(car_id=car_id)
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🗑 Удалить", callback_data="garage_delete_confirmed"
+                ),
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Отмена", callback_data="garage_cancel"),
+            ],
+        ]
+    )
+
+    await callback.message.answer(
+        "❗ Вы уверены, что хотите удалить автомобиль?",
+        reply_markup=kb,
+    )
+
+    await state.set_state(CarEdit.confirm_delete)
+    await callback.answer()
+
+
+@router.callback_query(CarEdit.confirm_delete, F.data == "garage_delete_confirmed")
+async def garage_delete_final(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    car_id = data["car_id"]
+
+    try:
+        await api_client.delete_car(car_id)
+        await callback.message.answer("🗑 Машина удалена.")
+    except Exception:
+        await callback.message.answer("❌ Ошибка при удалении машины.")
+
+    await state.clear()
+    await _send_garage(callback.message, telegram_id=callback.from_user.id)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "garage_cancel")
+async def garage_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await _send_garage(callback.message, telegram_id=callback.from_user.id)
+    await callback.answer()
+
+
+# ---------- Общая отмена сценария создания ----------
 
 
 @router.callback_query(
