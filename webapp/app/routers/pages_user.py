@@ -28,16 +28,21 @@ templates = get_templates()
 
 def get_current_user_id(request: Request) -> int:
     """
-    Извлекает user_id из cookie (ставится Mini App через авторизацию Telegram).
-    Если нет — пользователь не авторизован.
+    ВРЕМЕННО: не роняем 401, если cookie нет.
+    Если cookie есть и нормальное — используем его.
+    Если нет / мусор — возвращаем заглушку 1.
+    Потом сюда вернём жёсткую проверку.
     """
     raw = request.cookies.get("user_id")
     if not raw:
-        raise HTTPException(status_code=401, detail="Пользователь не авторизован (нет cookie user_id)")
+        # TODO: когда Mini App стабильно ставит cookie, вернуть 401
+        return 1
+
     try:
         return int(raw)
     except Exception:
-        raise HTTPException(status_code=401, detail="Некорректный user_id в cookie")
+        # Если в cookie мусор — тоже временно fallback на 1
+        return 1
 
 
 # ------------------------------------------------------------------------------
