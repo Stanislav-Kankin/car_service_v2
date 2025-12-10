@@ -1,6 +1,13 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Request,
+    status,
+)
 from fastapi.responses import HTMLResponse
 from httpx import AsyncClient
 
@@ -8,14 +15,34 @@ from ..api_client import get_backend_client
 from ..dependencies import get_templates
 
 router = APIRouter(
-   prefix="/me",
-   tags=["user"],
+    prefix="/me",
+    tags=["user"],
 )
 
 templates = get_templates()
 
-FAKE_CURRENT_USER_ID = 1
 
+# ------------------------------------------------------------------------------
+# Авторизация: ВСЕ маршруты /me/* требуют user_id в cookie
+# ------------------------------------------------------------------------------
+
+def get_current_user_id(request: Request) -> int:
+    """
+    Извлекает user_id из cookie (ставится Mini App через авторизацию Telegram).
+    Если нет — пользователь не авторизован.
+    """
+    raw = request.cookies.get("user_id")
+    if not raw:
+        raise HTTPException(status_code=401, detail="Пользователь не авторизован (нет cookie user_id)")
+    try:
+        return int(raw)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Некорректный user_id в cookie")
+
+
+# ------------------------------------------------------------------------------
+# Словарь категорий
+# ------------------------------------------------------------------------------
 
 SERVICE_CATEGORY_LABELS = {
     "sto": "СТО / общий ремонт",
@@ -31,33 +58,46 @@ SERVICE_CATEGORY_LABELS = {
     "agg_steering": "Рулевые рейки",
     "mech": "Слесарные работы",
     "elec": "Автоэлектрик",
-    "body": "Малярные / кузовные работы",
+    "body": "Кузовные работы",
     "diag": "Диагностика",
     "agg": "Ремонт агрегатов",
 }
 
-# ---------------------------------------------------------------------------
-# Личный кабинет
-# ---------------------------------------------------------------------------
+STATUS_LABELS = {
+    "new": "Новая",
+    "sent": "Отправлена СТО",
+    "accepted_by_service": "Принята сервисом",
+    "in_work": "В работе",
+    "done": "Завершена",
+    "cancelled": "Отменена",
+    "rejected_by_service": "Отклонена СТО",
+}
+
+
+# ------------------------------------------------------------------------------
+# Dashboard
+# ------------------------------------------------------------------------------
+
 @router.get("/dashboard", response_class=HTMLResponse)
 async def user_dashboard(request: Request) -> HTMLResponse:
+    _ = get_current_user_id(request)
     return templates.TemplateResponse(
         "user/dashboard.html",
-        {
-            "request": request,
-        },
+        {"request": request},
     )
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Гараж
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+
 @router.get("/garage", response_class=HTMLResponse)
 async def user_garage(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    user_id = FAKE_CURRENT_USER_ID
+
+    user_id = get_current_user_id(request)
 
     cars: list[dict[str, Any]] = []
     error_message: str | None = None
@@ -75,62 +115,55 @@ async def user_garage(
 
     return templates.TemplateResponse(
         "user/garage.html",
-        {
-            "request": request,
-            "cars": cars,
-            "error_message": error_message,
-        },
+        {"request": request, "cars": cars, "error_message": error_message},
     )
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Карточка машины
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+
 @router.get("/cars/{car_id}", response_class=HTMLResponse)
 async def car_detail(
     car_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
+
+    _ = get_current_user_id(request)
+
     try:
         resp = await client.get(f"/api/v1/cars/{car_id}")
-        if resp.status_code == status.HTTP_404_NOT_FOUND:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Автомобиль не найден",
-            )
+        if resp.status_code == 404:
+            raise HTTPException(404, "Автомобиль не найден")
         resp.raise_for_status()
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Ошибка при обращении к backend-сервису",
-        ) from exc
+    except Exception:
+        raise HTTPException(502, "Ошибка backend при загрузке автомобиля")
 
     car = resp.json()
 
     return templates.TemplateResponse(
         "user/car_detail.html",
-        {
-            "request": request,
-            "car": car,
-        },
+        {"request": request, "car": car},
     )
 
 
-# ---------------------------------------------------------------------------
-# Мои заявки: список
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Список заявок
+# ------------------------------------------------------------------------------
+
 @router.get("/requests", response_class=HTMLResponse)
 async def requests_list(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    user_id = FAKE_CURRENT_USER_ID
+
+    user_id = get_current_user_id(request)
 
     requests_data: list[dict[str, Any]] = []
-    error_message: str | None = None
+    error_message = None
 
     try:
         resp = await client.get(f"/api/v1/requests/by-user/{user_id}")
@@ -140,53 +173,32 @@ async def requests_list(
             resp.raise_for_status()
             requests_data = resp.json()
     except Exception:
-        error_message = "Не удалось загрузить список заявок. Попробуйте позже."
+        error_message = "Не удалось загрузить список заявок."
         requests_data = []
 
-    status_labels = {
-        "new": "Новая",
-        "sent": "Отправлена СТО",
-        "accepted_by_service": "Принята сервисом",
-        "in_work": "В работе",
-        "done": "Завершена",
-        "cancelled": "Отменена",
-        "rejected_by_service": "Отклонена СТО",
-    }
-
     for r in requests_data:
-        code = r.get("status")
-        r["status_label"] = status_labels.get(code, code)
-
-        cat_code = (r.get("service_category") or "").strip() or None
-        if not cat_code:
-            r["service_category_label"] = "Услуга"
-        else:
-            r["service_category_label"] = SERVICE_CATEGORY_LABELS.get(
-                cat_code,
-                cat_code,  # fallback: сырой код, если не нашли в словаре
-            )
+        r["status_label"] = STATUS_LABELS.get(r.get("status"), r.get("status"))
+        code = r.get("service_category") or ""
+        r["service_category_label"] = SERVICE_CATEGORY_LABELS.get(code, code or "Услуга")
 
     return templates.TemplateResponse(
         "user/request_list.html",
-        {
-            "request": request,
-            "requests": requests_data,
-            "error_message": error_message,
-        },
+        {"request": request, "requests": requests_data, "error_message": error_message},
     )
 
 
-# ---------------------------------------------------------------------------
-# СОЗДАНИЕ ЗАЯВКИ (ВАЖНО: СТАВИМ ДО /requests/{request_id})
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Создание заявки — GET
+# ------------------------------------------------------------------------------
+
 @router.get("/requests/create", response_class=HTMLResponse)
 async def request_create_get(
     request: Request,
     car_id: int | None = None,
 ) -> HTMLResponse:
-    """
-    Форма создания новой заявки.
-    """
+
+    _ = get_current_user_id(request)
+
     return templates.TemplateResponse(
         "user/request_create.html",
         {
@@ -197,6 +209,10 @@ async def request_create_get(
         },
     )
 
+
+# ------------------------------------------------------------------------------
+# Создание заявки — POST
+# ------------------------------------------------------------------------------
 
 @router.post("/requests/create", response_class=HTMLResponse)
 async def request_create_post(
@@ -209,10 +225,8 @@ async def request_create_post(
     description: str = Form(...),
     hide_phone: bool = Form(False),
 ) -> HTMLResponse:
-    """
-    Обработка формы создания заявки.
-    """
-    user_id = FAKE_CURRENT_USER_ID
+
+    user_id = get_current_user_id(request)
 
     movable = is_car_movable == "movable"
     need_tow_truck = not movable
@@ -234,15 +248,15 @@ async def request_create_post(
         "hide_phone": hide_phone,
     }
 
-    created_request: dict[str, Any] | None = None
-    error_message: str | None = None
+    created_request = None
+    error_message = None
 
     try:
         resp = await client.post("/api/v1/requests/", json=payload)
         resp.raise_for_status()
         created_request = resp.json()
     except Exception:
-        error_message = "Не удалось создать заявку. Попробуйте позже."
+        error_message = "Не удалось создать заявку."
 
     return templates.TemplateResponse(
         "user/request_create.html",
@@ -255,9 +269,10 @@ async def request_create_post(
     )
 
 
-# ---------------------------------------------------------------------------
-# Детали заявки
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Страница заявки
+# ------------------------------------------------------------------------------
+
 @router.get("/requests/{request_id}", response_class=HTMLResponse)
 async def request_detail(
     request_id: int,
@@ -266,63 +281,34 @@ async def request_detail(
     sent_all: bool | None = None,
     chosen_service_id: int | None = None,
 ) -> HTMLResponse:
-    """
-    Детальная страница заявки + список откликов СТО.
-    """
-    # --- 1. Тянем саму заявку ---
+
+    _ = get_current_user_id(request)
+
     try:
         resp = await client.get(f"/api/v1/requests/{request_id}")
-        if resp.status_code == status.HTTP_404_NOT_FOUND:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Заявка не найдена",
-            )
+        if resp.status_code == 404:
+            raise HTTPException(404, "Заявка не найдена")
         resp.raise_for_status()
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Ошибка при обращении к backend-сервису",
-        ) from exc
+    except Exception:
+        raise HTTPException(502, "Ошибка при загрузке заявки")
 
     req_data = resp.json()
 
-    # Читабельный статус
-    status_labels = {
-        "new": "Новая",
-        "sent": "Отправлена СТО",
-        "accepted_by_service": "Принята сервисом",
-        "in_work": "В работе",
-        "done": "Завершена",
-        "cancelled": "Отменена",
-        "rejected_by_service": "Отклонена СТО",
-    }
     code = req_data.get("status")
-    req_data["status_label"] = status_labels.get(code, code)
-
-    # Читабельная категория
-    cat_code = (req_data.get("service_category") or "").strip() or None
-    if not cat_code:
-        req_data["service_category_label"] = "Услуга"
-    else:
-        req_data["service_category_label"] = SERVICE_CATEGORY_LABELS.get(
-            cat_code,
-            cat_code,
-        )
+    req_data["status_label"] = STATUS_LABELS.get(code, code)
+    cat = req_data.get("service_category")
+    req_data["service_category_label"] = SERVICE_CATEGORY_LABELS.get(cat, cat or "Услуга")
 
     can_distribute = req_data.get("status") == "new"
 
-    # --- 2. Тянем отклики по заявке ---
-    offers: list[dict[str, Any]] = []
+    # загрузка откликов
+    offers = []
     try:
-        resp_offers = await client.get(
-            f"/api/v1/offers/by-request/{request_id}"
-        )
-        if resp_offers.status_code == status.HTTP_200_OK:
-            offers = resp_offers.json()
-        elif resp_offers.status_code == status.HTTP_404_NOT_FOUND:
-            offers = []
+        resp2 = await client.get(f"/api/v1/offers/by-request/{request_id}")
+        if resp2.status_code == 200:
+            offers = resp2.json()
         else:
             offers = []
     except Exception:
@@ -341,126 +327,96 @@ async def request_detail(
     )
 
 
-@router.post(
-    "/requests/{request_id}/offers/{offer_id}/accept",
-    response_class=HTMLResponse,
-)
+# ------------------------------------------------------------------------------
+# Принять предложение
+# ------------------------------------------------------------------------------
+
+@router.post("/requests/{request_id}/offers/{offer_id}/accept", response_class=HTMLResponse)
 async def request_accept_offer(
     request_id: int,
     offer_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Клиент принимает предложение СТО.
-    """
+
+    _ = get_current_user_id(request)
+
     try:
-        # ЕСЛИ путь другой — поменяешь здесь:
-        resp = await client.post(
-            f"/api/v1/offers/{offer_id}/accept-by-client"
-        )
+        resp = await client.post(f"/api/v1/offers/{offer_id}/accept-by-client")
         resp.raise_for_status()
     except Exception:
-        # даже если упали, просто перерисуем страницу заявки
-        return await request_detail(
-            request_id=request_id,
-            request=request,
-            client=client,
-        )
+        pass
 
-    # после принятия перерисовываем заявку (статусы/отклики обновятся)
-    return await request_detail(
-        request_id=request_id,
-        request=request,
-        client=client,
-    )
+    return await request_detail(request_id, request, client)
 
 
-@router.post(
-    "/requests/{request_id}/offers/{offer_id}/reject",
-    response_class=HTMLResponse,
-)
+# ------------------------------------------------------------------------------
+# Отклонить предложение
+# ------------------------------------------------------------------------------
+
+@router.post("/requests/{request_id}/offers/{offer_id}/reject", response_class=HTMLResponse)
 async def request_reject_offer(
     request_id: int,
     offer_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Клиент отклоняет предложение СТО.
-    """
+
+    _ = get_current_user_id(request)
+
     try:
-        # ЕСЛИ путь другой — поменяешь здесь:
-        resp = await client.post(
-            f"/api/v1/offers/{offer_id}/reject-by-client"
-        )
+        resp = await client.post(f"/api/v1/offers/{offer_id}/reject-by-client")
         resp.raise_for_status()
     except Exception:
-        return await request_detail(
-            request_id=request_id,
-            request=request,
-            client=client,
-        )
+        pass
 
-    return await request_detail(
-        request_id=request_id,
-        request=request,
-        client=client,
-    )
+    return await request_detail(request_id, request, client)
 
 
-# ---------------------------------------------------------------------------
-# Отправить заявку всем подходящим СТО
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Отправить всем подходящим СТО
+# ------------------------------------------------------------------------------
+
 @router.post("/requests/{request_id}/send-all", response_class=HTMLResponse)
 async def request_send_all_post(
     request_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Отправка заявки всем подходящим СТО.
-    """
+
+    _ = get_current_user_id(request)
+
     try:
         resp = await client.post(f"/api/v1/requests/{request_id}/send_to_all")
         resp.raise_for_status()
     except Exception:
-        return await request_detail(
-            request_id=request_id,
-            request=request,
-            client=client,
-            sent_all=False,
-        )
+        return await request_detail(request_id, request, client, sent_all=False)
 
-    return await request_detail(
-        request_id=request_id,
-        request=request,
-        client=client,
-        sent_all=True,
-    )
+    return await request_detail(request_id, request, client, sent_all=True)
 
 
-# ---------------------------------------------------------------------------
-# Выбор СТО из списка
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Страница выбора СТО
+# ------------------------------------------------------------------------------
+
 @router.get("/requests/{request_id}/choose-service", response_class=HTMLResponse)
 async def request_choose_service_get(
     request_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Страница выбора конкретного СТО для заявки.
-    """
-    service_centers: list[dict[str, Any]] = []
-    error_message: str | None = None
+
+    _ = get_current_user_id(request)
+
+    service_centers = []
+    error_message = None
 
     try:
         resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
         resp.raise_for_status()
         service_centers = resp.json()
     except Exception:
-        error_message = "Не удалось загрузить список подходящих СТО. Попробуйте позже."
+        error_message = "Не удалось загрузить список подходящих СТО."
         service_centers = []
 
     return templates.TemplateResponse(
@@ -474,6 +430,10 @@ async def request_choose_service_get(
     )
 
 
+# ------------------------------------------------------------------------------
+# Отправить конкретному СТО
+# ------------------------------------------------------------------------------
+
 @router.post("/requests/{request_id}/send-to-service", response_class=HTMLResponse)
 async def request_send_to_service_post(
     request_id: int,
@@ -481,9 +441,9 @@ async def request_send_to_service_post(
     service_center_id: int = Form(...),
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Отправка заявки выбранному СТО.
-    """
+
+    _ = get_current_user_id(request)
+
     try:
         resp = await client.post(
             f"/api/v1/requests/{request_id}/send_to_service_center",
@@ -492,15 +452,9 @@ async def request_send_to_service_post(
         resp.raise_for_status()
     except Exception:
         return await request_detail(
-           request_id=request_id,
-           request=request,
-           client=client,
-           chosen_service_id=None,
+            request_id, request, client, chosen_service_id=None,
         )
 
     return await request_detail(
-        request_id=request_id,
-        request=request,
-        client=client,
-        chosen_service_id=service_center_id,
+        request_id, request, client, chosen_service_id=service_center_id,
     )

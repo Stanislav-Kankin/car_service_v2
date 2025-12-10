@@ -2,7 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.core.db import init_db
-from backend.app.api.v1 import users, service_centers, cars, requests, offers, bonus
+from backend.app.api.v1 import (
+    users,
+    service_centers,
+    cars,
+    requests,
+    offers,
+    bonus,
+    auth,
+)
+
 
 app = FastAPI(title="CarBot V2 API")
 
@@ -27,6 +36,7 @@ app.include_router(cars.router, prefix="/api/v1")
 app.include_router(requests.router, prefix="/api/v1")
 app.include_router(offers.router, prefix="/api/v1")
 app.include_router(bonus.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
 
 
 @app.get("/health")
