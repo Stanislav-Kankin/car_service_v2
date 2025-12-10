@@ -94,7 +94,7 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(
                     text="🌐 Веб-кабинет",
-                    web_app=WebAppInfo(url=WEBAPP_URL),
+                    web_app=WebAppInfo(url=f"{WEBAPP_URL}/me/dashboard"),
                 )
             ]
         )
