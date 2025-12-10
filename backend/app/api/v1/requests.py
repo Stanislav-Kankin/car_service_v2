@@ -39,6 +39,108 @@ async def create_request(
 
 
 # ---------------------------------------------------------------------------
+# НОВОЕ: отправка заявки всем подходящим СТО
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{request_id}/send_to_all",
+    response_model=RequestRead,
+    status_code=status.HTTP_200_OK,
+)
+async def send_request_to_all_service_centers(
+    request_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Отправка заявки всем подходящим СТО.
+
+    1) Берём заявку по ID.
+    2) Ищем подходящие СТО (по гео/радиусу/категории).
+    3) Фиксируем распределение через RequestsService.distribute_request_to_service_centers.
+    """
+    request = await RequestsService.get_request_by_id(db, request_id)
+    if not request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Request not found",
+        )
+
+    # ВАЖНО: для service_category="sto" не фильтруем по специализациям —
+    #       берём все активные СТО в радиусе (MVP-поведение).
+    specializations = None
+    if request.service_category and request.service_category not in ("sto",):
+        specializations = [request.service_category]
+
+    service_centers = await ServiceCentersService.search_service_centers(
+        db,
+        latitude=request.latitude,
+        longitude=request.longitude,
+        radius_km=request.radius_km,
+        specializations=specializations,
+    )
+
+    service_center_ids = [sc.id for sc in service_centers]
+
+    if not service_center_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No service centers found for this request",
+        )
+
+    distributed_request = (
+        await RequestsService.distribute_request_to_service_centers(
+            db,
+            request_id=request_id,
+            service_center_ids=service_center_ids,
+        )
+    )
+    return distributed_request
+
+
+# ---------------------------------------------------------------------------
+# НОВОЕ: отправка заявки выбранному СТО
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{request_id}/send_to_service_center",
+    response_model=RequestRead,
+    status_code=status.HTTP_200_OK,
+)
+async def send_request_to_service_center(
+    request_id: int,
+    payload: RequestDistributeIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Отправка заявки конкретному СТО (одному).
+
+    Ожидает тело:
+    {
+        "service_center_ids": [<один ID>]
+    }
+    """
+    if not payload.service_center_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="service_center_ids is required",
+        )
+
+    # Берём только первый ID (MVP: один сервис)
+    service_center_id = payload.service_center_ids[0]
+
+    distributed_request = (
+        await RequestsService.distribute_request_to_service_centers(
+            db,
+            request_id=request_id,
+            service_center_ids=[service_center_id],
+        )
+    )
+    if not distributed_request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Request not found",
+        )
+    return distributed_request
+
+# ---------------------------------------------------------------------------
 # (СТАРОЕ) Список заявок для СТО по специализациям
 # Сейчас в боте не используется, но оставляем как запасной вариант.
 # ---------------------------------------------------------------------------

@@ -168,3 +168,40 @@ async def get_service_centers_for_request(
         is_active=True,
     )
     return sc_list
+
+
+@router.get(
+    "/for-request/{request_id}",
+    response_model=List[ServiceCenterRead],
+)
+async def get_service_centers_for_request(
+    request_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Подобрать подходящие СТО под конкретную заявку.
+
+    Используем данные заявки (гео, радиус, категория услуги).
+    """
+    request = await RequestsService.get_request_by_id(db, request_id)
+    if not request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Request not found",
+        )
+
+    # Для базового кейса "СТО" НЕ режем по специализациям.
+    # Иначе service_category="sto" никогда не совпадёт со списком специализаций СТО,
+    # и получаем пустой список, как у тебя сейчас.
+    specializations = None
+    if request.service_category and request.service_category not in ("sto",):
+        specializations = [request.service_category]
+
+    service_centers = await ServiceCentersService.search_service_centers(
+        db,
+        latitude=request.latitude,
+        longitude=request.longitude,
+        radius_km=request.radius_km,
+        specializations=specializations,
+    )
+    return service_centers
