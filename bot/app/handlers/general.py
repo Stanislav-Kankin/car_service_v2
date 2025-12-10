@@ -1,9 +1,12 @@
+import os
+
 from aiogram import Router, F
 from aiogram.types import (
     Message,
     CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    WebAppInfo,
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import CommandStart
@@ -12,6 +15,11 @@ from ..api_client import api_client
 from ..states.user_states import UserRegistration
 
 router = Router()
+
+# URL веб-приложения для Telegram WebApp (Mini App)
+# ОБЯЗАТЕЛЬНО задай в .env переменную WEBAPP_URL, например:
+# WEBAPP_URL=https://dev-cloud-ksa.ru
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip() or None
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +85,17 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
                     text="🔧 Зарегистрировать СТО",
                     callback_data="main:sto_register",
                 ),
+            ]
+        )
+
+    # Кнопка открытия WebApp / Mini App (если задан WEBAPP_URL)
+    if WEBAPP_URL:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="🌐 Веб-кабинет",
+                    web_app=WebAppInfo(url=WEBAPP_URL),
+                )
             ]
         )
 
