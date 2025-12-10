@@ -3,12 +3,14 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
-from backend.app.services.user_service import UserService
 from backend.app.core.config import settings
+from backend.app.services.user_service import UsersService
+from backend.app.schemas.user import UserCreate, UserRole
 
 import hashlib
 import hmac
 import urllib.parse
+import json
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -38,7 +40,7 @@ def check_telegram_auth(init_data: str, bot_token: str) -> dict:
 @router.post("/telegram-webapp")
 async def auth_telegram_webapp(
     payload: TelegramAuthIn,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Принимает initData от Telegram WebApp, проверяет подпись,
@@ -46,26 +48,31 @@ async def auth_telegram_webapp(
     """
     parsed = check_telegram_auth(payload.init_data, settings.BOT_TOKEN)
 
-    tg_user = parsed.get("user", [None])[0]
-    if tg_user is None:
-        raise HTTPException(400, "No user in initData")
+    tg_user_raw = parsed.get("user", [None])[0]
+    if tg_user_raw is None:
+        raise HTTPException(status_code=400, detail="No user in initData")
 
-    import json
-    tg_user = json.loads(tg_user)
+    try:
+        tg_user = json.loads(tg_user_raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user JSON")
 
     telegram_id = tg_user.get("id")
     if not telegram_id:
-        raise HTTPException(400, "Invalid user data")
+        raise HTTPException(status_code=400, detail="Invalid user data")
 
-    # Ищем юзера в базе
-    user = await UserService.get_user_by_telegram_id(db, telegram_id)
+    # Ищем юзера в базе по Telegram ID
+    user = await UsersService.get_user_by_telegram(db, telegram_id)
 
-    # Если нет — создаём пустого (webapp-first регистрация)
+    # Если нет — создаём (webapp-first регистрация)
     if not user:
-        user = await UserService.create_user(
-            db=db,
+        user_in = UserCreate(
             telegram_id=telegram_id,
-            name=tg_user.get("first_name", "Пользователь"),
+            full_name=tg_user.get("first_name") or "Пользователь",
+            phone=None,
+            city=None,
+            role=UserRole.client,
         )
+        user = await UsersService.create_user(db, user_in)
 
     return {"user_id": user.id}
