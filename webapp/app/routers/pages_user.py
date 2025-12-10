@@ -244,11 +244,9 @@ async def request_detail(
     chosen_service_id: int | None = None,
 ) -> HTMLResponse:
     """
-    Детальная страница заявки.
-    Добавлены флаги:
-    - sent_all: заявка только что отправлена всем
-    - chosen_service_id: заявка отправлена выбранному СТО
+    Детальная страница заявки + список откликов СТО.
     """
+    # --- 1. Тянем саму заявку ---
     try:
         resp = await client.get(f"/api/v1/requests/{request_id}")
         if resp.status_code == status.HTTP_404_NOT_FOUND:
@@ -267,6 +265,7 @@ async def request_detail(
 
     req_data = resp.json()
 
+    # Читабельный статус
     status_labels = {
         "new": "Новая",
         "sent": "Отправлена СТО",
@@ -279,6 +278,7 @@ async def request_detail(
     code = req_data.get("status")
     req_data["status_label"] = status_labels.get(code, code)
 
+    # Читабельная категория
     cat = req_data.get("service_category") or ""
     if cat == "sto":
         req_data["service_category_label"] = "СТО"
@@ -286,6 +286,23 @@ async def request_detail(
         req_data["service_category_label"] = cat or "Услуга"
 
     can_distribute = req_data.get("status") == "new"
+
+    # --- 2. Тянем отклики по заявке ---
+    offers: list[dict[str, Any]] = []
+    try:
+        # ЕСЛИ путь другой — поменяешь тут:
+        resp_offers = await client.get(
+            f"/api/v1/offers/by-request/{request_id}"
+        )
+        if resp_offers.status_code == status.HTTP_200_OK:
+            offers = resp_offers.json()
+        elif resp_offers.status_code == status.HTTP_404_NOT_FOUND:
+            offers = []
+        else:
+            # если что-то ещё — считаем, что нет откликов
+            offers = []
+    except Exception:
+        offers = []
 
     return templates.TemplateResponse(
         "user/request_detail.html",
@@ -295,7 +312,75 @@ async def request_detail(
             "can_distribute": can_distribute,
             "sent_all": sent_all,
             "chosen_service_id": chosen_service_id,
+            "offers": offers,
         },
+    )
+
+@router.post(
+    "/requests/{request_id}/offers/{offer_id}/accept",
+    response_class=HTMLResponse,
+)
+async def request_accept_offer(
+    request_id: int,
+    offer_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    """
+    Клиент принимает предложение СТО.
+    """
+    try:
+        # ЕСЛИ путь другой — поменяешь здесь:
+        resp = await client.post(
+            f"/api/v1/offers/{offer_id}/accept-by-client"
+        )
+        resp.raise_for_status()
+    except Exception:
+        # даже если упали, просто перерисуем страницу заявки
+        return await request_detail(
+            request_id=request_id,
+            request=request,
+            client=client,
+        )
+
+    # после принятия перерисовываем заявку (статусы/отклики обновятся)
+    return await request_detail(
+        request_id=request_id,
+        request=request,
+        client=client,
+    )
+
+
+@router.post(
+    "/requests/{request_id}/offers/{offer_id}/reject",
+    response_class=HTMLResponse,
+)
+async def request_reject_offer(
+    request_id: int,
+    offer_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    """
+    Клиент отклоняет предложение СТО.
+    """
+    try:
+        # ЕСЛИ путь другой — поменяешь здесь:
+        resp = await client.post(
+            f"/api/v1/offers/{offer_id}/reject-by-client"
+        )
+        resp.raise_for_status()
+    except Exception:
+        return await request_detail(
+            request_id=request_id,
+            request=request,
+            client=client,
+        )
+
+    return await request_detail(
+        request_id=request_id,
+        request=request,
+        client=client,
     )
 
 

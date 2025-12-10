@@ -10,6 +10,7 @@ from backend.app.schemas.service_center import (
     ServiceCenterUpdate,
 )
 from backend.app.services.service_centers_service import ServiceCentersService
+from backend.app.services.requests_service import RequestsService
 
 router = APIRouter(
     prefix="/service-centers",

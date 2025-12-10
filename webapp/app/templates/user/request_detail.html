@@ -21,7 +21,7 @@
         <div class="text-right text-xs">
             <div class="mb-1">
                 <span class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-200">
-                    Статус: {{ request_obj.status_label }}
+                    Статус: {{ request_obj.status_label or request_obj.status }}
                 </span>
             </div>
             <p class="text-slate-500">
@@ -30,20 +30,59 @@
         </div>
     </div>
 
-    <!-- ... блоки с данными, как были ... -->
+    <!-- Основная информация по заявке -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="space-y-3">
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-sm space-y-2">
+                <p class="text-xs text-slate-400 mb-1">Адрес</p>
+                <p>
+                    {{ request_obj.address_text or "Адрес не указан" }}
+                </p>
+            </div>
 
-    <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-sm space-y-2">
-        <p class="text-xs text-slate-400 mb-1">Телефон</p>
-        <p>
-            {% if request_obj.hide_phone %}
-                Номер скрыт от СТО до вашего явного согласия.
-            {% else %}
-                Номер доступен выбранному сервису.
-            {% endif %}
-        </p>
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-sm space-y-2">
+                <p class="text-xs text-slate-400 mb-1">Состояние авто</p>
+                <p>
+                    {% if request_obj.is_car_movable %}
+                        Автомобиль может передвигаться самостоятельно.
+                    {% else %}
+                        Нужен эвакуатор или выездной мастер.
+                    {% endif %}
+                </p>
+                <p class="text-xs text-slate-500">
+                    Радиус поиска:
+                    {% if request_obj.radius_km and request_obj.radius_km > 0 %}
+                        {{ request_obj.radius_km }} км
+                    {% else %}
+                        без ограничения
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+
+        <div class="space-y-3">
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-sm space-y-2">
+                <p class="text-xs text-slate-400 mb-1">Описание проблемы</p>
+                <p class="whitespace-pre-line">
+                    {{ request_obj.description or "Описание не указано" }}
+                </p>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-sm space-y-2">
+                <p class="text-xs text-slate-400 mb-1">Телефон</p>
+                <p>
+                    {% if request_obj.hide_phone %}
+                        Номер скрыт от СТО до вашего явного согласия.
+                    {% else %}
+                        Номер будет доступен выбранному сервису.
+                    {% endif %}
+                </p>
+            </div>
+        </div>
     </div>
 
-    {% if sent_all is true %}
+    <!-- Сообщения об отправке -->
+    {% if sent_all %}
         <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-50">
             ✅ Заявка отправлена всем подходящим СТО.
         </div>
@@ -53,6 +92,7 @@
         </div>
     {% endif %}
 
+    <!-- Кнопки отправки заявки СТО -->
     <div class="mt-4 flex flex-wrap items-center gap-3 text-xs">
         {% if can_distribute %}
             <form method="post" action="/me/requests/{{ request_obj.id }}/send-all">
@@ -73,6 +113,101 @@
         {% else %}
             <p class="text-xs text-slate-500">
                 Отправка заявки СТО доступна только для заявок в статусе «Новая».
+            </p>
+        {% endif %}
+    </div>
+
+    <!-- Отклики СТО -->
+    <div class="mt-8">
+        <h2 class="text-sm font-semibold text-slate-100 mb-3">Отклики СТО</h2>
+
+        {% if offers and offers|length > 0 %}
+            <div class="space-y-3">
+                {% for offer in offers %}
+                    <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 text-sm space-y-2">
+                        <div class="flex items-start justify-between gap-4">
+                            <div class="space-y-1">
+                                <p class="text-xs text-slate-400">Сервис</p>
+                                <p class="text-sm font-semibold">
+                                    {% if offer.service_center and offer.service_center.name %}
+                                        {{ offer.service_center.name }}
+                                    {% elif offer.service_center_name %}
+                                        {{ offer.service_center_name }}
+                                    {% else %}
+                                        СТО ID {{ offer.service_center_id }}
+                                    {% endif %}
+                                </p>
+                            </div>
+                            <div class="text-right text-xs space-y-1">
+                                <p class="text-slate-400">Статус</p>
+                                <p class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-200">
+                                    {{ offer.status or "—" }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                            <div class="space-y-1">
+                                <p class="text-xs text-slate-400">Цена</p>
+                                <p>
+                                    {% if offer.price is not none %}
+                                        {{ offer.price }} ₽
+                                    {% else %}
+                                        не указана
+                                    {% endif %}
+                                </p>
+                            </div>
+                            <div class="space-y-1">
+                                <p class="text-xs text-slate-400">Срок</p>
+                                <p>
+                                    {% if offer.estimated_days is not none %}
+                                        {{ offer.estimated_days }} дн.
+                                    {% elif offer.term %}
+                                        {{ offer.term }}
+                                    {% else %}
+                                        не указан
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+
+                        {% if offer.comment %}
+                            <div class="mt-2 space-y-1">
+                                <p class="text-xs text-slate-400">Комментарий</p>
+                                <p class="text-sm whitespace-pre-line">
+                                    {{ offer.comment }}
+                                </p>
+                            </div>
+                        {% endif %}
+
+                        <!-- Кнопки принятия / отклонения -->
+                        <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                            <form method="post"
+                                  action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/accept">
+                                <button
+                                    type="submit"
+                                    class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-900 hover:bg-emerald-400 transition"
+                                >
+                                    Принять предложение
+                                </button>
+                            </form>
+
+                            <form method="post"
+                                  action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/reject">
+                                <button
+                                    type="submit"
+                                    class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-1.5 text-xs font-semibold text-slate-100 hover:bg-slate-700 transition"
+                                >
+                                    Отклонить
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-xs text-slate-500">
+                Пока нет откликов от сервисов.
             </p>
         {% endif %}
     </div>

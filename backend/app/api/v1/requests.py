@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from backend.app.schemas.request import (
 )
 from backend.app.schemas.request_distribution import RequestDistributeIn
 from backend.app.services.requests_service import RequestsService
+from backend.app.services.service_centers_service import ServiceCentersService
 
 router = APIRouter(
     prefix="/requests",
