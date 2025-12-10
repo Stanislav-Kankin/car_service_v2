@@ -35,3 +35,13 @@ class CarEdit(StatesGroup):
     waiting_for_field = State()
     waiting_for_value = State()
     confirm_delete = State()
+
+
+class STOEdit(StatesGroup):
+    """
+    FSM для редактирования профиля СТО.
+    """
+    choosing_field = State()
+    waiting_value = State()
+    waiting_geo = State()
+    choosing_specs = State()

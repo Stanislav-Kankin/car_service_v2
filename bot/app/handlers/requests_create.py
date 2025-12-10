@@ -84,17 +84,28 @@ SERVICE_CATEGORIES: List[Tuple[str, str]] = [
 ]
 
 
-# Маппинг категорий заявки (SERVICE_CATEGORIES) на специализации СТО
-# Ключи - коды в заявке, значения - коды специализаций СТО из SERVICE_SPECIALIZATION_OPTIONS
+# Маппинг категорий заявки (SERVICE_CATEGORIES) на специализации СТО.
+# Ключи — коды категории в заявке, значения — коды специализаций СТО.
 CATEGORY_TO_SPECIALIZATIONS: dict[str, list[str]] = {
-    "mech": ["mechanic"],  # Автомеханика -> слесарные работы
-    "tire": ["tire"],      # Шиномонтаж
-    "elec": ["electric"],  # Автоэлектрик
-    # Диагностика: часто либо электрика, либо механика, либо ТО
-    "diag": ["electric", "mechanic", "maint"],
-    # Кузовной ремонт
+    # 1:1 с SERVICE_CATEGORIES
+    "wash": ["wash"],          # Автомойка
+    "tire": ["tire"],          # Шиномонтаж
+    "electric": ["electric"],  # Автоэлектрик
+    "mechanic": ["mechanic"],  # Слесарные работы
+    "paint": ["paint"],        # Кузовной / малярка
+    "maint": ["maint"],        # ТО / обслуживание
+
+    # Агрегаты по отдельности
+    "agg_turbo": ["agg_turbo"],
+    "agg_starter": ["agg_starter"],
+    "agg_generator": ["agg_generator"],
+    "agg_steering": ["agg_steering"],
+
+    # Алиасы со старой схемы (если где-то всплывут)
+    "mech": ["mechanic"],
+    "elec": ["electric"],
     "body": ["paint"],
-    # Агрегатный ремонт - несколько типов агрегатов
+    "diag": ["electric", "mechanic", "maint"],
     "agg": ["agg_turbo", "agg_starter", "agg_generator", "agg_steering"],
 }
 
@@ -1146,14 +1157,11 @@ async def _find_suitable_service_centers_for_request(
     Подбираем подходящие СТО под заявку.
 
     Логика:
-    - Всегда фильтруем по is_active=True.
-    - По категории заявки берём специализации СТО через CATEGORY_TO_SPECIALIZATIONS.
-    - Если use_geo=True и у заявки ЕСТЬ координаты:
-        * используем их;
-        * радиус берём из заявки, но не больше 400 км;
-        * если радиуса нет — ставим 400 км по умолчанию.
-    - Если use_geo=False или координат нет:
-        * НЕ передаём latitude/longitude/radius_km → backend вернёт все СТО по профилю.
+    - фильтруем по is_active=True;
+    - по категории заявки берём специализации СТО через CATEGORY_TO_SPECIALIZATIONS;
+    - если в заявке указаны need_tow_truck / need_mobile_master —
+      добавляем эти фильтры в запрос;
+    - при use_geo=True и наличии координат учитываем радиус.
     """
     params: Dict[str, Any] = {"is_active": True}
 
@@ -1162,17 +1170,25 @@ async def _find_suitable_service_centers_for_request(
     radius_km = request.get("radius_km")
     service_category = request.get("service_category")
 
-    # Маппинг категории заявки -> специализации СТО
+    # Специализации по категории заявки
     spec_codes: Optional[List[str]] = None
     if service_category:
         spec_codes = CATEGORY_TO_SPECIALIZATIONS.get(service_category)
-        # если вдруг категория новая и маппинга нет – пробуем хотя бы напрямую
+        # если вдруг категория новая и маппинга нет – пробуем хотя бы напрямую 1:1
         if not spec_codes:
             spec_codes = [service_category]
 
     if spec_codes:
         # backend ждёт specializations как строку через запятую
         params["specializations"] = ",".join(spec_codes)
+
+    # Эвакуатор / выездной мастер — просто прокидываем флаги дальше.
+    # Если backend пока их игнорирует — не страшно, не сломаем.
+    if request.get("need_tow_truck"):
+        params["has_tow_truck"] = True
+    if request.get("need_mobile_master"):
+        # на бекенде поле обычно называется is_mobile_service
+        params["is_mobile_service"] = True
 
     MAX_RADIUS_KM = 400
 
@@ -1634,7 +1650,6 @@ async def req_service_center_selected(callback: CallbackQuery, state: FSMContext
         return
 
     # Обновляем заявку: привязываем выбранный сервис и переводим в статус "sent"
-        # Обновляем заявку: привязываем выбранный сервис и переводим в статус "sent"
     try:
         await api_client.update_request(
             request_id,
@@ -1699,46 +1714,6 @@ async def req_service_center_selected(callback: CallbackQuery, state: FSMContext
     await state.clear()
     await _back_to_main_menu(callback.message, telegram_id=callback.from_user.id)
     await callback.answer()
-
-
-# ---------- Подбор подходящих СТО ----------
-
-async def _find_suitable_service_centers(fsm_data: dict) -> list[dict]:
-    """
-    Подбираем СТО по данным заявки.
-    Здесь мы просто прокидываем параметры в backend,
-    а фильтрацию делаем там.
-    """
-    params: dict[str, object] = {}
-
-    service_category = fsm_data.get("service_category")
-    if service_category:
-        params["service_category"] = service_category
-
-    # флаги эвакуатор / выездной мастер (если были собраны при создании заявки)
-    if fsm_data.get("need_tow_truck"):
-        params["has_tow_truck"] = True
-    if fsm_data.get("need_mobile_master"):
-        params["has_mobile_service"] = True
-
-    # гео + радиус (если есть)
-    lat = fsm_data.get("location_lat")
-    lon = fsm_data.get("location_lon")
-    radius_km = fsm_data.get("search_radius_km")
-    if lat is not None and lon is not None and radius_km:
-        params["latitude"] = lat
-        params["longitude"] = lon
-        params["radius_km"] = radius_km
-
-    try:
-        service_centers = await api_client.list_service_centers(params=params or None)
-    except Exception:  # на всякий случай не валим бота
-        import logging
-        logging.exception("Не удалось получить список СТО для заявки")
-        service_centers = []
-
-    # backend может вернуть что угодно, нам достаточно списка dict-ов
-    return list(service_centers or [])
 
 
 def _build_service_centers_keyboard(service_centers: list[dict]) -> InlineKeyboardMarkup:

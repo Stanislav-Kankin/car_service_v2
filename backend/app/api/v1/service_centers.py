@@ -57,10 +57,6 @@ async def get_service_center(
 # ----------------------------------------------------------------------
 # Список / поиск СТО
 # ----------------------------------------------------------------------
-@router.get(
-    "/",
-    response_model=List[ServiceCenterRead],
-)
 async def list_service_centers(
     db: AsyncSession = Depends(get_db),
     is_active: Optional[bool] = Query(
@@ -69,20 +65,28 @@ async def list_service_centers(
     ),
     latitude: Optional[float] = Query(
         None,
-        description="Широта для гео-поиска (пока не используется).",
+        description="Широта для гео-поиска.",
     ),
     longitude: Optional[float] = Query(
         None,
-        description="Долгота для гео-поиска (пока не используется).",
+        description="Долгота для гео-поиска.",
     ),
     radius_km: Optional[int] = Query(
         None,
         ge=0,
-        description="Радиус поиска в км (пока не используется).",
+        description="Радиус поиска в км.",
     ),
     specializations: Optional[str] = Query(
         None,
         description="Список специализаций через запятую.",
+    ),
+    has_tow_truck: Optional[bool] = Query(
+        None,
+        description="Только СТО с эвакуатором.",
+    ),
+    is_mobile_service: Optional[bool] = Query(
+        None,
+        description="Только выездные мастера / мобильный сервис.",
     ),
 ):
     specs_list: Optional[List[str]] = None
@@ -141,35 +145,6 @@ async def update_service_center(
     return sc
 
 
-@router.get("/for-request/{request_id}", response_model=List[ServiceCenterRead])
-async def get_service_centers_for_request(
-    request_id: int,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Вернуть список подходящих СТО для конкретной заявки.
-    """
-    request = await RequestsService.get_request_by_id(db, request_id)
-    if not request:
-        raise HTTPException(404, "Request not found")
-
-    # параметры из заявки
-    latitude = request.latitude
-    longitude = request.longitude
-    radius_km = request.radius_km
-    specializations = [request.service_category] if request.service_category else None
-
-    sc_list = await ServiceCentersService.search_service_centers(
-        db,
-        latitude=latitude,
-        longitude=longitude,
-        radius_km=radius_km,
-        specializations=specializations,
-        is_active=True,
-    )
-    return sc_list
-
-
 @router.get(
     "/for-request/{request_id}",
     response_model=List[ServiceCenterRead],
@@ -191,11 +166,12 @@ async def get_service_centers_for_request(
         )
 
     # Для базового кейса "СТО" НЕ режем по специализациям.
-    # Иначе service_category="sto" никогда не совпадёт со списком специализаций СТО,
-    # и получаем пустой список, как у тебя сейчас.
     specializations = None
     if request.service_category and request.service_category not in ("sto",):
         specializations = [request.service_category]
+
+    has_tow_truck = request.need_tow_truck or None
+    is_mobile_service = request.need_mobile_master or None
 
     service_centers = await ServiceCentersService.search_service_centers(
         db,
@@ -203,5 +179,8 @@ async def get_service_centers_for_request(
         longitude=request.longitude,
         radius_km=request.radius_km,
         specializations=specializations,
+        is_active=True,
+        has_tow_truck=has_tow_truck,
+        is_mobile_service=is_mobile_service,
     )
     return service_centers

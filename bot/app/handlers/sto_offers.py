@@ -1088,6 +1088,9 @@ async def sto_offer_start(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.update_data(request_id=request_id)
 
+    # 🟢 ВАЖНО: выставляем состояние для ввода текста!
+    await state.set_state(STOOfferFSM.waiting_text)
+
     await callback.message.edit_text(
         f"Вы выбрали заявку №{request_id}.\n\n"
         "Отправьте <b>одним сообщением</b> условия для клиента: стоимость, сроки, "

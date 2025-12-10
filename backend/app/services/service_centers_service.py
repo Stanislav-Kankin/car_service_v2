@@ -94,12 +94,15 @@ class ServiceCentersService:
         radius_km: Optional[int] = None,
         specializations: Optional[List[str]] = None,
         is_active: Optional[bool] = True,
+        has_tow_truck: Optional[bool] = None,
+        is_mobile_service: Optional[bool] = None,
     ) -> List[ServiceCenter]:
         """
         Базовый поиск СТО.
 
         Делает:
         - фильтрует по is_active (если передано),
+        - опционально фильтрует по флагам эвакуатора/выездного сервиса,
         - опционально фильтрует по пересечению специализаций,
         - опционально фильтрует по радиусу от заданной точки (latitude/longitude),
           и сортирует по расстоянию от ближних к дальним.
@@ -111,9 +114,14 @@ class ServiceCentersService:
         stmt = select(ServiceCenter)
         if is_active is not None:
             stmt = stmt.where(ServiceCenter.is_active == is_active)
+        if has_tow_truck is not None:
+            stmt = stmt.where(ServiceCenter.has_tow_truck == has_tow_truck)
+        if is_mobile_service is not None:
+            stmt = stmt.where(ServiceCenter.is_mobile_service == is_mobile_service)
 
         result = await db.execute(stmt)
         items: List[ServiceCenter] = list(result.scalars().all())
+
 
         # 2. Фильтрация по специализациям (на Python, т.к. поле JSON)
         if specializations:

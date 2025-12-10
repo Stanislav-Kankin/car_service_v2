@@ -13,6 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
 from ..api_client import api_client
+from ..states.user_states import STOEdit  # <-- добавили
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ def kb_org_type() -> InlineKeyboardMarkup:
 
 def kb_specs(selected: set[str]) -> InlineKeyboardMarkup:
     """
-    Клава выбора специализаций.
+    Клава выбора специализаций (регистрация).
 
     selected — множество кодов из SERVICE_SPECIALIZATION_OPTIONS.
     """
@@ -123,6 +124,104 @@ def kb_specs(selected: set[str]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def kb_specs_edit(selected: set[str]) -> InlineKeyboardMarkup:
+    """
+    Клава выбора специализаций при РЕДАКТИРОВАНИИ профиля СТО.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+
+    for code, label in SERVICE_SPECIALIZATION_OPTIONS:
+        mark = "✅ " if code in selected else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{mark}{label}",
+                    callback_data=f"sto_edit_spec:{code}",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="✅ Готово",
+                callback_data="sto_edit_spec:done",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ В меню СТО",
+                callback_data="main:sto_menu",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ---------------------------------------------------------------------------
+# Вспомогалки для меню СТО
+# ---------------------------------------------------------------------------
+
+
+def _format_specs_for_show(raw) -> str:
+    if not raw:
+        return ""
+    if isinstance(raw, dict):
+        return ", ".join(str(v) for v in raw.values())
+    if isinstance(raw, list):
+        return ", ".join(str(v) for v in raw)
+    return str(raw)
+
+
+def _build_sto_menu_text(sc: dict) -> str:
+    name = sc.get("name") or "Без названия"
+    city = sc.get("city") or ""
+    address = sc.get("address") or ""
+    specs_text = _format_specs_for_show(sc.get("specializations"))
+
+    lines: list[str] = [
+        "<b>🛠 Меню СТО</b>",
+        "",
+        f"<b>{name}</b>",
+    ]
+    if city or address:
+        lines.append(f"📍 {city}, {address}".strip(", "))
+    if specs_text:
+        lines.append(f"🔧 Специализации: {specs_text}")
+
+    lines.append("")
+    lines.append("Выберите действие из меню ниже 👇")
+    return "\n".join(lines)
+
+
+def _build_sto_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ Редактировать профиль",
+                    callback_data="sto:edit_profile",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📥 Заявки клиентов",
+                    callback_data="sto:req_list",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ В главное меню",
+                    callback_data="main:menu",
+                )
+            ],
+        ]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Общий старт регистрации
 # ---------------------------------------------------------------------------
@@ -158,11 +257,13 @@ async def sto_start_from_main(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data == "main:sto_menu")
-async def sto_menu_entry(callback: CallbackQuery):
+async def sto_menu_entry(callback: CallbackQuery, state: FSMContext):
     """
     Вход в меню СТО из главного меню.
     Показываем краткую инфу по сервису и даём кнопки действий.
     """
+    await state.clear()
+
     telegram_id = callback.from_user.id
 
     # 1. Получаем пользователя по Telegram ID
@@ -189,54 +290,327 @@ async def sto_menu_entry(callback: CallbackQuery):
 
     sc = service_centers[0]  # пока берём первый сервис
 
-    name = sc.get("name") or "Без названия"
-    city = sc.get("city") or ""
-    address = sc.get("address") or ""
-    specializations = sc.get("specializations") or []
+    text = _build_sto_menu_text(sc)
+    kb = _build_sto_menu_keyboard()
 
-    if isinstance(specializations, dict):
-        specs_text = ", ".join(str(v) for v in specializations.values())
-    elif isinstance(specializations, list):
-        specs_text = ", ".join(str(v) for v in specializations)
-    else:
-        specs_text = str(specializations)
+    await callback.message.answer(text, reply_markup=kb)
+    await callback.answer()
 
-    text_lines = [
-        "<b>🛠 Меню СТО</b>",
-        "",
-        f"<b>{name}</b>",
-    ]
-    if city or address:
-        text_lines.append(f"📍 {city}, {address}".strip(", "))
-    if specs_text:
-        text_lines.append(f"🔧 Специализации: {specs_text}")
 
-    text_lines.append("")
-    text_lines.append("Выберите действие из меню ниже 👇")
+# ---------------------------------------------------------------------------
+# Редактирование профиля СТО
+# ---------------------------------------------------------------------------
+
+
+@router.callback_query(F.data == "sto:edit_profile")
+async def sto_edit_profile_start(callback: CallbackQuery, state: FSMContext):
+    """
+    Старт сценария редактирования профиля СТО.
+    """
+    telegram_id = callback.from_user.id
+
+    # Берём текущий сервис через те же методы, что и в sto_menu_entry
+    user = await api_client.get_user_by_telegram(telegram_id)
+    if not isinstance(user, dict) or user.get("role") != "service_owner":
+        await callback.message.answer(
+            "Вы ещё не зарегистрированы как владелец автосервиса.\n"
+            "Сначала зарегистрируйте СТО.",
+        )
+        await callback.answer()
+        return
+
+    user_id = user["id"]
+    service_centers = await api_client.list_service_centers_by_user(user_id)
+    if not isinstance(service_centers, list) or not service_centers:
+        await callback.message.answer(
+            "У вас пока нет зарегистрированных автосервисов.\n"
+            "Сначала создайте профиль СТО.",
+        )
+        await callback.answer()
+        return
+
+    sc = service_centers[0]
+    sc_id = sc.get("id")
+    if not sc_id:
+        await callback.message.answer(
+            "Не удалось определить ID сервиса. Попробуйте позже."
+        )
+        await callback.answer()
+        return
+
+    # Сохраняем в состояние ID сервиса и текущие специализации
+    specs_raw = sc.get("specializations") or []
+    selected_specs: set[str] = {str(code) for code in specs_raw}
+
+    await state.clear()
+    await state.update_data(sc_id=int(sc_id), edit_specializations=selected_specs)
+
+    text = (
+        "<b>✏️ Редактирование профиля СТО</b>\n\n"
+        "Выберите, что хотите изменить:"
+    )
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="📥 Заявки клиентов",
-                    callback_data="sto:req_list",
-                )
+                    text="📛 Название",
+                    callback_data="sto_edit_field:name",
+                ),
+                InlineKeyboardButton(
+                    text="📍 Адрес",
+                    callback_data="sto_edit_field:address",
+                ),
             ],
             [
                 InlineKeyboardButton(
-                    text="⬅️ В главное меню",
-                    callback_data="main:menu",
-                )
+                    text="📌 Геолокация",
+                    callback_data="sto_edit_field:geo",
+                ),
+                InlineKeyboardButton(
+                    text="📞 Телефон",
+                    callback_data="sto_edit_field:phone",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🌐 Сайт / соцсети",
+                    callback_data="sto_edit_field:website",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔧 Специализации",
+                    callback_data="sto_edit_field:specializations",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ В меню СТО",
+                    callback_data="main:sto_menu",
+                ),
             ],
         ]
     )
 
-    await callback.message.answer("\n".join(text_lines), reply_markup=kb)
+    await callback.message.answer(text, reply_markup=kb)
+    await state.set_state(STOEdit.choosing_field)
+    await callback.answer()
+
+
+@router.callback_query(STOEdit.choosing_field, F.data.startswith("sto_edit_field:"))
+async def sto_edit_choose_field(callback: CallbackQuery, state: FSMContext):
+    """
+    Пользователь выбрал, какое поле редактировать.
+    """
+    _, field = callback.data.split(":", maxsplit=1)
+
+    if field in ("name", "address", "phone", "website"):
+        prompts = {
+            "name": "Введите новое <b>название сервиса</b>:",
+            "address": "Введите новый <b>адрес сервиса</b> (строкой):",
+            "phone": "Введите новый <b>контактный телефон</b>:",
+            "website": (
+                "Введите новый <b>сайт или ссылку на соцсети</b>.\n"
+                "Если хотите очистить поле — напишите «пропустить»."
+            ),
+        }
+        await state.update_data(edit_field=field)
+        await callback.message.answer(prompts[field])
+        await state.set_state(STOEdit.waiting_value)
+        await callback.answer()
+        return
+
+    if field == "geo":
+        await state.set_state(STOEdit.waiting_geo)
+        await callback.message.answer(
+            "Отправьте новую <b>геолокацию сервиса</b>.\n\n"
+            "Используйте кнопку 📎 → «Геопозиция».",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await callback.answer()
+        return
+
+    if field == "specializations":
+        data = await state.get_data()
+        selected_specs: set[str] = set(data.get("edit_specializations") or [])
+        await state.set_state(STOEdit.choosing_specs)
+        await callback.message.answer(
+            "Выберите актуальные специализации сервиса.\n\n"
+            "Можно выбрать несколько пунктов, затем нажать «✅ Готово».",
+            reply_markup=kb_specs_edit(selected_specs),
+        )
+        await callback.answer()
+        return
+
+    # На всякий случай
+    await callback.answer()
+
+
+@router.message(STOEdit.waiting_value)
+async def sto_edit_save_text_value(message: Message, state: FSMContext):
+    """
+    Сохраняем текстовые значения: name, address, phone, website.
+    """
+    data = await state.get_data()
+    sc_id = data.get("sc_id")
+    field = data.get("edit_field")
+
+    if not sc_id or field not in ("name", "address", "phone", "website"):
+        await message.answer("Не удалось определить, что редактировать. Попробуйте ещё раз.")
+        await state.clear()
+        return
+
+    text = (message.text or "").strip()
+
+    # website можно очистить
+    if field == "website" and text.lower() in ("пропустить", "нет", "-", "no"):
+        value = None
+    else:
+        if not text:
+            await message.answer("Значение не может быть пустым. Введите ещё раз.")
+            return
+        value = text
+
+    payload = {field: value}
+
+    try:
+        await api_client.update_service_center(int(sc_id), payload)
+        await message.answer("✔ Профиль СТО обновлён.")
+    except Exception as e:
+        logger.exception("Ошибка обновления профиля СТО (%s): %s", field, e)
+        await message.answer("❌ Не удалось сохранить изменения. Попробуйте позже.")
+        await state.clear()
+        return
+
+    # Покажем актуальное меню СТО
+    try:
+        sc = await api_client.get_service_center(int(sc_id))
+        if isinstance(sc, dict):
+            text = _build_sto_menu_text(sc)
+            kb = _build_sto_menu_keyboard()
+            await message.answer(text, reply_markup=kb)
+    except Exception as e:
+        logger.exception("Ошибка получения СТО после обновления: %s", e)
+
+    await state.clear()
+
+
+@router.message(STOEdit.waiting_geo, F.location)
+async def sto_edit_save_geo(message: Message, state: FSMContext):
+    """
+    Сохраняем новые координаты сервиса.
+    """
+    data = await state.get_data()
+    sc_id = data.get("sc_id")
+    if not sc_id:
+        await message.answer("Не удалось определить сервис. Попробуйте ещё раз.")
+        await state.clear()
+        return
+
+    lat = message.location.latitude
+    lon = message.location.longitude
+
+    payload = {"latitude": lat, "longitude": lon}
+
+    try:
+        await api_client.update_service_center(int(sc_id), payload)
+        await message.answer("✔ Геолокация сервиса обновлена.")
+    except Exception as e:
+        logger.exception("Ошибка обновления геолокации СТО: %s", e)
+        await message.answer("❌ Не удалось сохранить геолокацию. Попробуйте позже.")
+        await state.clear()
+        return
+
+    # Покажем актуальное меню СТО
+    try:
+        sc = await api_client.get_service_center(int(sc_id))
+        if isinstance(sc, dict):
+            text = _build_sto_menu_text(sc)
+            kb = _build_sto_menu_keyboard()
+            await message.answer(text, reply_markup=kb)
+    except Exception as e:
+        logger.exception("Ошибка получения СТО после обновления гео: %s", e)
+
+    await state.clear()
+
+
+@router.callback_query(STOEdit.choosing_specs)
+async def sto_edit_specs(callback: CallbackQuery, state: FSMContext):
+    """
+    Выбор специализаций при редактировании профиля.
+    """
+    data = await state.get_data()
+    sc_id = data.get("sc_id")
+    if not sc_id:
+        await callback.message.answer("Не удалось определить сервис. Попробуйте ещё раз.")
+        await state.clear()
+        await callback.answer()
+        return
+
+    selected: set[str] = set(data.get("edit_specializations") or [])
+
+    if not callback.data.startswith("sto_edit_spec:"):
+        await callback.answer()
+        return
+
+    _, code = callback.data.split(":", maxsplit=1)
+
+    if code == "done":
+        # Сохраняем специализации
+        payload = {"specializations": list(selected)}
+        try:
+            await api_client.update_service_center(int(sc_id), payload)
+            await callback.message.edit_text("✔ Специализации сервиса обновлены.")
+        except Exception as e:
+            logger.exception("Ошибка обновления специализаций СТО: %s", e)
+            await callback.message.edit_text(
+                "❌ Не удалось сохранить специализации. Попробуйте позже."
+            )
+            await state.clear()
+            await callback.answer()
+            return
+
+        # Покажем актуальное меню СТО
+        try:
+            sc = await api_client.get_service_center(int(sc_id))
+            if isinstance(sc, dict):
+                text = _build_sto_menu_text(sc)
+                kb = _build_sto_menu_keyboard()
+                await callback.message.answer(text, reply_markup=kb)
+        except Exception as e:
+            logger.exception("Ошибка получения СТО после обновления спецов: %s", e)
+
+        await state.clear()
+        await callback.answer()
+        return
+
+    # Обычное переключение специализации
+    codes_available = {c for c, _ in SERVICE_SPECIALIZATION_OPTIONS}
+    if code not in codes_available:
+        await callback.answer()
+        return
+
+    if code in selected:
+        selected.remove(code)
+    else:
+        selected.add(code)
+
+    await state.update_data(edit_specializations=selected)
+
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=kb_specs_edit(selected)
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            logger.exception("Ошибка обновления клавиатуры спецов (edit): %s", e)
+
     await callback.answer()
 
 
 # ---------------------------------------------------------------------------
-# Шаги регистрации СТО
+# Шаги регистрации СТО (оставляем как было)
 # ---------------------------------------------------------------------------
 
 
@@ -338,7 +712,7 @@ async def sto_website(message: Message, state: FSMContext):
 @router.callback_query(STORegister.waiting_specs)
 async def sto_specs(callback: CallbackQuery, state: FSMContext):
     """
-    Выбор специализаций.
+    Выбор специализаций (регистрация).
     """
     data = await state.get_data()
     selected: set[str] = set(data.get("specializations") or [])
@@ -359,7 +733,6 @@ async def sto_specs(callback: CallbackQuery, state: FSMContext):
             profile = await state.get_data()
             specs_codes: set[str] = set(profile.get("specializations") or [])
 
-            # человек мог вообще ничего не выбрать
             if not specs_codes:
                 specs_text = "— (специализации не выбраны)"
             else:
@@ -419,14 +792,12 @@ async def sto_specs(callback: CallbackQuery, state: FSMContext):
                 reply_markup=kb_specs(selected)
             )
         except TelegramBadRequest as e:
-            # Игнорируем "message is not modified"
             if "message is not modified" not in str(e):
                 logger.exception("Ошибка обновления клавиатуры спецов: %s", e)
 
         await callback.answer()
         return
 
-    # Остальное игнорируем
     await callback.answer()
 
 
@@ -469,7 +840,6 @@ async def sto_finish(callback: CallbackQuery, state: FSMContext):
 
     user_id = user["id"]
 
-    # Переводим выбранные спец-коды в список строк (так же, как в v1)
     specs_codes: set[str] = set(data.get("specializations") or [])
     specializations = list(specs_codes)
 
@@ -495,7 +865,6 @@ async def sto_finish(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # Обновляем роль пользователя
     try:
         await api_client.update_user(user_id, {"role": "service_owner"})
     except Exception as e:
