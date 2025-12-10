@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
-from backend.app.services.users_service import UserService
+from backend.app.services.user_service import UserService
 from backend.app.core.config import settings
 
 import hashlib
