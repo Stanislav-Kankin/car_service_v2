@@ -52,9 +52,8 @@ async def auth_telegram_webapp(
     (НО в dev-режиме НЕ роняет 403, а только логирует),
     возвращает user_id.
 
-    Это сделано, чтобы не блокировать разработку webapp из-за
-    нюансов проверки подписи. Когда всё отладим, можно будет
-    вернуть жёсткий режим.
+    Плюс: если telegram_id есть в TELEGRAM_ADMIN_IDS,
+    поднимаем роль пользователя до admin.
     """
     # Пытаемся проверить подпись
     try:
@@ -99,5 +98,22 @@ async def auth_telegram_webapp(
             role=UserRole.client,
         )
         user = await UsersService.create_user(db, user_in)
+
+    # --- НОВОЕ: проверка на админа по TELEGRAM_ADMIN_IDS ---
+    try:
+        admin_ids = settings.TELEGRAM_ADMIN_IDS
+    except AttributeError:
+        admin_ids = []
+
+    if (
+        isinstance(telegram_id, int)
+        and telegram_id in admin_ids
+        and user.role != UserRole.admin
+    ):
+        # Повышаем роль до admin
+        user.role = UserRole.admin
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
 
     return {"user_id": user.id}

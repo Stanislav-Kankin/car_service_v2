@@ -40,5 +40,24 @@ class Settings:
     # ---------------------- Other ----------------------
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
 
+    # ---------------------- Admins ----------------------
+    # TELEGRAM_ADMIN_IDS="123456,987654"
+    TELEGRAM_ADMIN_IDS: list[int] = []
+
+    raw_admin_ids = os.getenv("TELEGRAM_ADMIN_IDS", "")
+    if raw_admin_ids:
+        parts = (
+            raw_admin_ids.replace(";", ",").split(",")
+        )  # допускаем разделение и запятой, и точкой с запятой
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                TELEGRAM_ADMIN_IDS.append(int(part))
+            except ValueError:
+                # Просто игнорируем кривой id, чтобы не падать
+                continue
+
 
 settings = Settings()
