@@ -1,66 +1,120 @@
 {% extends "layout/base.html" %}
 
+{% block title %}Новый СТО — CarBot{% endblock %}
+
 {% block content %}
-<div class="max-w-xl mx-auto py-6">
-    <h1 class="text-2xl font-bold mb-4">Регистрация сервиса</h1>
+<div class="mt-8 space-y-6">
+    <a href="/sc/dashboard" class="text-xs text-slate-400 hover:text-emerald-400 transition">
+        ← Назад в кабинет СТО
+    </a>
 
-    {% if error_message %}
-        <div class="mb-4 p-3 bg-red-100 text-red-800 rounded">
-            {{ error_message }}
-        </div>
-    {% endif %}
+    <div class="relative">
+        <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
 
-    <form method="post" class="space-y-4">
-        <div>
-            <label class="block text-sm font-medium mb-1">Название сервиса *</label>
-            <input type="text" name="name" required
-                   class="w-full border rounded px-3 py-2 text-sm">
-        </div>
-
-        <div>
-            <label class="block text-sm font-medium mb-1">Адрес</label>
-            <input type="text" name="address"
-                   class="w-full border rounded px-3 py-2 text-sm">
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-sm font-medium mb-1">Телефон</label>
-                <input type="text" name="phone"
-                       class="w-full border rounded px-3 py-2 text-sm">
+        <div class="relative z-10 p-6 md:p-8 space-y-6">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                    <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
+                        Регистрация сервисного центра
+                    </p>
+                    <h1 class="text-2xl font-semibold">
+                        Добавить новый СТО
+                    </h1>
+                    <p class="text-sm text-slate-300 mt-1">
+                        Укажите базовую информацию — адрес, телефон и сайт. Специализации и гео дополним позже.
+                    </p>
+                </div>
             </div>
-            <div>
-                <label class="block text-sm font-medium mb-1">Сайт / соцсети</label>
-                <input type="text" name="website"
-                       class="w-full border rounded px-3 py-2 text-sm">
+
+            {% if error_message %}
+            <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                {{ error_message }}
             </div>
-        </div>
+            {% endif %}
 
-        <div>
-            <label class="block text-sm font-medium mb-1">Тип организации</label>
-            <select name="org_type" class="w-full border rounded px-3 py-2 text-sm">
-                <option value="company">Юрлицо / сервис</option>
-                <option value="individual">Частный мастер</option>
-            </select>
-        </div>
+            <form method="post" class="space-y-5">
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Название сервиса<span class="text-red-400">*</span>
+                        </label>
+                        <input type="text" name="name" required
+                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                               placeholder="Например, CarFix Service или 'СТО на Пушкина'">
+                    </div>
 
-        <div class="flex items-center space-x-4">
-            <label class="flex items-center space-x-2 text-sm">
-                <input type="checkbox" name="is_mobile_service">
-                <span>Выездной сервис</span>
-            </label>
-            <label class="flex items-center space-x-2 text-sm">
-                <input type="checkbox" name="has_tow_truck">
-                <span>Есть эвакуатор</span>
-            </label>
-        </div>
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Телефон
+                        </label>
+                        <input type="text" name="phone"
+                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                               placeholder="+7 900 000-00-00">
+                    </div>
+                </div>
 
-        <div class="pt-2">
-            <button type="submit"
-                    class="px-4 py-2 rounded bg-blue-600 text-white text-sm">
-                Сохранить
-            </button>
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-slate-300">
+                        Адрес
+                    </label>
+                    <input type="text" name="address"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                           placeholder="Город, улица, дом">
+                </div>
+
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-slate-300">
+                        Сайт или страница в соцсетях
+                    </label>
+                    <input type="text" name="website"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                           placeholder="https://...">
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Тип организации
+                        </label>
+                        <select name="org_type"
+                                class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                            <option value="company">Юрлицо / ИП</option>
+                            <option value="individual">Частный мастер</option>
+                        </select>
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Формат работы
+                        </label>
+                        <div class="flex flex-col gap-2 text-sm text-slate-200">
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" name="is_mobile_service" value="true"
+                                       class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
+                                <span>Выездной сервис (мастер приезжает к клиенту)</span>
+                            </label>
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" name="has_tow_truck" value="true"
+                                       class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
+                                <span>Есть эвакуатор</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
+                    <p class="text-xs text-slate-400 max-w-md">
+                        После создания вы сможете редактировать данные сервиса в кабинете СТО.
+                        Геолокацию и специализации подключим на следующем этапе.
+                    </p>
+
+                    <button type="submit"
+                            class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                        Сохранить и перейти в кабинет
+                    </button>
+                </div>
+            </form>
         </div>
-    </form>
+    </div>
 </div>
 {% endblock %}
