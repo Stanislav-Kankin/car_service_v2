@@ -703,11 +703,11 @@ async def request_create_post(
     )
 
 
-# --------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Страница заявки
-# --------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
-@router.get("/requests/{request_id}", response_class=HTMLResponse)
+@router.get("/requests/{request_id}/view", response_class=HTMLResponse)
 async def request_detail(
     request_id: int,
     request: Request,
@@ -718,7 +718,6 @@ async def request_detail(
 
     _ = get_current_user_id(request)
 
-    # Загружаем саму заявку
     try:
         resp = await client.get(f"/api/v1/requests/{request_id}")
         if resp.status_code == 404:
@@ -738,18 +737,7 @@ async def request_detail(
 
     can_distribute = req_data.get("status") == "new"
 
-    # Загружаем авто для красивого блока в шапке
-    car: dict[str, Any] | None = None
-    car_id = req_data.get("car_id")
-    if car_id:
-        try:
-            resp_car = await client.get(f"/api/v1/cars/{car_id}")
-            if resp_car.status_code == 200:
-                car = resp_car.json()
-        except Exception:
-            car = None
-
-    # Загрузка откликов
+    # загрузка откликов
     offers = []
     try:
         resp2 = await client.get(f"/api/v1/offers/by-request/{request_id}")
@@ -765,7 +753,6 @@ async def request_detail(
         {
             "request": request,
             "request_obj": req_data,
-            "car": car,
             "can_distribute": can_distribute,
             "sent_all": sent_all,
             "chosen_service_id": chosen_service_id,
