@@ -39,8 +39,22 @@
                         Создать заявку для этого авто
                         <span class="text-lg">★</span>
                     </a>
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        <a href="/me/cars/{{ car.id }}/edit"
+                           class="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 text-xs font-semibold text-slate-200 hover:border-emerald-400 hover:text-emerald-300 transition">
+                            ✏️ Редактировать
+                        </a>
+                        <form method="post"
+                              action="/me/cars/{{ car.id }}/delete"
+                              onsubmit="return confirm('Удалить этот автомобиль? Это действие нельзя отменить.');">
+                            <button type="submit"
+                                    class="inline-flex items-center gap-2 rounded-full border border-red-500/60 px-4 py-2 text-xs font-semibold text-red-200 hover:bg-red-500/10 transition">
+                                🗑 Удалить
+                            </button>
+                        </form>
+                    </div>
                     <p class="text-xs text-slate-400 max-w-xs">
-                        На следующем шаге вы выберете тип услуги (СТО, помощь в дороге и т.п.) и заполните анкету.
+                        Управляйте данными автомобиля и создавайте заявки прямо из веб-интерфейса.
                     </p>
                 </div>
             </div>

@@ -8,7 +8,7 @@ from fastapi import (
     Request,
     status,
 )
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from httpx import AsyncClient
 
 from ..api_client import get_backend_client
@@ -22,9 +22,9 @@ router = APIRouter(
 templates = get_templates()
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Авторизация: ВСЕ маршруты /me/* требуют user_id в cookie
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 def get_current_user_id(request: Request) -> int:
     """
@@ -40,9 +40,9 @@ def get_current_user_id(request: Request) -> int:
     return int(user_id)
 
 
-# ------------------------------------------------------------------------------
-# Словарь категорий
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
+# Справочники для подписей категорий и статусов
+# --------------------------------------------------------------------
 
 SERVICE_CATEGORY_LABELS = {
     "sto": "СТО / общий ремонт",
@@ -74,9 +74,42 @@ STATUS_LABELS = {
 }
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
+# Вспомогательный загрузчик машины с проверкой владельца
+# --------------------------------------------------------------------
+
+async def _load_car_for_owner(
+    request: Request,
+    client: AsyncClient,
+    car_id: int,
+) -> dict[str, Any]:
+    """
+    Загружаем машину по ID и проверяем, что она принадлежит текущему пользователю.
+    """
+    current_user_id = get_current_user_id(request)
+
+    try:
+        resp = await client.get(f"/api/v1/cars/{car_id}")
+        if resp.status_code == 404:
+            raise HTTPException(status_code=404, detail="Автомобиль не найден")
+        resp.raise_for_status()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="Ошибка backend при загрузке автомобиля")
+
+    car = resp.json()
+
+    if car.get("user_id") != current_user_id:
+        # Чужой автомобиль — доступ запрещён
+        raise HTTPException(status_code=403, detail="Нет доступа к этому автомобилю")
+
+    return car
+
+
+# --------------------------------------------------------------------
 # Dashboard
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def user_dashboard(request: Request) -> HTMLResponse:
@@ -91,9 +124,9 @@ async def user_dashboard(request: Request) -> HTMLResponse:
     )
 
 
-# ------------------------------------------------------------------------------
-# Гараж
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
+# Гараж — список машин
+# --------------------------------------------------------------------
 
 @router.get("/garage", response_class=HTMLResponse)
 async def user_garage(
@@ -123,9 +156,9 @@ async def user_garage(
     )
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Карточка машины
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.get("/cars/{car_id}", response_class=HTMLResponse)
 async def car_detail(
@@ -134,19 +167,7 @@ async def car_detail(
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
 
-    _ = get_current_user_id(request)
-
-    try:
-        resp = await client.get(f"/api/v1/cars/{car_id}")
-        if resp.status_code == 404:
-            raise HTTPException(404, "Автомобиль не найден")
-        resp.raise_for_status()
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(502, "Ошибка backend при загрузке автомобиля")
-
-    car = resp.json()
+    car = await _load_car_for_owner(request, client, car_id)
 
     return templates.TemplateResponse(
         "user/car_detail.html",
@@ -154,9 +175,259 @@ async def car_detail(
     )
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
+# Создание автомобиля — форма
+# --------------------------------------------------------------------
+
+@router.get("/cars/create", response_class=HTMLResponse)
+async def car_create_get(
+    request: Request,
+) -> HTMLResponse:
+    """
+    Показ формы создания нового автомобиля.
+    """
+    _ = get_current_user_id(request)
+
+    return templates.TemplateResponse(
+        "user/car_form.html",
+        {
+            "request": request,
+            "mode": "create",
+            "car": None,
+            "error_message": None,
+        },
+    )
+
+
+# --------------------------------------------------------------------
+# Создание автомобиля — обработка формы
+# --------------------------------------------------------------------
+
+@router.post("/cars/create", response_class=HTMLResponse)
+async def car_create_post(
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    brand: str = Form(""),
+    model: str = Form(""),
+    year: str = Form(""),
+    license_plate: str = Form(""),
+    vin: str = Form(""),
+) -> HTMLResponse:
+    """
+    Обработка формы создания автомобиля.
+    """
+    user_id = get_current_user_id(request)
+
+    error_message: str | None = None
+
+    # Парсим год
+    year_value: int | None = None
+    if year.strip():
+        try:
+            year_value = int(year.strip())
+        except ValueError:
+            error_message = "Год выпуска должен быть числом."
+
+    # Если ошибка валидации на фронте — не ходим в backend
+    if error_message:
+        car_data = {
+            "brand": brand,
+            "model": model,
+            "year": year,
+            "license_plate": license_plate,
+            "vin": vin,
+        }
+        return templates.TemplateResponse(
+            "user/car_form.html",
+            {
+                "request": request,
+                "mode": "create",
+                "car": car_data,
+                "error_message": error_message,
+            },
+        )
+
+    payload: dict[str, Any] = {
+        "user_id": user_id,
+        "brand": brand or None,
+        "model": model or None,
+        "year": year_value,
+        "license_plate": license_plate or None,
+        "vin": vin or None,
+    }
+
+    try:
+        resp = await client.post("/api/v1/cars/", json=payload)
+        resp.raise_for_status()
+        car_created = resp.json()
+    except Exception:
+        error_message = "Не удалось создать автомобиль. Попробуйте позже."
+        car_data = {
+            "brand": brand,
+            "model": model,
+            "year": year,
+            "license_plate": license_plate,
+            "vin": vin,
+        }
+        return templates.TemplateResponse(
+            "user/car_form.html",
+            {
+                "request": request,
+                "mode": "create",
+                "car": car_data,
+                "error_message": error_message,
+            },
+        )
+
+    # Успешно — ведём в гараж или сразу в карточку
+    return RedirectResponse(
+        url=f"/me/cars/{car_created['id']}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+# --------------------------------------------------------------------
+# Редактирование автомобиля — форма
+# --------------------------------------------------------------------
+
+@router.get("/cars/{car_id}/edit", response_class=HTMLResponse)
+async def car_edit_get(
+    car_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    """
+    Показ формы редактирования автомобиля.
+    """
+    car = await _load_car_for_owner(request, client, car_id)
+
+    return templates.TemplateResponse(
+        "user/car_form.html",
+        {
+            "request": request,
+            "mode": "edit",
+            "car": car,
+            "error_message": None,
+        },
+    )
+
+
+# --------------------------------------------------------------------
+# Редактирование автомобиля — обработка формы
+# --------------------------------------------------------------------
+
+@router.post("/cars/{car_id}/edit", response_class=HTMLResponse)
+async def car_edit_post(
+    car_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    brand: str = Form(""),
+    model: str = Form(""),
+    year: str = Form(""),
+    license_plate: str = Form(""),
+    vin: str = Form(""),
+) -> HTMLResponse:
+    """
+    Обработка формы редактирования автомобиля.
+    """
+    _ = get_current_user_id(request)
+
+    error_message: str | None = None
+
+    # Парсим год
+    year_value: int | None = None
+    if year.strip():
+        try:
+            year_value = int(year.strip())
+        except ValueError:
+            error_message = "Год выпуска должен быть числом."
+
+    car_data = {
+        "id": car_id,
+        "brand": brand,
+        "model": model,
+        "year": year,
+        "license_plate": license_plate,
+        "vin": vin,
+    }
+
+    if error_message:
+        return templates.TemplateResponse(
+            "user/car_form.html",
+            {
+                "request": request,
+                "mode": "edit",
+                "car": car_data,
+                "error_message": error_message,
+            },
+        )
+
+    payload: dict[str, Any] = {
+        "brand": brand or None,
+        "model": model or None,
+        "year": year_value,
+        "license_plate": license_plate or None,
+        "vin": vin or None,
+    }
+
+    try:
+        resp = await client.patch(f"/api/v1/cars/{car_id}", json=payload)
+        resp.raise_for_status()
+    except Exception:
+        error_message = "Не удалось сохранить изменения. Попробуйте позже."
+        return templates.TemplateResponse(
+            "user/car_form.html",
+            {
+                "request": request,
+                "mode": "edit",
+                "car": car_data,
+                "error_message": error_message,
+            },
+        )
+
+    return RedirectResponse(
+        url=f"/me/cars/{car_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+# --------------------------------------------------------------------
+# Удаление автомобиля
+# --------------------------------------------------------------------
+
+@router.post("/cars/{car_id}/delete", response_class=HTMLResponse)
+async def car_delete_post(
+    car_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    """
+    Удаление автомобиля и редирект в гараж.
+    """
+    # Проверяем, что машина принадлежит пользователю
+    _ = await _load_car_for_owner(request, client, car_id)
+
+    try:
+        resp = await client.delete(f"/api/v1/cars/{car_id}")
+        # Если 404 — считаем, что уже удалена
+        if resp.status_code not in (204, 404):
+            resp.raise_for_status()
+    except Exception:
+        # Даже если удаление не удалось — вернёмся в гараж с мягкой деградацией
+        return RedirectResponse(
+            url="/me/garage",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return RedirectResponse(
+        url="/me/garage",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+# --------------------------------------------------------------------
 # Список заявок
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.get("/requests", response_class=HTMLResponse)
 async def requests_list(
@@ -191,9 +462,9 @@ async def requests_list(
     )
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Создание заявки — GET
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.get("/requests/create", response_class=HTMLResponse)
 async def request_create_get(
@@ -214,9 +485,9 @@ async def request_create_get(
     )
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Создание заявки — POST
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.post("/requests/create", response_class=HTMLResponse)
 async def request_create_post(
@@ -273,9 +544,9 @@ async def request_create_post(
     )
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Страница заявки
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.get("/requests/{request_id}", response_class=HTMLResponse)
 async def request_detail(
@@ -331,9 +602,9 @@ async def request_detail(
     )
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Принять предложение
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.post("/requests/{request_id}/offers/{offer_id}/accept", response_class=HTMLResponse)
 async def request_accept_offer(
@@ -354,9 +625,9 @@ async def request_accept_offer(
     return await request_detail(request_id, request, client)
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Отклонить предложение
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.post("/requests/{request_id}/offers/{offer_id}/reject", response_class=HTMLResponse)
 async def request_reject_offer(
@@ -377,9 +648,9 @@ async def request_reject_offer(
     return await request_detail(request_id, request, client)
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Отправить всем подходящим СТО
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.post("/requests/{request_id}/send-all", response_class=HTMLResponse)
 async def request_send_all_post(
@@ -399,9 +670,9 @@ async def request_send_all_post(
     return await request_detail(request_id, request, client, sent_all=True)
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Страница выбора СТО
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.get("/requests/{request_id}/choose-service", response_class=HTMLResponse)
 async def request_choose_service_get(
@@ -434,9 +705,9 @@ async def request_choose_service_get(
     )
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 # Отправить конкретному СТО
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 @router.post("/requests/{request_id}/send-to-service", response_class=HTMLResponse)
 async def request_send_to_service_post(
