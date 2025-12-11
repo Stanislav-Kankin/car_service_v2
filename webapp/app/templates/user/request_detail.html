@@ -317,69 +317,80 @@
 </div>
 
 <!-- Leaflet + геокодинг через Nominatim -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<link rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
 
 <script>
     (function () {
         const mapContainer = document.getElementById("request-map-inner");
         const wrapper = document.getElementById("request-map");
         const hint = document.getElementById("map-hint");
-        if (!mapContainer || !wrapper) return;
 
-        const lat = {{ request_obj.latitude if request_obj.latitude is not none else 'null' }
-    };
-    const lon = {{ request_obj.longitude if request_obj.longitude is not none else 'null' }};
-    const address = wrapper.dataset.address || "";
+        if (!mapContainer || !wrapper) {
+            return;
+        }
 
-    function showError(msg) {
-        if (hint) {
+        // Jinja → JS: либо число, либо null (без кавычек)
+        const lat = {{ request_obj.latitude if request_obj.latitude is not none else 'null' }};
+        const lon = {{ request_obj.longitude if request_obj.longitude is not none else 'null' }};
+        const address = wrapper.dataset.address || "";
+
+        function showError(msg) {
+            if (!hint) return;
             hint.textContent = msg;
             hint.classList.remove("text-slate-500");
             hint.classList.add("text-slate-400");
         }
-    }
 
-    function initMap(centerLat, centerLon) {
-        const map = L.map(mapContainer).setView([centerLat, centerLon], 14);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            maxZoom: 19,
-            attribution: "&copy; OpenStreetMap contributors"
-        }).addTo(map);
-        L.marker([centerLat, centerLon]).addTo(map);
-    }
+        function initMap(centerLat, centerLon) {
+            const map = L.map(mapContainer).setView([centerLat, centerLon], 14);
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                maxZoom: 19,
+                attribution: "&copy; OpenStreetMap contributors"
+            }).addTo(map);
 
-    if (lat !== null && lon !== null) {
-        initMap(lat, lon);
-        return;
-    }
+            L.marker([centerLat, centerLon]).addTo(map);
+        }
 
-    if (!address) {
-        showError("Координаты и адрес не указаны — карту показать нельзя.");
-        return;
-    }
+        // Если в заявке уже есть координаты — используем их
+        if (lat !== null && lon !== null) {
+            initMap(lat, lon);
+            return;
+        }
 
-    fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(address))
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-            if (!Array.isArray(data) || data.length === 0) {
-                showError("Не удалось определить координаты по адресу.");
-                return;
-            }
-            const item = data[0];
-            const glat = parseFloat(item.lat);
-            const glon = parseFloat(item.lon);
-            if (isNaN(glat) || isNaN(glon)) {
-                showError("Не удалось определить координаты по адресу.");
-                return;
-            }
-            initMap(glat, glon);
-        })
-        .catch(function () {
-            showError("Ошибка при обращении к геосервису. Попробуйте позже.");
-        });
-    }) ();
+        // Если нет ни координат, ни адреса — ничего сделать нельзя
+        if (!address) {
+            showError("Координаты и адрес не указаны — карту показать нельзя.");
+            return;
+        }
+
+        // Геокодинг адреса через Nominatim (OpenStreetMap)
+        fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(address))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!Array.isArray(data) || data.length === 0) {
+                    showError("Не удалось определить координаты по адресу.");
+                    return;
+                }
+                const item = data[0];
+                const glat = parseFloat(item.lat);
+                const glon = parseFloat(item.lon);
+
+                if (Number.isNaN(glat) || Number.isNaN(glon)) {
+                    showError("Не удалось определить координаты по адресу.");
+                    return;
+                }
+
+                initMap(glat, glon);
+            })
+            .catch(function () {
+                showError("Ошибка при обращении к геосервису. Попробуйте позже.");
+            });
+    })();
 </script>
 {% endblock %}
