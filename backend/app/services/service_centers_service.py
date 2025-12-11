@@ -24,6 +24,10 @@ class ServiceCentersService:
         db: AsyncSession,
         data_in: ServiceCenterCreate,
     ) -> ServiceCenter:
+        """
+        Создаём СТО. ВАЖНО:
+        - is_active всегда False при создании (требуется модерация админом).
+        """
         sc = ServiceCenter(
             user_id=data_in.user_id,
             name=data_in.name,
@@ -37,7 +41,8 @@ class ServiceCentersService:
             org_type=data_in.org_type,
             is_mobile_service=data_in.is_mobile_service,
             has_tow_truck=data_in.has_tow_truck,
-            is_active=data_in.is_active,
+            # Модерация: новые СТО всегда неактивны
+            is_active=False,
         )
         db.add(sc)
         await db.commit()

@@ -82,7 +82,7 @@ async def admin_service_centers(
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
     """
-    Список всех СТО (по текущему API: /api/v1/service-centers).
+    Список всех СТО (для админа): активные и неактивные.
     """
     _ = await get_current_admin(request, client)
 
@@ -90,7 +90,8 @@ async def admin_service_centers(
     error_message: str | None = None
 
     try:
-        resp = await client.get("/api/v1/service-centers")
+        # новый эндпоинт: /api/v1/service-centers/all
+        resp = await client.get("/api/v1/service-centers/all")
         resp.raise_for_status()
         service_centers = resp.json()
     except Exception:
@@ -105,6 +106,40 @@ async def admin_service_centers(
             "error_message": error_message,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Переключение активности СТО (модерация)
+# ---------------------------------------------------------------------------
+
+@router.post("/service-centers/{sc_id}/toggle", response_class=HTMLResponse)
+async def admin_service_center_toggle(
+    sc_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    action: str = Form(...),  # "activate" или "deactivate"
+) -> HTMLResponse:
+    """
+    Активировать или деактивировать СТО.
+
+    Использует PATCH /api/v1/service-centers/{id} с полем is_active.
+    """
+    _ = await get_current_admin(request, client)
+
+    is_active = True if action == "activate" else False
+
+    try:
+        resp = await client.patch(
+            f"/api/v1/service-centers/{sc_id}",
+            json={"is_active": is_active},
+        )
+        resp.raise_for_status()
+    except Exception:
+        # Можно будет потом добавить логирование, флеш-сообщения и т.п.
+        pass
+
+    # Перезагружаем список СТО
+    return await admin_service_centers(request, client)
 
 
 # ---------------------------------------------------------------------------

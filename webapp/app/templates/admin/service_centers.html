@@ -10,48 +10,72 @@
     </div>
 
     {% if error_message %}
-        <div class="mb-4 p-3 bg-red-100 text-red-800 rounded">
-            {{ error_message }}
-        </div>
+    <div class="mb-4 p-3 bg-red-100 text-red-800 rounded">
+        {{ error_message }}
+    </div>
     {% endif %}
 
     {% if service_centers and service_centers|length > 0 %}
-        <div class="overflow-x-auto border rounded">
-            <table class="min-w-full text-sm">
-                <thead class="bg-gray-100">
-                    <tr>
-                        <th class="px-3 py-2 text-left">ID</th>
-                        <th class="px-3 py-2 text-left">Название</th>
-                        <th class="px-3 py-2 text-left">Владелец (user_id)</th>
-                        <th class="px-3 py-2 text-left">Адрес</th>
-                        <th class="px-3 py-2 text-left">Телефон</th>
-                        <th class="px-3 py-2 text-left">Статус</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for sc in service_centers %}
-                        <tr class="border-t">
-                            <td class="px-3 py-2 whitespace-nowrap">{{ sc.id }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap">{{ sc.name }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap">{{ sc.user_id }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap">{{ sc.address or "" }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap">{{ sc.phone or "" }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap text-xs">
-                                {% if sc.is_active %}
-                                    <span class="px-2 py-0.5 rounded bg-green-100 text-green-800">Активен</span>
-                                {% else %}
-                                    <span class="px-2 py-0.5 rounded bg-gray-200 text-gray-700">Неактивен</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <div class="overflow-x-auto border rounded">
+        <table class="min-w-full text-sm">
+            <thead class="bg-gray-100">
+                <tr>
+                    <th class="px-3 py-2 text-left">ID</th>
+                    <th class="px-3 py-2 text-left">Название</th>
+                    <th class="px-3 py-2 text-left">Владелец (user_id)</th>
+                    <th class="px-3 py-2 text-left">Адрес</th>
+                    <th class="px-3 py-2 text-left">Телефон</th>
+                    <th class="px-3 py-2 text-left">Статус</th>
+                    <th class="px-3 py-2 text-left">Управление</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sc in service_centers %}
+                <tr class="border-t">
+                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.id }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.name }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.user_id }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.address or "" }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.phone or "" }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-xs">
+                        {% if sc.is_active %}
+                        <span class="px-2 py-0.5 rounded bg-green-100 text-green-800">
+                            Активен
+                        </span>
+                        {% else %}
+                        <span class="px-2 py-0.5 rounded bg-gray-200 text-gray-700">
+                            Неактивен
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-xs">
+                        {% if sc.is_active %}
+                        <form method="post" action="/admin/service-centers/{{ sc.id }}/toggle" class="inline">
+                            <input type="hidden" name="action" value="deactivate">
+                            <button type="submit" class="px-3 py-1 rounded bg-red-100 text-red-800 hover:bg-red-200">
+                                Деактивировать
+                            </button>
+                        </form>
+                        {% else %}
+                        <form method="post" action="/admin/service-centers/{{ sc.id }}/toggle" class="inline">
+                            <input type="hidden" name="action" value="activate">
+                            <button type="submit"
+                                class="px-3 py-1 rounded bg-green-100 text-green-800 hover:bg-green-200">
+                                Активировать
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+
+        </table>
+    </div>
     {% else %}
-        <div class="p-4 bg-yellow-50 border border-yellow-200 rounded">
-            Сервисов пока нет.
-        </div>
+    <div class="p-4 bg-yellow-50 border border-yellow-200 rounded">
+        Сервисов пока нет.
+    </div>
     {% endif %}
 </div>
 {% endblock %}

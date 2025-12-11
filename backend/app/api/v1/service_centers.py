@@ -131,6 +131,29 @@ async def list_service_centers_by_user(
 
 
 # ----------------------------------------------------------------------
+# Список всех СТО (для админки)
+# ----------------------------------------------------------------------
+@router.get(
+    "/all",
+    response_model=List[ServiceCenterRead],
+)
+async def list_all_service_centers(
+    db: AsyncSession = Depends(get_db),
+    is_active: Optional[bool] = Query(
+        None,
+        description="Фильтр по активности: true/false или пусто для всех.",
+    ),
+):
+    """
+    Админский список всех СТО.
+
+    Если is_active не передан -> показываем и активные, и неактивные.
+    """
+    sc_list = await ServiceCentersService.list_all(db, is_active=is_active)
+    return sc_list
+
+
+# ----------------------------------------------------------------------
 # Обновление профиля СТО
 # ----------------------------------------------------------------------
 @router.patch(
