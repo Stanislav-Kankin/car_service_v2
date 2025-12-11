@@ -26,6 +26,7 @@ templates = get_templates()
 # Авторизация: ВСЕ маршруты /me/* требуют user_id в cookie
 # --------------------------------------------------------------------
 
+
 def get_current_user_id(request: Request) -> int:
     """
     Берём user_id из request.state.user_id, который кладёт UserIDMiddleware.
@@ -90,9 +91,27 @@ EXTRA_SERVICE_CODES = [
 ]
 
 
+def _build_service_categories() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """
+    Возвращает списки (code, label) для основных и дополнительных категорий.
+    """
+    primary = [
+        (code, SERVICE_CATEGORY_LABELS[code])
+        for code in PRIMARY_SERVICE_CODES
+        if code in SERVICE_CATEGORY_LABELS
+    ]
+    extra = [
+        (code, SERVICE_CATEGORY_LABELS[code])
+        for code in EXTRA_SERVICE_CODES
+        if code in SERVICE_CATEGORY_LABELS
+    ]
+    return primary, extra
+
+
 # --------------------------------------------------------------------
 # Вспомогательный загрузчик машины с проверкой владельца
 # --------------------------------------------------------------------
+
 
 async def _load_car_for_owner(
     request: Request,
@@ -127,6 +146,7 @@ async def _load_car_for_owner(
 # Dashboard
 # --------------------------------------------------------------------
 
+
 @router.get("/dashboard", response_class=HTMLResponse)
 async def user_dashboard(request: Request) -> HTMLResponse:
     """
@@ -143,6 +163,7 @@ async def user_dashboard(request: Request) -> HTMLResponse:
 # --------------------------------------------------------------------
 # Гараж — список машин
 # --------------------------------------------------------------------
+
 
 @router.get("/garage", response_class=HTMLResponse)
 async def user_garage(
@@ -176,6 +197,7 @@ async def user_garage(
 # Создание автомобиля — форма
 # --------------------------------------------------------------------
 
+
 @router.get("/cars/create", response_class=HTMLResponse)
 async def car_create_get(
     request: Request,
@@ -199,6 +221,7 @@ async def car_create_get(
 # --------------------------------------------------------------------
 # Создание автомобиля — обработка формы
 # --------------------------------------------------------------------
+
 
 @router.post("/cars/create", response_class=HTMLResponse)
 async def car_create_post(
@@ -276,7 +299,7 @@ async def car_create_post(
             },
         )
 
-    # Успешно — ведём в гараж или сразу в карточку
+    # Успешно — ведём в карточку машины
     return RedirectResponse(
         url=f"/me/cars/{car_created['id']}",
         status_code=status.HTTP_303_SEE_OTHER,
@@ -286,6 +309,7 @@ async def car_create_post(
 # --------------------------------------------------------------------
 # Редактирование автомобиля — форма
 # --------------------------------------------------------------------
+
 
 @router.get("/cars/{car_id}/edit", response_class=HTMLResponse)
 async def car_edit_get(
@@ -312,6 +336,7 @@ async def car_edit_get(
 # --------------------------------------------------------------------
 # Редактирование автомобиля — обработка формы
 # --------------------------------------------------------------------
+
 
 @router.post("/cars/{car_id}/edit", response_class=HTMLResponse)
 async def car_edit_post(
@@ -392,6 +417,7 @@ async def car_edit_post(
 # Удаление автомобиля
 # --------------------------------------------------------------------
 
+
 @router.post("/cars/{car_id}/delete", response_class=HTMLResponse)
 async def car_delete_post(
     car_id: int,
@@ -426,6 +452,7 @@ async def car_delete_post(
 # Карточка машины
 # --------------------------------------------------------------------
 
+
 @router.get("/cars/{car_id}", response_class=HTMLResponse)
 async def car_detail(
     car_id: int,
@@ -440,9 +467,11 @@ async def car_detail(
         {"request": request, "car": car},
     )
 
+
 # --------------------------------------------------------------------
 # Список заявок
 # --------------------------------------------------------------------
+
 
 @router.get("/requests", response_class=HTMLResponse)
 async def requests_list(
@@ -477,9 +506,54 @@ async def requests_list(
     )
 
 
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
+# Создание заявки — GET
+# --------------------------------------------------------------------
+
+
+@router.get("/requests/create", response_class=HTMLResponse)
+async def request_create_get(
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    car_id: int | None = None,
+) -> HTMLResponse:
+    """
+    Показ формы создания заявки.
+    Если передан car_id, подгружаем машину и показываем её в шапке.
+    """
+    _ = get_current_user_id(request)
+
+    car: dict[str, Any] | None = None
+    if car_id is not None:
+        try:
+            car = await _load_car_for_owner(request, client, car_id)
+        except HTTPException:
+            # если нет доступа/не найдена — пробрасываем дальше
+            raise
+        except Exception:
+            car = None
+
+    primary_categories, extra_categories = _build_service_categories()
+
+    return templates.TemplateResponse(
+        "user/request_create.html",
+        {
+            "request": request,
+            "car_id": car_id,
+            "car": car,
+            "created_request": None,
+            "error_message": None,
+            "primary_categories": primary_categories,
+            "extra_categories": extra_categories,
+            "form_data": {},
+        },
+    )
+
+
+# --------------------------------------------------------------------
 # Создание заявки — POST
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
+
 
 @router.post("/requests/create", response_class=HTMLResponse)
 async def request_create_post(
@@ -494,15 +568,15 @@ async def request_create_post(
     hide_phone: bool = Form(False),
 ) -> HTMLResponse:
     """
-    Обработка создания заявки. Делает мягкую валидацию car_id,
-    чтобы не падать 422, а показать понятное сообщение.
+    Обработка создания заявки.
+    Делает мягкую валидацию car_id, чтобы не падать 422, а показать понятное сообщение.
     """
     user_id = get_current_user_id(request)
 
     error_message: str | None = None
     car_id: int | None = None
 
-    # --- Валидация car_id ---
+    # ----- валидация car_id -----
     car_id_raw = (car_id_raw or "").strip()
     if not car_id_raw:
         error_message = "Сначала выберите автомобиль в гараже, а потом создавайте заявку."
@@ -512,34 +586,23 @@ async def request_create_post(
         except ValueError:
             error_message = "Некорректный идентификатор автомобиля. Попробуйте выбрать авто ещё раз из гаража."
 
-    # Логика «едет / не едет»
     movable = is_car_movable == "movable"
     need_tow_truck = not movable
     need_mobile_master = not movable
 
-    # Категории для шаблона (как в GET)
-    primary_categories = [
-        (code, SERVICE_CATEGORY_LABELS[code])
-        for code in PRIMARY_SERVICE_CODES
-        if code in SERVICE_CATEGORY_LABELS
-    ]
-    extra_categories = [
-        (code, SERVICE_CATEGORY_LABELS[code])
-        for code in EXTRA_SERVICE_CODES
-        if code in SERVICE_CATEGORY_LABELS
-    ]
+    primary_categories, extra_categories = _build_service_categories()
 
-    # Подгружаем машину, если car_id удалось распарсить
+    # Подгружаем машину (если car_id удалось распарсить)
     car: dict[str, Any] | None = None
     if car_id is not None:
         try:
-            resp_car = await client.get(f"/api/v1/cars/{car_id}")
-            if resp_car.status_code == 200:
-                car = resp_car.json()
+            car = await _load_car_for_owner(request, client, car_id)
+        except HTTPException:
+            raise
         except Exception:
             car = None
 
-    # Формируем form_data для повторного показа формы
+    # form_data для повторного показа формы в случае ошибки
     form_data = {
         "address_text": address_text,
         "is_car_movable": is_car_movable,
@@ -549,7 +612,7 @@ async def request_create_post(
         "hide_phone": hide_phone,
     }
 
-    # Если были ошибки валидации car_id — просто показываем форму с сообщением
+    # Если car_id невалидный — просто показываем форму с ошибкой
     if error_message:
         return templates.TemplateResponse(
             "user/request_create.html",
@@ -565,7 +628,7 @@ async def request_create_post(
             },
         )
 
-    # --- создаём заявку в backend ---
+    # ----- создаём заявку в backend -----
     payload = {
         "user_id": user_id,
         "car_id": car_id,
@@ -592,8 +655,6 @@ async def request_create_post(
     except Exception:
         error_message = "Не удалось создать заявку. Попробуйте ещё раз чуть позже."
 
-    # На этом этапе car уже подгружен выше (если удалось)
-
     return templates.TemplateResponse(
         "user/request_create.html",
         {
@@ -609,103 +670,10 @@ async def request_create_post(
     )
 
 
-# ------------------------------------------------------------------------------
-# Создание заявки — POST
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------
+# Страница заявки (детальная) /me/requests/{id}/view
+# --------------------------------------------------------------------
 
-@router.post("/requests/create", response_class=HTMLResponse)
-async def request_create_post(
-    request: Request,
-    client: AsyncClient = Depends(get_backend_client),
-    car_id: int = Form(...),
-    address_text: str = Form(""),
-    is_car_movable: str = Form("movable"),
-    radius_km: int = Form(5),
-    service_category: str = Form("sto"),
-    description: str = Form(...),
-    hide_phone: bool = Form(False),
-) -> HTMLResponse:
-
-    user_id = get_current_user_id(request)
-
-    movable = is_car_movable == "movable"
-    need_tow_truck = not movable
-    need_mobile_master = not movable
-
-    payload = {
-        "user_id": user_id,
-        "car_id": car_id,
-        "latitude": None,
-        "longitude": None,
-        "address_text": address_text or None,
-        "is_car_movable": movable,
-        "need_tow_truck": need_tow_truck,
-        "need_mobile_master": need_mobile_master,
-        "radius_km": radius_km,
-        "service_category": service_category,
-        "description": description,
-        "photos": [],
-        "hide_phone": hide_phone,
-    }
-
-    created_request: dict[str, Any] | None = None
-    error_message: str | None = None
-
-    try:
-        resp = await client.post("/api/v1/requests/", json=payload)
-        resp.raise_for_status()
-        created_request = resp.json()
-    except Exception:
-        error_message = "Не удалось создать заявку. Попробуйте ещё раз чуть позже."
-
-    # Подгружаем машину
-    car: dict[str, Any] | None = None
-    try:
-        resp_car = await client.get(f"/api/v1/cars/{car_id}")
-        if resp_car.status_code == 200:
-            car = resp_car.json()
-    except Exception:
-        car = None
-
-    # Категории для шаблона
-    primary_categories = [
-        (code, SERVICE_CATEGORY_LABELS[code])
-        for code in PRIMARY_SERVICE_CODES
-        if code in SERVICE_CATEGORY_LABELS
-    ]
-    extra_categories = [
-        (code, SERVICE_CATEGORY_LABELS[code])
-        for code in EXTRA_SERVICE_CODES
-        if code in SERVICE_CATEGORY_LABELS
-    ]
-
-    form_data = {
-        "address_text": address_text,
-        "is_car_movable": is_car_movable,
-        "radius_km": radius_km,
-        "service_category": service_category,
-        "description": description,
-        "hide_phone": hide_phone,
-    }
-
-    return templates.TemplateResponse(
-        "user/request_create.html",
-        {
-            "request": request,
-            "car_id": car_id,
-            "car": car,
-            "created_request": created_request,
-            "error_message": error_message,
-            "primary_categories": primary_categories,
-            "extra_categories": extra_categories,
-            "form_data": form_data,
-        },
-    )
-
-
-# ------------------------------------------------------------------------------
-# Страница заявки
-# ------------------------------------------------------------------------------
 
 @router.get("/requests/{request_id}/view", response_class=HTMLResponse)
 async def request_detail(
@@ -737,7 +705,16 @@ async def request_detail(
 
     can_distribute = req_data.get("status") == "new"
 
-    # загрузка откликов
+    # Загружаем авто для красивого блока в шапке
+    car: dict[str, Any] | None = None
+    car_id = req_data.get("car_id")
+    if car_id:
+        try:
+            car = await _load_car_for_owner(request, client, car_id)
+        except Exception:
+            car = None
+
+    # Загрузка откликов
     offers = []
     try:
         resp2 = await client.get(f"/api/v1/offers/by-request/{request_id}")
@@ -753,6 +730,7 @@ async def request_detail(
         {
             "request": request,
             "request_obj": req_data,
+            "car": car,
             "can_distribute": can_distribute,
             "sent_all": sent_all,
             "chosen_service_id": chosen_service_id,
@@ -764,6 +742,7 @@ async def request_detail(
 # --------------------------------------------------------------------
 # Принять предложение
 # --------------------------------------------------------------------
+
 
 @router.post("/requests/{request_id}/offers/{offer_id}/accept", response_class=HTMLResponse)
 async def request_accept_offer(
@@ -788,6 +767,7 @@ async def request_accept_offer(
 # Отклонить предложение
 # --------------------------------------------------------------------
 
+
 @router.post("/requests/{request_id}/offers/{offer_id}/reject", response_class=HTMLResponse)
 async def request_reject_offer(
     request_id: int,
@@ -811,6 +791,7 @@ async def request_reject_offer(
 # Отправить всем подходящим СТО
 # --------------------------------------------------------------------
 
+
 @router.post("/requests/{request_id}/send-all", response_class=HTMLResponse)
 async def request_send_all_post(
     request_id: int,
@@ -832,6 +813,7 @@ async def request_send_all_post(
 # --------------------------------------------------------------------
 # Страница выбора СТО
 # --------------------------------------------------------------------
+
 
 @router.get("/requests/{request_id}/choose-service", response_class=HTMLResponse)
 async def request_choose_service_get(
@@ -867,6 +849,7 @@ async def request_choose_service_get(
 # --------------------------------------------------------------------
 # Отправить конкретному СТО
 # --------------------------------------------------------------------
+
 
 @router.post("/requests/{request_id}/send-to-service", response_class=HTMLResponse)
 async def request_send_to_service_post(
