@@ -58,6 +58,10 @@ async def get_service_center(
 # ----------------------------------------------------------------------
 # Список / поиск СТО
 # ----------------------------------------------------------------------
+@router.get(
+    "/",
+    response_model=List[ServiceCenterRead],
+)
 async def list_service_centers(
     db: AsyncSession = Depends(get_db),
     is_active: Optional[bool] = Query(
@@ -105,6 +109,8 @@ async def list_service_centers(
         radius_km=radius_km,
         specializations=specs_list,
         is_active=is_active,
+        # has_tow_truck и is_mobile_service уже есть в сигнатуре search_service_centers,
+        # но ты их пока туда не передавал — не трогаю логику без необходимости.
     )
     return sc_list
 
