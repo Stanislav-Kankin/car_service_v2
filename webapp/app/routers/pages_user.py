@@ -157,25 +157,6 @@ async def user_garage(
 
 
 # --------------------------------------------------------------------
-# Карточка машины
-# --------------------------------------------------------------------
-
-@router.get("/cars/{car_id}", response_class=HTMLResponse)
-async def car_detail(
-    car_id: int,
-    request: Request,
-    client: AsyncClient = Depends(get_backend_client),
-) -> HTMLResponse:
-
-    car = await _load_car_for_owner(request, client, car_id)
-
-    return templates.TemplateResponse(
-        "user/car_detail.html",
-        {"request": request, "car": car},
-    )
-
-
-# --------------------------------------------------------------------
 # Создание автомобиля — форма
 # --------------------------------------------------------------------
 
@@ -424,6 +405,24 @@ async def car_delete_post(
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
+
+# --------------------------------------------------------------------
+# Карточка машины
+# --------------------------------------------------------------------
+
+@router.get("/cars/{car_id}", response_class=HTMLResponse)
+async def car_detail(
+    car_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+
+    car = await _load_car_for_owner(request, client, car_id)
+
+    return templates.TemplateResponse(
+        "user/car_detail.html",
+        {"request": request, "car": car},
+    )
 
 # --------------------------------------------------------------------
 # Список заявок
