@@ -3,67 +3,170 @@
 {% block title %}Мои заявки — CarBot{% endblock %}
 
 {% block content %}
-<div class="mt-8 space-y-4">
+<div class="mt-8 space-y-6">
     <div class="flex items-center justify-between gap-4">
         <div>
-            <h1 class="text-2xl font-semibold">Мои заявки</h1>
+            <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
+                Заявки
+            </p>
+            <h1 class="text-2xl font-semibold">
+                Мои заявки
+            </h1>
             <p class="text-sm text-slate-300">
-                Здесь отображаются все ваши заявки, созданные через бота и веб-приложение.
+                Здесь отображаются все ваши запросы в сервисы — от новых до завершённых.
             </p>
         </div>
         <a href="/me/garage"
-           class="text-xs text-slate-400 hover:text-emerald-400 transition">
-            ← Вернуться в гараж
+           class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 transition">
+            ← В гараж
         </a>
     </div>
 
     {% if error_message %}
-        <div class="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-            {{ error_message }}
-        </div>
+    <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+        {{ error_message }}
+    </div>
     {% endif %}
 
-    {% if requests %}
-        <div class="mt-4 space-y-3">
-            {% for r in requests %}
-                <a href="/me/requests/{{ r.id }}"
-                   class="block rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 hover:border-emerald-400/70 hover:bg-slate-900 transition">
-                    <div class="flex items-center justify-between gap-4">
-                        <div class="space-y-1">
-                            <div class="flex items-center gap-2 text-xs text-slate-400">
-                                <span>#{{ r.id }}</span>
-                                {% if r.service_category_label %}
-                                    <span class="px-2 py-0.5 rounded-full bg-slate-800 text-emerald-300">
-                                        {{ r.service_category_label }}
+    <div class="relative mt-2">
+        <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
+
+        <div class="relative z-10 p-5 space-y-4">
+            {% if requests %}
+                <div class="flex items-center justify-between mb-2">
+                    <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80">
+                        Всего заявок: {{ requests|length }}
+                    </p>
+                    <a href="/me/requests/create"
+                       class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                        + Новая заявка
+                    </a>
+                </div>
+
+                <div class="space-y-3">
+                    {% for r in requests %}
+                        {% set status = r.status %}
+                        {% set status_label = r.status_label %}
+                        {% set cat = r.service_category %}
+                        {% set cat_label = r.service_category_label %}
+                        <a href="/me/requests/{{ r.id }}"
+                           class="block group rounded-2xl border border-slate-800 bg-slate-900/80 p-4 hover:border-emerald-400/70 hover:bg-slate-900 transform hover:-translate-y-0.5 transition duration-200">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="space-y-1.5">
+                                    <div class="flex items-center gap-2 text-xs text-slate-400">
+                                        <span class="uppercase tracking-[0.18em] text-slate-500">
+                                            Заявка №{{ r.id }}
+                                        </span>
+                                        {% if r.created_at %}
+                                            <span class="w-1 h-1 rounded-full bg-slate-600"></span>
+                                            <span>
+                                                {{ r.created_at[:10] }} {{ r.created_at[11:16] if r.created_at|length > 15 }}
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+                                        {% if cat == "sto" %}
+                                            <span>🛠</span>
+                                        {% elif cat == "maint" %}
+                                            <span>🧰</span>
+                                        {% elif cat == "mechanic" or cat == "mech" %}
+                                            <span>⚙️</span>
+                                        {% elif cat == "electric" or cat == "elec" %}
+                                            <span>🔌</span>
+                                        {% elif cat == "body" or cat == "paint" %}
+                                            <span>🎨</span>
+                                        {% elif cat == "tire" %}
+                                            <span>🛞</span>
+                                        {% elif cat == "wash" %}
+                                            <span>🚿</span>
+                                        {% elif cat == "agg" %}
+                                            <span>⚡</span>
+                                        {% else %}
+                                            <span>📍</span>
+                                        {% endif %}
+                                        <span>{{ cat_label or "Услуга" }}</span>
+                                    </div>
+
+                                    {% if r.address_text %}
+                                    <p class="text-xs text-slate-400">
+                                        {{ r.address_text }}
+                                    </p>
+                                    {% endif %}
+
+                                    {% if r.description %}
+                                    <p class="text-xs text-slate-400 line-clamp-2">
+                                        {{ r.description }}
+                                    </p>
+                                    {% endif %}
+                                </div>
+
+                                <div class="flex flex-col items-end gap-2 text-xs">
+                                    {% if status in ["new", "sent", "accepted_by_service", "in_work", "done"] %}
+                                        <div class="flex flex-col items-end gap-1">
+                                            {% if status == "new" %}
+                                                <span class="rounded-full bg-emerald-500/10 border border-emerald-400/70 px-3 py-1 text-[11px] font-semibold text-emerald-200">
+                                                    ● {{ status_label }}
+                                                </span>
+                                                <span class="text-[11px] text-emerald-200/80">
+                                                    Нажмите, чтобы отправить всем или выбрать СТО
+                                                </span>
+                                            {% elif status == "sent" %}
+                                                <span class="rounded-full bg-sky-500/10 border border-sky-400/70 px-3 py-1 text-[11px] font-semibold text-sky-200">
+                                                    ● {{ status_label }}
+                                                </span>
+                                                <span class="text-[11px] text-sky-200/80">
+                                                    Ждём откликов от сервисов
+                                                </span>
+                                            {% elif status == "accepted_by_service" %}
+                                                <span class="rounded-full bg-amber-500/10 border border-amber-400/70 px-3 py-1 text-[11px] font-semibold text-amber-200">
+                                                    ● {{ status_label }}
+                                                </span>
+                                                <span class="text-[11px] text-amber-200/80">
+                                                    Сервис взял заявку в работу
+                                                </span>
+                                            {% elif status == "in_work" %}
+                                                <span class="rounded-full bg-amber-500/10 border border-amber-400/70 px-3 py-1 text-[11px] font-semibold text-amber-200">
+                                                    ● {{ status_label }}
+                                                </span>
+                                                <span class="text-[11px] text-amber-200/80">
+                                                    Работы выполняются
+                                                </span>
+                                            {% elif status == "done" %}
+                                                <span class="rounded-full bg-emerald-500/15 border border-emerald-400/80 px-3 py-1 text-[11px] font-semibold text-emerald-200">
+                                                    ● {{ status_label }}
+                                                </span>
+                                                <span class="text-[11px] text-emerald-200/90">
+                                                    Можно оставить оценку и отзыв
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    {% else %}
+                                        <span class="rounded-full bg-slate-800/80 border border-slate-600 px-3 py-1 text-[11px] font-semibold text-slate-200">
+                                            ● {{ status_label or status }}
+                                        </span>
+                                    {% endif %}
+                                    <span class="inline-flex items-center gap-1 text-[11px] text-slate-400 group-hover:text-emerald-300 transition">
+                                        Открыть
+                                        <span class="text-base leading-none">→</span>
                                     </span>
-                                {% endif %}
+                                </div>
                             </div>
-                            <p class="text-sm font-medium text-slate-50">
-                                {{ r.description[:120] }}{% if r.description|length > 120 %}…{% endif %}
-                            </p>
-                            <p class="text-xs text-slate-500">
-                                Создана: {{ r.created_at }}
-                            </p>
-                        </div>
-                        <div class="text-right text-xs">
-                            <div class="mb-1">
-                                <span class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-200">
-                                    Статус: {{ r.status_label }}
-                                </span>
-                            </div>
-                            <span class="text-emerald-400 text-sm">Открыть →</span>
-                        </div>
-                    </div>
-                </a>
-            {% endfor %}
+                        </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="py-10 text-center text-sm text-slate-300">
+                    <p class="mb-2">У вас пока нет заявок.</p>
+                    <p class="text-slate-500 mb-4">
+                        Создайте первую заявку на ремонт или обслуживание прямо из этого раздела.
+                    </p>
+                    <a href="/me/requests/create"
+                       class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                        + Создать заявку
+                    </a>
+                </div>
+            {% endif %}
         </div>
-    {% else %}
-        <div class="mt-6 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-6 text-sm text-slate-300">
-            <p class="mb-1">У вас пока нет заявок.</p>
-            <p class="text-slate-500">
-                Создайте первую заявку из гаража, выбрав автомобиль и нажав «Создать заявку».
-            </p>
-        </div>
-    {% endif %}
+    </div>
 </div>
 {% endblock %}

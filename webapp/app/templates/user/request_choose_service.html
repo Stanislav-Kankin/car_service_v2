@@ -1,75 +1,143 @@
 {% extends "layout/base.html" %}
 
-{% block title %}Выбор СТО для заявки #{{ request_id }} — CarBot{% endblock %}
+{% block title %}Выбор СТО для заявки №{{ request_id }} — CarBot{% endblock %}
 
 {% block content %}
-<div class="mt-8 space-y-4">
-    <a href="/me/requests/{{ request_id }}"
-       class="text-xs text-slate-400 hover:text-emerald-400 transition">
-        ← Вернуться к заявке
+<div class="mt-8 space-y-6">
+    <a href="/me/requests/{{ request_id }}" class="text-xs text-slate-400 hover:text-emerald-400 transition">
+        ← Назад к заявке
     </a>
 
     <div class="flex items-center justify-between gap-4">
         <div>
-            <h1 class="text-2xl font-semibold">Выбор сервиса для заявки #{{ request_id }}</h1>
+            <p class="text-xs uppercase tracking-[0.25em] text-sky-400/80 mb-1">
+                Выбор сервиса
+            </p>
+            <h1 class="text-2xl font-semibold">
+                Выберите СТО для заявки №{{ request_id }}
+            </h1>
             <p class="text-sm text-slate-300">
-                Выберите один сервис, которому вы хотите отправить эту заявку.
+                Мы подобрали сервисы, подходящие по специализациям и зоне обслуживания.
             </p>
         </div>
     </div>
 
     {% if error_message %}
-        <div class="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-            {{ error_message }}
-        </div>
+    <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+        {{ error_message }}
+    </div>
     {% endif %}
 
-    {% if service_centers %}
-        <div class="mt-4 space-y-3">
-            {% for sc in service_centers %}
-                <form method="post"
-                      action="/me/requests/{{ request_id }}/send-to-service"
-                      class="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <div class="space-y-1 text-sm">
-                        <p class="font-medium text-slate-50">
-                            {{ sc.name or "Без названия" }}
-                        </p>
-                        {% if sc.address %}
-                            <p class="text-xs text-slate-400">
-                                {{ sc.address }}
-                            </p>
-                        {% endif %}
-                        {% if sc.specializations %}
-                            <p class="text-xs text-slate-400">
-                                Специализация: {{ sc.specializations }}
-                            </p>
-                        {% endif %}
-                        {% if sc.rating %}
-                            <p class="text-xs text-emerald-300">
-                                ★ Рейтинг: {{ "%.1f"|format(sc.rating) }} / 5
-                            </p>
-                        {% endif %}
-                    </div>
-                    <div class="flex flex-col items-end gap-2 text-xs">
-                        <input type="hidden" name="service_center_id" value="{{ sc.id }}">
-                        <button
-                            type="submit"
-                            class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-900 hover:bg-emerald-400 transition"
-                        >
-                            Выбрать этот сервис
-                            <span class="text-base">→</span>
-                        </button>
-                    </div>
-                </form>
-            {% endfor %}
+    <div class="relative mt-3">
+        <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
+
+        <div class="relative z-10 p-5 space-y-4">
+            {% if service_centers %}
+                <div class="flex items-center justify-between mb-2">
+                    <p class="text-xs uppercase tracking-[0.22em] text-slate-400">
+                        Найдено сервисов: {{ service_centers|length }}
+                    </p>
+                    <a href="/me/requests/{{ request_id }}/send-all"
+                       class="hidden md:inline-flex items-center gap-2 rounded-full border border-emerald-500/70 px-4 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10 transition">
+                        Отправить всем подходящим СТО
+                    </a>
+                </div>
+
+                <div class="space-y-3">
+                    {% for sc in service_centers %}
+                        <div class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 hover:border-emerald-400/70 hover:bg-slate-900 transition">
+                            <div class="flex items-start gap-3">
+                                <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-800 border border-slate-700 text-xl">
+                                    🏭
+                                </div>
+                                <div class="space-y-1">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="text-sm font-semibold text-slate-100">
+                                            {{ sc.name or "Сервис без названия" }}
+                                        </p>
+                                        {% if sc.is_active %}
+                                            <span class="rounded-full bg-emerald-500/10 border border-emerald-400/70 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-200">
+                                                Активен
+                                            </span>
+                                        {% else %}
+                                            <span class="rounded-full bg-slate-800/80 border border-slate-600 px-2.5 py-0.5 text-[10px] font-semibold text-slate-200">
+                                                Неактивен
+                                            </span>
+                                        {% endif %}
+                                        {% if sc.org_type %}
+                                            <span class="rounded-full bg-slate-800/80 px-2.5 py-0.5 text-[10px] text-slate-300">
+                                                {{ sc.org_type }}
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                    {% if sc.address %}
+                                    <p class="text-xs text-slate-300">
+                                        {{ sc.address }}
+                                    </p>
+                                    {% endif %}
+                                    {% if sc.phone %}
+                                    <p class="text-xs text-slate-400">
+                                        Телефон: {{ sc.phone }}
+                                    </p>
+                                    {% endif %}
+                                    {% if sc.website %}
+                                    <p class="text-xs text-slate-400">
+                                        Сайт: <a href="{{ sc.website }}" target="_blank" class="underline hover:text-emerald-300">{{ sc.website }}</a>
+                                    </p>
+                                    {% endif %}
+                                    <div class="flex flex-wrap gap-1.5 mt-1">
+                                        {% if sc.is_mobile_service %}
+                                            <span class="rounded-full bg-sky-500/10 border border-sky-400/70 px-2.5 py-0.5 text-[10px] text-sky-200">
+                                                🚗 Выездной сервис
+                                            </span>
+                                        {% endif %}
+                                        {% if sc.has_tow_truck %}
+                                            <span class="rounded-full bg-amber-500/10 border border-amber-400/70 px-2.5 py-0.5 text-[10px] text-amber-200">
+                                                🛻 Эвакуатор
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                    {% if sc.specializations %}
+                                        <div class="flex flex-wrap gap-1.5 mt-2">
+                                            {% for cat in sc.specializations %}
+                                                <span class="rounded-full bg-slate-800/80 px-2.5 py-0.5 text-[10px] text-slate-200">
+                                                    {{ cat }}
+                                                </span>
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col items-stretch md:items-end gap-2 text-xs">
+                                <form method="post" action="/me/requests/{{ request_id }}/send-to-service">
+                                    <input type="hidden" name="service_center_id" value="{{ sc.id }}">
+                                    <button type="submit"
+                                            class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-2 font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                                        Выбрать этот сервис
+                                        <span class="text-base leading-none">→</span>
+                                    </button>
+                                </form>
+                                <p class="text-[11px] text-slate-500 max-w-xs md:text-right">
+                                    После выбора сервиса он получит заявку и сможет связаться с вами через бот или по телефону.
+                                </p>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="py-10 text-center text-sm text-slate-300">
+                    <p class="mb-2">Подходящие СТО не найдены.</p>
+                    <p class="text-slate-500 mb-4">
+                        Попробуйте изменить параметры заявки (радиус поиска, тип услуги) или воспользоваться режимом «Отправить всем».
+                    </p>
+                    <a href="/me/requests/{{ request_id }}"
+                       class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 transition">
+                        Вернуться к заявке
+                    </a>
+                </div>
+            {% endif %}
         </div>
-    {% else %}
-        <div class="mt-6 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-6 text-sm text-slate-300">
-            <p class="mb-1">Подходящих сервисов пока не найдено.</p>
-            <p class="text-slate-500">
-                Попробуйте изменить параметры заявки (радиус, адрес) или воспользуйтесь режимом «Отправить всем СТО».
-            </p>
-        </div>
-    {% endif %}
+    </div>
 </div>
 {% endblock %}
