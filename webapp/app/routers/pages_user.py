@@ -73,6 +73,22 @@ STATUS_LABELS = {
     "rejected_by_service": "Отклонена СТО",
 }
 
+PRIMARY_SERVICE_CODES = [
+    "sto",
+    "maint",
+    "mechanic",
+    "electric",
+    "diag",
+    "body",
+    "paint",
+]
+
+EXTRA_SERVICE_CODES = [
+    "wash",
+    "tire",
+    "agg",
+]
+
 
 # --------------------------------------------------------------------
 # Вспомогательный загрузчик машины с проверкой владельца
@@ -461,32 +477,68 @@ async def requests_list(
     )
 
 
-# --------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Создание заявки — GET
-# --------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 @router.get("/requests/create", response_class=HTMLResponse)
 async def request_create_get(
     request: Request,
+    client: AsyncClient = Depends(get_backend_client),
     car_id: int | None = None,
 ) -> HTMLResponse:
 
     _ = get_current_user_id(request)
+
+    # Подгружаем машину, если передан car_id
+    car: dict[str, Any] | None = None
+    if car_id is not None:
+        try:
+            resp = await client.get(f"/api/v1/cars/{car_id}")
+            if resp.status_code == 200:
+                car = resp.json()
+        except Exception:
+            car = None
+
+    # Подготовка категорий
+    primary_categories = [
+        (code, SERVICE_CATEGORY_LABELS[code])
+        for code in PRIMARY_SERVICE_CODES
+        if code in SERVICE_CATEGORY_LABELS
+    ]
+    extra_categories = [
+        (code, SERVICE_CATEGORY_LABELS[code])
+        for code in EXTRA_SERVICE_CODES
+        if code in SERVICE_CATEGORY_LABELS
+    ]
+
+    form_data = {
+        "address_text": "",
+        "is_car_movable": "movable",
+        "radius_km": 5,
+        "service_category": "sto",
+        "description": "",
+        "hide_phone": False,
+    }
 
     return templates.TemplateResponse(
         "user/request_create.html",
         {
             "request": request,
             "car_id": car_id,
+            "car": car,
             "created_request": None,
             "error_message": None,
+            "primary_categories": primary_categories,
+            "extra_categories": extra_categories,
+            "form_data": form_data,
         },
     )
 
 
-# --------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Создание заявки — POST
-# --------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 @router.post("/requests/create", response_class=HTMLResponse)
 async def request_create_post(
@@ -496,6 +548,7 @@ async def request_create_post(
     address_text: str = Form(""),
     is_car_movable: str = Form("movable"),
     radius_km: int = Form(5),
+    service_category: str = Form("sto"),
     description: str = Form(...),
     hide_phone: bool = Form(False),
 ) -> HTMLResponse:
@@ -516,29 +569,63 @@ async def request_create_post(
         "need_tow_truck": need_tow_truck,
         "need_mobile_master": need_mobile_master,
         "radius_km": radius_km,
-        "service_category": "sto",
+        "service_category": service_category,
         "description": description,
         "photos": [],
         "hide_phone": hide_phone,
     }
 
-    created_request = None
-    error_message = None
+    created_request: dict[str, Any] | None = None
+    error_message: str | None = None
 
     try:
         resp = await client.post("/api/v1/requests/", json=payload)
         resp.raise_for_status()
         created_request = resp.json()
     except Exception:
-        error_message = "Не удалось создать заявку."
+        error_message = "Не удалось создать заявку. Попробуйте ещё раз чуть позже."
+
+    # Подгружаем машину
+    car: dict[str, Any] | None = None
+    try:
+        resp_car = await client.get(f"/api/v1/cars/{car_id}")
+        if resp_car.status_code == 200:
+            car = resp_car.json()
+    except Exception:
+        car = None
+
+    # Категории для шаблона
+    primary_categories = [
+        (code, SERVICE_CATEGORY_LABELS[code])
+        for code in PRIMARY_SERVICE_CODES
+        if code in SERVICE_CATEGORY_LABELS
+    ]
+    extra_categories = [
+        (code, SERVICE_CATEGORY_LABELS[code])
+        for code in EXTRA_SERVICE_CODES
+        if code in SERVICE_CATEGORY_LABELS
+    ]
+
+    form_data = {
+        "address_text": address_text,
+        "is_car_movable": is_car_movable,
+        "radius_km": radius_km,
+        "service_category": service_category,
+        "description": description,
+        "hide_phone": hide_phone,
+    }
 
     return templates.TemplateResponse(
         "user/request_create.html",
         {
             "request": request,
             "car_id": car_id,
+            "car": car,
             "created_request": created_request,
             "error_message": error_message,
+            "primary_categories": primary_categories,
+            "extra_categories": extra_categories,
+            "form_data": form_data,
         },
     )
 

@@ -3,155 +3,311 @@
 {% block title %}Новая заявка — CarBot{% endblock %}
 
 {% block content %}
-<div class="mt-8 space-y-4">
-    <a href="/me/garage" class="text-xs text-slate-400 hover:text-emerald-400 transition">
-        ← Вернуться в гараж
-    </a>
+{% set fd = form_data or {} %}
+<div class="mt-8 space-y-6">
 
-    <h1 class="text-2xl font-semibold">Новая заявка</h1>
+    <!-- Заголовок + шаги -->
+    <div class="flex flex-col gap-3">
+        <div class="flex items-center justify-between gap-4">
+            <div>
+                <h1 class="text-2xl font-semibold">Новая заявка</h1>
+                <p class="text-sm text-slate-300">
+                    Укажем, что случилось с машиной, где вы находитесь и какой сервис нужен.
+                </p>
+            </div>
+            <a href="/me/garage"
+               class="hidden md:inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 transition">
+                ← Вернуться в гараж
+            </a>
+        </div>
 
-    <p class="text-sm text-slate-300">
-        Заполните анкету для СТО. Сейчас реализован базовый сценарий —
-        заявка в сервисный центр (СТО), как в боте.
-    </p>
+        <div class="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+            <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1 border border-emerald-400/40">
+                <span class="w-4 h-4 rounded-full bg-emerald-400 flex items-center justify-center text-[10px] text-slate-900 font-bold">
+                    1
+                </span>
+                Авто и локация
+            </span>
+            <span class="inline-flex items-center gap-1 rounded-full bg-slate-900/60 px-3 py-1 border border-slate-700">
+                <span class="w-4 h-4 rounded-full bg-slate-600 flex items-center justify-center text-[10px] font-bold">
+                    2
+                </span>
+                Тип услуги
+            </span>
+            <span class="inline-flex items-center gap-1 rounded-full bg-slate-900/60 px-3 py-1 border border-slate-700">
+                <span class="w-4 h-4 rounded-full bg-slate-600 flex items-center justify-center text-[10px] font-bold">
+                    3
+                </span>
+                Описание проблемы
+            </span>
+        </div>
+    </div>
 
-    {% if car_id %}
-    <p class="text-xs text-slate-400">
-        Заявка создаётся для автомобиля с ID {{ car_id }}.
-    </p>
-    {% endif %}
-
+    <!-- Сообщения об ошибке / успехе -->
     {% if error_message %}
-    <div class="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100 mt-2">
+    <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-50">
         {{ error_message }}
     </div>
     {% endif %}
 
     {% if created_request %}
-    <div class="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-50 mt-2">
-        ✅ Заявка № {{ created_request.id }} успешно создана.
-        <br>
-        Статус: {{ created_request.status }}
+    <div class="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-50 shadow-lg shadow-emerald-500/20 space-y-3">
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <p class="text-xs uppercase tracking-[0.2em] text-emerald-300/80 mb-1">Заявка создана</p>
+                <p class="text-base font-semibold">
+                    Заявка №{{ created_request.id }} успешно сохранена.
+                </p>
+                <p class="text-xs text-emerald-100/80 mt-1">
+                    Теперь вы можете отправить её всем подходящим СТО или выбрать сервис из списка.
+                </p>
+            </div>
+        </div>
+        <div class="flex flex-wrap gap-2 pt-1">
+            <a href="/me/requests/{{ created_request.id }}"
+               class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-900 hover:bg-emerald-400 transition shadow shadow-emerald-500/40">
+                Открыть заявку
+                <span class="text-base leading-none">→</span>
+            </a>
+            <form method="post" action="/me/requests/{{ created_request.id }}/send-all">
+                <button type="submit"
+                        class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-emerald-300 border border-emerald-400/50 hover:bg-slate-800 transition">
+                    Отправить всем подходящим СТО
+                </button>
+            </form>
+            <a href="/me/requests/{{ created_request.id }}/choose-service"
+               class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-800 transition">
+                Выбрать СТО из списка
+            </a>
+        </div>
     </div>
     {% endif %}
-</div>
 
-<div class="mt-6">
+    <!-- Основной контейнер формы -->
     <div class="relative">
-        <!-- "Модуль в воздухе" -->
-        <div
-            class="absolute inset-0 rounded-3xl bg-slate-900/80 backdrop-blur-2xl border border-slate-800 shadow-2xl shadow-emerald-500/15">
-        </div>
+        <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
 
-        <div class="relative z-10 p-6 md:p-8 space-y-6">
-            <div class="flex items-center justify-between gap-4">
-                <div>
-                    <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
-                        Шаг 1
-                    </p>
-                    <h2 class="text-lg font-semibold">
-                        Анкета заявки в СТО
-                    </h2>
-                </div>
-                <span class="text-xs text-slate-400">
-                    Позже сюда добавим выбор типа услуги (Топливо, Мойка, Помощь и т.п.)
-                </span>
-            </div>
+        <div class="relative z-10 p-6 space-y-6">
+            <form method="post" class="space-y-6">
+                <input type="hidden" name="car_id" value="{{ car_id }}"/>
 
-            <form method="post" action="/me/requests/create" class="space-y-5">
-                {% if car_id %}
-                <input type="hidden" name="car_id" value="{{ car_id }}">
-                {% else %}
-                <div class="text-xs text-red-300">
-                    Внимание: car_id не передан. На проде сюда должен приходить ID машины.
-                </div>
-                <input type="number" name="car_id" class="hidden" value="1">
-                {% endif %}
+                <!-- Блок: Машина -->
+                <div class="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)] items-start">
+                    <div class="space-y-3">
+                        <p class="text-xs uppercase tracking-[0.2em] text-slate-400">ШАГ 1 · АВТО И ЛОКАЦИЯ</p>
 
-                <!-- Адрес -->
-                <div class="space-y-1">
-                    <label class="block text-xs font-semibold text-slate-300">
-                        Адрес или место оказания услуги
-                    </label>
-                    <input type="text" name="address_text"
-                        class="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                        placeholder="Например: Москва, Ленинградский проспект, 10">
-                    <p class="text-xs text-slate-500">
-                        Можно ввести адрес текстом. Позже добавим выбор на карте.
-                    </p>
-                </div>
+                        <div class="rounded-2xl border border-slate-700 bg-slate-900/80 p-4 flex flex-col gap-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <div>
+                                    <p class="text-xs text-slate-400 mb-1">Автомобиль</p>
+                                    {% if car %}
+                                        <p class="text-sm font-semibold text-slate-100">
+                                            {{ car.brand or "Марка не указана" }}
+                                            {% if car.model %} {{ car.model }}{% endif %}
+                                        </p>
+                                        <p class="text-xs text-slate-400">
+                                            {% if car.year %}{{ car.year }} г.в.{% else %}Год не указан{% endif %}
+                                            {% if car.license_plate %} · № {{ car.license_plate }}{% endif %}
+                                        </p>
+                                    {% else %}
+                                        <p class="text-sm font-semibold text-slate-100">
+                                            Авто #{{ car_id or "?" }}
+                                        </p>
+                                        <p class="text-xs text-slate-400">
+                                            Если что-то не так — вернитесь в гараж и выберите машину ещё раз.
+                                        </p>
+                                    {% endif %}
+                                </div>
+                                <a href="/me/garage"
+                                   class="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800 transition">
+                                    Сменить авто
+                                </a>
+                            </div>
+                        </div>
 
-                <!-- Состояние авто -->
-                <div class="space-y-2">
-                    <span class="block text-xs font-semibold text-slate-300">
-                        Состояние автомобиля
-                    </span>
-                    <div class="flex flex-wrap gap-3 text-xs">
-                        <label class="inline-flex items-center gap-2">
-                            <input type="radio" name="is_car_movable" value="movable" checked
-                                class="h-3 w-3 rounded-full border-slate-500 text-emerald-500 focus:ring-emerald-500">
-                            <span>Едет самостоятельно</span>
-                        </label>
-                        <label class="inline-flex items-center gap-2">
-                            <input type="radio" name="is_car_movable" value="not_movable"
-                                class="h-3 w-3 rounded-full border-slate-500 text-emerald-500 focus:ring-emerald-500">
-                            <span>Не едет / нужна эвакуация или выездной мастер</span>
-                        </label>
+                        <div class="space-y-3">
+                            <label class="block text-xs font-medium text-slate-300">
+                                Где нужна помощь?
+                            </label>
+                            <input
+                                type="text"
+                                name="address_text"
+                                value="{{ fd.address_text or '' }}"
+                                placeholder="Улица, дом или район (можно просто &quot;центр&quot; или &quot;спальный район&quot;)"
+                                class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 focus:border-emerald-400 transition"
+                            />
+                            <p class="text-[11px] text-slate-500">
+                                Сейчас можно указать адрес или ориентир текстом. Позже сюда добавим выбор точки на карте и геолокацию.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Блок: Машина едет / не едет + радиус -->
+                    <div class="space-y-4">
+                        <div class="rounded-2xl border border-slate-700 bg-slate-900/80 p-4 space-y-3">
+                            <p class="text-xs font-medium text-slate-300 mb-1">Автомобиль передвигается самостоятельно?</p>
+                            <div class="grid grid-cols-1 gap-2 text-xs">
+                                <label class="flex items-center gap-3 rounded-2xl border px-3 py-2 cursor-pointer transition
+                                            {% if fd.is_car_movable == 'movable' or not fd.is_car_movable %} border-emerald-400/70 bg-emerald-500/5 {% else %} border-slate-700 hover:border-slate-500 {% endif %}">
+                                    <input type="radio" name="is_car_movable" value="movable"
+                                           class="h-3.5 w-3.5 rounded-full border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                                           {% if fd.is_car_movable == 'movable' or not fd.is_car_movable %}checked{% endif %}>
+                                    <div>
+                                        <p class="font-semibold text-slate-100 text-xs">Да, автомобиль едет сам</p>
+                                        <p class="text-[11px] text-slate-400">Поиск ближайших СТО в указанном радиусе.</p>
+                                    </div>
+                                </label>
+                                <label class="flex items-center gap-3 rounded-2xl border px-3 py-2 cursor-pointer transition
+                                            {% if fd.is_car_movable == 'not_movable' %} border-emerald-400/70 bg-emerald-500/5 {% else %} border-slate-700 hover:border-slate-500 {% endif %}">
+                                    <input type="radio" name="is_car_movable" value="not_movable"
+                                           class="h-3.5 w-3.5 rounded-full border-slate-500 text-emerald-500 focus:ring-emerald-500"
+                                           {% if fd.is_car_movable == 'not_movable' %}checked{% endif %}>
+                                    <div>
+                                        <p class="font-semibold text-slate-100 text-xs">Нет, нужна эвакуация / выездной мастер</p>
+                                        <p class="text-[11px] text-slate-400">Будем подбирать тех, кто работает с выездом.</p>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-700 bg-slate-900/80 p-4 space-y-3">
+                            <div class="flex items-center justify-between text-xs">
+                                <p class="font-medium text-slate-300">Радиус поиска</p>
+                                <p class="text-slate-400">
+                                    <span id="radius-value">{{ fd.radius_km or 5 }}</span> км
+                                </p>
+                            </div>
+                            <input
+                                id="radius-range"
+                                type="range"
+                                name="radius_km"
+                                min="3"
+                                max="30"
+                                step="1"
+                                value="{{ fd.radius_km or 5 }}"
+                                class="w-full accent-emerald-500"
+                            />
+                            <p class="text-[11px] text-slate-500">
+                                Обычно 5–10 км достаточно. Для эвакуации можно увеличить радиус.
+                            </p>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Радиус -->
-                <div class="space-y-1">
-                    <label class="block text-xs font-semibold text-slate-300">
-                        Радиус поиска СТО, км
-                    </label>
-                    <select name="radius_km"
-                        class="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                        <option value="0">Не важно</option>
-                        <option value="3">3 км</option>
-                        <option value="5" selected>5 км</option>
-                        <option value="10">10 км</option>
-                    </select>
-                    <p class="text-xs text-slate-500">
-                        0 км = без ограничения по радиусу, дальше работает логика backend по подбору СТО.
-                    </p>
+                <!-- Блок: Категория услуги -->
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <p class="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">ШАГ 2 · ТИП УСЛУГИ</p>
+                            <p class="text-sm text-slate-200">Что именно нужно сделать?</p>
+                        </div>
+                    </div>
 
+                    <div class="grid gap-3 md:grid-cols-2">
+                        <div class="space-y-2">
+                            <p class="text-[11px] text-slate-400 uppercase tracking-[0.18em]">Основные услуги</p>
+                            <div class="flex flex-wrap gap-2">
+                                {% for code, label in primary_categories %}
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="service_category" value="{{ code }}" class="peer sr-only"
+                                           {% if fd.service_category == code or (not fd.service_category and code == 'sto') %}checked{% endif %}>
+                                    <div class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs
+                                                border-slate-700 text-slate-200 bg-slate-900/70
+                                                peer-checked:border-emerald-400 peer-checked:bg-emerald-500/10 peer-checked:text-emerald-200
+                                                hover:border-slate-500 transition">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-slate-500 peer-checked:bg-emerald-400"></span>
+                                        <span>{{ label }}</span>
+                                    </div>
+                                </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <p class="text-[11px] text-slate-400 uppercase tracking-[0.18em]">Дополнительно</p>
+                            <div class="flex flex-wrap gap-2">
+                                {% for code, label in extra_categories %}
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="service_category" value="{{ code }}" class="peer sr-only"
+                                           {% if fd.service_category == code %}checked{% endif %}>
+                                    <div class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs
+                                                border-slate-700 text-slate-200 bg-slate-900/70
+                                                peer-checked:border-emerald-400 peer-checked:bg-emerald-500/10 peer-checked:text-emerald-200
+                                                hover:border-slate-500 transition">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-slate-500 peer-checked:bg-emerald-400"></span>
+                                        <span>{{ label }}</span>
+                                    </div>
+                                </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Описание проблемы -->
-                <div class="space-y-1">
-                    <label class="block text-xs font-semibold text-slate-300">
-                        Описание проблемы <span class="text-red-400">*</span>
-                    </label>
-                    <textarea name="description" rows="4" required
-                        class="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                        placeholder="Расскажите, что случилось с автомобилем..."></textarea>
+                <!-- Блок: Описание проблемы -->
+                <div class="space-y-3">
+                    <p class="text-xs uppercase tracking-[0.2em] text-slate-400">ШАГ 3 · ЧТО СЛУЧИЛОСЬ</p>
+                    <div class="rounded-2xl border border-slate-700 bg-slate-900/80 p-4 space-y-2">
+                        <label class="block text-xs font-medium text-slate-300 mb-1">
+                            Опишите проблему <span class="text-red-400">*</span>
+                        </label>
+                        <textarea
+                            name="description"
+                            required
+                            rows="4"
+                            class="w-full rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 focus:border-emerald-400 transition"
+                            placeholder="Например: &quot;При разгоне вибрация в руле, горит чек, запах гари при движении&quot;">
+                            {{ fd.description or "" }}
+                        </textarea>
+                        <p class="text-[11px] text-slate-500">
+                            Чем подробнее опишите симптомы (звуки, запах, когда проявляется), тем точнее будут отклики СТО.
+                        </p>
+                    </div>
                 </div>
 
-                <!-- Скрыть телефон -->
-                <div class="space-y-1">
-                    <label class="inline-flex items-center gap-2 text-xs text-slate-300">
-                        <input type="checkbox" name="hide_phone" value="true"
-                            class="h-3 w-3 rounded border-slate-500 text-emerald-500 focus:ring-emerald-500">
+                <!-- Блок: номер телефона и кнопка -->
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <label class="inline-flex items-start gap-2 text-xs text-slate-300">
+                        <input type="checkbox" name="hide_phone" value="1"
+                               class="mt-[2px] h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                               {% if fd.hide_phone %}checked{% endif %}>
                         <span>
-                            Скрыть мой номер телефона от СТО (общение только через чат, пока я не разрешу).
+                            <span class="font-medium">Скрыть мой номер до выбора сервиса</span>
+                            <span class="block text-[11px] text-slate-500">
+                                СТО не увидят ваш телефон, пока вы явно не выберете сервис или не откроете контакты.
+                                Общение возможно через чат.
+                            </span>
                         </span>
                     </label>
-                </div>
 
-                <div class="pt-3 flex flex-wrap items-center gap-4">
-                    <button type="submit"
-                        class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-                        Создать заявку
-                        <span class="text-lg">→</span>
-                    </button>
-
-                    <span class="text-xs text-slate-500">
-                        После отправки заявка появится в общем списке и будет готова к распределению по СТО.
-                    </span>
+                    <div class="flex flex-wrap gap-2 justify-end">
+                        <a href="/me/garage"
+                           class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 transition">
+                            Отмена
+                        </a>
+                        <button type="submit"
+                                class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/40 hover:bg-emerald-400 transition">
+                            Создать заявку
+                            <span class="text-lg leading-none">★</span>
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+<script>
+    (function () {
+        const range = document.getElementById("radius-range");
+        const label = document.getElementById("radius-value");
+        if (range && label) {
+            const update = () => {
+                label.textContent = range.value;
+            };
+            range.addEventListener("input", update);
+            update();
+        }
+    })();
+</script>
 {% endblock %}
