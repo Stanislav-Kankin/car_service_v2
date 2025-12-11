@@ -28,21 +28,16 @@ templates = get_templates()
 
 def get_current_user_id(request: Request) -> int:
     """
-    ВРЕМЕННО: не роняем 401, если cookie нет.
-    Если cookie есть и нормальное — используем его.
-    Если нет / мусор — возвращаем заглушку 1.
-    Потом сюда вернём жёсткую проверку.
+    Берём user_id из request.state.user_id, который кладёт UserIDMiddleware.
+    Все маршруты /me/* требуют авторизации.
     """
-    raw = request.cookies.get("user_id")
-    if not raw:
-        # TODO: когда Mini App стабильно ставит cookie, вернуть 401
-        return 1
-
-    try:
-        return int(raw)
-    except Exception:
-        # Если в cookie мусор — тоже временно fallback на 1
-        return 1
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Пользователь не авторизован",
+        )
+    return int(user_id)
 
 
 # ------------------------------------------------------------------------------

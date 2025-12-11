@@ -18,6 +18,11 @@ class Settings:
     # ---------------------- Redis ----------------------
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+    # ---------------------- Telegram bot ----------------------
+    # Токен бота, который используется для проверки подписи Telegram WebApp.
+    # Должен совпадать с токеном, который ты используешь в aiogram-боте.
+    BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
+
     # ---------------------- Other ----------------------
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
 

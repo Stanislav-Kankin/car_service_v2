@@ -31,6 +31,7 @@
         document.addEventListener("DOMContentLoaded", async () => {
             const tg = window.Telegram?.WebApp;
 
+            // Если не в Telegram WebApp — не пытаемся авторизовывать
             if (!tg) {
                 console.warn("Telegram WebApp не найден — страница открыта не из Mini App");
                 return;
@@ -42,12 +43,28 @@
                 return;
             }
 
+            // Проверяем, есть ли уже user_id в cookie
+            const hasUserCookie = document.cookie
+                .split(";")
+                .map(c => c.trim())
+                .some(c => c.startsWith("user_id="));
+
+            // Если cookie уже стоит — считаем пользователя авторизованным, больше ничего не делаем
+            if (hasUserCookie) {
+                return;
+            }
+
             try {
                 const resp = await fetch("/api/v1/auth/telegram-webapp", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ init_data: initData })
                 });
+
+                if (!resp.ok) {
+                    console.error("Ошибка ответа от /api/v1/auth/telegram-webapp:", resp.status);
+                    return;
+                }
 
                 const data = await resp.json();
                 console.log("Ответ /api/v1/auth/telegram-webapp:", data);
@@ -56,21 +73,19 @@
                     // Ставим cookie
                     document.cookie = `user_id=${data.user_id}; Path=/; SameSite=None; Secure`;
 
-                    // Правильный редирект:
-                    // если мы уже на /me/dashboard — просто обновляем страницу
-                    // если вдруг путь другой — уходим на /me/dashboard
+                    // Один раз отправляем пользователя в /me/dashboard (главный кабинет)
                     const targetPath = "/me/dashboard";
-                    if (window.location.pathname === targetPath) {
-                        window.location.reload();
-                    } else {
+                    if (window.location.pathname !== targetPath) {
                         window.location.href = targetPath;
                     }
+                    // Если уже на /me/dashboard — ничего не делаем, без reload-цикла
                 }
             } catch (err) {
                 console.error("Ошибка авторизации через Telegram WebApp:", err);
             }
         });
     </script>
+
 
 
 </body>
