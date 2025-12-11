@@ -478,29 +478,46 @@ async def requests_list(
 
 
 # ------------------------------------------------------------------------------
-# Создание заявки — GET
+# Создание заявки — POST
 # ------------------------------------------------------------------------------
 
-@router.get("/requests/create", response_class=HTMLResponse)
-async def request_create_get(
+@router.post("/requests/create", response_class=HTMLResponse)
+async def request_create_post(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
-    car_id: int | None = None,
+    car_id_raw: str = Form(""),
+    address_text: str = Form(""),
+    is_car_movable: str = Form("movable"),
+    radius_km: int = Form(5),
+    service_category: str = Form("sto"),
+    description: str = Form(...),
+    hide_phone: bool = Form(False),
 ) -> HTMLResponse:
+    """
+    Обработка создания заявки. Делает мягкую валидацию car_id,
+    чтобы не падать 422, а показать понятное сообщение.
+    """
+    user_id = get_current_user_id(request)
 
-    _ = get_current_user_id(request)
+    error_message: str | None = None
+    car_id: int | None = None
 
-    # Подгружаем машину, если передан car_id
-    car: dict[str, Any] | None = None
-    if car_id is not None:
+    # --- Валидация car_id ---
+    car_id_raw = (car_id_raw or "").strip()
+    if not car_id_raw:
+        error_message = "Сначала выберите автомобиль в гараже, а потом создавайте заявку."
+    else:
         try:
-            resp = await client.get(f"/api/v1/cars/{car_id}")
-            if resp.status_code == 200:
-                car = resp.json()
-        except Exception:
-            car = None
+            car_id = int(car_id_raw)
+        except ValueError:
+            error_message = "Некорректный идентификатор автомобиля. Попробуйте выбрать авто ещё раз из гаража."
 
-    # Подготовка категорий
+    # Логика «едет / не едет»
+    movable = is_car_movable == "movable"
+    need_tow_truck = not movable
+    need_mobile_master = not movable
+
+    # Категории для шаблона (как в GET)
     primary_categories = [
         (code, SERVICE_CATEGORY_LABELS[code])
         for code in PRIMARY_SERVICE_CODES
@@ -512,14 +529,70 @@ async def request_create_get(
         if code in SERVICE_CATEGORY_LABELS
     ]
 
+    # Подгружаем машину, если car_id удалось распарсить
+    car: dict[str, Any] | None = None
+    if car_id is not None:
+        try:
+            resp_car = await client.get(f"/api/v1/cars/{car_id}")
+            if resp_car.status_code == 200:
+                car = resp_car.json()
+        except Exception:
+            car = None
+
+    # Формируем form_data для повторного показа формы
     form_data = {
-        "address_text": "",
-        "is_car_movable": "movable",
-        "radius_km": 5,
-        "service_category": "sto",
-        "description": "",
-        "hide_phone": False,
+        "address_text": address_text,
+        "is_car_movable": is_car_movable,
+        "radius_km": radius_km,
+        "service_category": service_category,
+        "description": description,
+        "hide_phone": hide_phone,
     }
+
+    # Если были ошибки валидации car_id — просто показываем форму с сообщением
+    if error_message:
+        return templates.TemplateResponse(
+            "user/request_create.html",
+            {
+                "request": request,
+                "car_id": car_id,
+                "car": car,
+                "created_request": None,
+                "error_message": error_message,
+                "primary_categories": primary_categories,
+                "extra_categories": extra_categories,
+                "form_data": form_data,
+            },
+        )
+
+    # --- создаём заявку в backend ---
+    payload = {
+        "user_id": user_id,
+        "car_id": car_id,
+        "latitude": None,
+        "longitude": None,
+        "address_text": address_text or None,
+        "is_car_movable": movable,
+        "need_tow_truck": need_tow_truck,
+        "need_mobile_master": need_mobile_master,
+        "radius_km": radius_km,
+        "service_category": service_category,
+        "description": description,
+        "photos": [],
+        "hide_phone": hide_phone,
+    }
+
+    created_request: dict[str, Any] | None = None
+    error_message = None
+
+    try:
+        resp = await client.post("/api/v1/requests/", json=payload)
+        resp.raise_for_status()
+        created_request = resp.json()
+    except Exception:
+        error_message = "Не удалось создать заявку. Попробуйте ещё раз чуть позже."
+
+    # На этом этапе car уже подгружен выше (если удалось)
 
     return templates.TemplateResponse(
         "user/request_create.html",
@@ -527,8 +600,8 @@ async def request_create_get(
             "request": request,
             "car_id": car_id,
             "car": car,
-            "created_request": None,
-            "error_message": None,
+            "created_request": created_request,
+            "error_message": error_message,
             "primary_categories": primary_categories,
             "extra_categories": extra_categories,
             "form_data": form_data,
