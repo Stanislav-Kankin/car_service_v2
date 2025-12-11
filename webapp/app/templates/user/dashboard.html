@@ -3,16 +3,122 @@
 {% block title %}Личный кабинет — CarBot{% endblock %}
 
 {% block content %}
-<div class="mt-8 space-y-4">
-    <h1 class="text-2xl font-semibold">Личный кабинет</h1>
-    <p class="text-sm text-slate-300">
-        Здесь будет сводка по вашему гаражу и заявкам.
-    </p>
+<div class="mt-8 space-y-8">
 
-    <a href="/me/garage"
-       class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-900 hover:bg-emerald-400 transition">
-        Перейти в гараж
-        <span class="text-base">→</span>
-    </a>
+    <!-- Заголовок и короткий текст -->
+    <div class="space-y-2">
+        <h1 class="text-2xl md:text-3xl font-semibold tracking-tight">
+            Личный кабинет
+        </h1>
+        <p class="text-sm md:text-base text-slate-300 max-w-xl">
+            Здесь будет сводка по вашему гаражу, заявкам и, если вы представляете сервис,
+            по вашим СТО.
+        </p>
+    </div>
+
+    <!-- Основной блок с карточками ролей -->
+    <div class="grid gap-6 md:grid-cols-2">
+        <!-- Карточка: Автовладелец -->
+        <div
+            class="group relative overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 p-6 md:p-7 shadow-[0_20px_60px_rgba(15,23,42,0.9)]">
+            <!-- Подсветка по краям -->
+            <div
+                class="pointer-events-none absolute inset-px rounded-[22px] bg-gradient-to-br from-emerald-500/20 via-transparent to-sky-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+            </div>
+
+            <div class="relative z-10 space-y-4">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/20 border border-emerald-400/40">
+                        <span class="text-xl">🚗</span>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80">
+                            Для автовладельца
+                        </p>
+                        <h2 class="text-lg md:text-xl font-semibold">
+                            Ваш гараж и заявки
+                        </h2>
+                    </div>
+                </div>
+
+                <p class="text-sm text-slate-300">
+                    Управляйте своими автомобилями, создавайте заявки и следите за статусом ремонта
+                    прямо из Mini App.
+                </p>
+
+                <div class="flex flex-wrap gap-3 mt-2">
+                    <a href="/me/garage"
+                       class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                        Перейти в гараж
+                        <span class="text-base leading-none">→</span>
+                    </a>
+                    <a href="/me/requests"
+                       class="inline-flex items-center gap-2 rounded-full border border-emerald-500/60 px-4 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10 transition">
+                        Мои заявки
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Карточка: Сервисный центр -->
+        <div
+            class="group relative overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 p-6 md:p-7 shadow-[0_20px_60px_rgba(15,23,42,0.9)]">
+            <!-- Подсветка по краям -->
+            <div
+                class="pointer-events-none absolute inset-px rounded-[22px] bg-gradient-to-br from-sky-500/25 via-transparent to-violet-500/25 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+            </div>
+
+            <div class="relative z-10 space-y-4">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-500/20 border border-sky-400/40">
+                        <span class="text-xl">🏭</span>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.25em] text-sky-400/80">
+                            Для сервисов
+                        </p>
+                        <h2 class="text-lg md:text-xl font-semibold">
+                            Кабинет СТО
+                        </h2>
+                    </div>
+                </div>
+
+                <p class="text-sm text-slate-300">
+                    Управляйте профилем сервиса, зонами обслуживания, откликами на заявки и статусами
+                    работ.
+                </p>
+
+                <div class="flex flex-wrap gap-3 mt-2">
+                    <a href="/sc/dashboard"
+                       class="inline-flex items-center gap-2 rounded-full bg-sky-500 px-5 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-sky-500/30 hover:bg-sky-400 transition">
+                        Кабинет сервиса
+                        <span class="text-base leading-none">→</span>
+                    </a>
+                    <a href="/sc/create"
+                       class="inline-flex items-center gap-2 rounded-full border border-sky-500/60 px-4 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/10 transition">
+                        Зарегистрировать новое СТО
+                    </a>
+                </div>
+
+                <p class="text-xs text-slate-500 mt-1">
+                    Если у этого аккаунта ещё нет привязанных СТО, сначала создайте новый сервис.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Низ страницы: ссылка на админку (для админов) -->
+    <div class="flex items-center justify-between text-xs text-slate-500">
+        <p>
+            Запуск Mini App осуществляется через Telegram, авторизация происходит автоматически.
+        </p>
+        <a href="/admin/dashboard"
+           class="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1 hover:border-emerald-400/60 hover:text-emerald-300 transition">
+            <span>Админка</span>
+            <span class="text-sm leading-none">↗</span>
+        </a>
+    </div>
 </div>
 {% endblock %}
