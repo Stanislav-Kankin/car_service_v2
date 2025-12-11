@@ -80,7 +80,11 @@ STATUS_LABELS = {
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def user_dashboard(request: Request) -> HTMLResponse:
-    _ = get_current_user_id(request)
+    """
+    Важно: dashboard должен открываться даже без авторизации,
+    чтобы Telegram Mini App мог загрузить страницу, выполнить JS
+    и пройти авторизацию через /api/v1/auth/telegram-webapp.
+    """
     return templates.TemplateResponse(
         "user/dashboard.html",
         {"request": request},
