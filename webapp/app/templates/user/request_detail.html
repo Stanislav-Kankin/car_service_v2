@@ -264,12 +264,7 @@
                     </p>
                 </div>
 
-                {# ✅ Новое: считаем, что выбор уже сделан, если:
-                - request_obj.service_center_id уже стоит
-                - или есть accepted_offer_id (мы передали из pages_user.py)
-                #}
-                {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none)
-                %}
+                {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none) %}
 
                 {% if already_chosen %}
                 <div class="rounded-2xl border border-emerald-500/30 bg-emerald-900/10 p-4">
@@ -297,8 +292,7 @@
                                 Сервис #{{ offer.service_center_id }}
                             </p>
                             <p class="text-xs text-slate-300">
-                                {% if offer.price is not none %}Цена: {{ offer.price }}{% else %}Цена не указана{% endif
-                                %}
+                                {% if offer.price is not none %}Цена: {{ offer.price }}{% else %}Цена не указана{% endif %}
                                 {% if offer.eta_hours is not none %} · Срок: ~{{ offer.eta_hours }} ч.{% endif %}
                             </p>
 
@@ -364,21 +358,16 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
 <script>
-    (function () {
-        const mapContainer = document.getElementById("request-map-inner");
-        const wrapper = document.getElementById("request-map");
-        const hint = document.getElementById("map-hint");
+(function () {
+    const mapContainer = document.getElementById("request-map-inner");
+    const wrapper = document.getElementById("request-map");
+    const hint = document.getElementById("map-hint");
 
-        if (!mapContainer || !wrapper) {
-            return;
-        }
+    if (!mapContainer || !wrapper) return;
 
-        // Jinja → JS: либо число, либо null (без кавычек)
-        const lat = {{ request_obj.latitude if request_obj.latitude is not none else "null" }
-    };
-    const lng = {{ request_obj.longitude if request_obj.longitude is not none else "null" }};
-
-    const lon = {{ request_obj.longitude if request_obj.longitude is not none else 'null' }};
+    // ✅ Jinja → JS: безопасно (number | null)
+    const lat = {{ request_obj.latitude | tojson }};
+    const lon = {{ request_obj.longitude | tojson }};
     const address = wrapper.dataset.address || "";
 
     function showError(msg) {
@@ -394,7 +383,6 @@
             maxZoom: 19,
             attribution: "&copy; OpenStreetMap contributors"
         }).addTo(map);
-
         L.marker([centerLat, centerLon]).addTo(map);
     }
 
@@ -426,12 +414,11 @@
                 showError("Не удалось определить координаты по адресу.");
                 return;
             }
-
             initMap(glat, glon);
         })
         .catch(function () {
             showError("Ошибка при обращении к геосервису. Попробуйте позже.");
         });
-    }) ();
+})();
 </script>
 {% endblock %}
