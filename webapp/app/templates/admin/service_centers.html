@@ -1,79 +1,104 @@
 {% extends "layout/base.html" %}
 
 {% block content %}
-<div class="max-w-6xl mx-auto py-6">
-    <div class="flex justify-between items-center mb-4">
+<div class="max-w-6xl mx-auto py-6 px-3">
+    <div class="flex items-center justify-between mb-4">
         <h1 class="text-2xl font-bold">Все сервисы</h1>
-        <a href="/admin/dashboard" class="text-sm text-blue-600 hover:underline">
+        <a href="/admin/dashboard" class="text-sm text-blue-400 hover:text-blue-300 hover:underline">
             ⬅ Назад в админку
         </a>
     </div>
 
     {% if error_message %}
-    <div class="mb-4 p-3 bg-red-100 text-red-800 rounded">
+    <div class="mb-4 p-3 rounded bg-red-500/10 text-red-200 border border-red-400/40 text-sm">
         {{ error_message }}
     </div>
     {% endif %}
 
     {% if service_centers and service_centers|length > 0 %}
-    <div class="overflow-x-auto border rounded">
-        <table class="min-w-full text-sm">
-            <thead class="bg-gray-100">
-                <tr>
-                    <th class="px-3 py-2 text-left">ID</th>
-                    <th class="px-3 py-2 text-left">Название</th>
-                    <th class="px-3 py-2 text-left">Владелец (user_id)</th>
-                    <th class="px-3 py-2 text-left">Адрес</th>
-                    <th class="px-3 py-2 text-left">Телефон</th>
-                    <th class="px-3 py-2 text-left">Статус</th>
-                    <th class="px-3 py-2 text-left">Управление</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for sc in service_centers %}
-                <tr class="border-t">
-                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.id }}</td>
-                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.name }}</td>
-                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.user_id }}</td>
-                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.address or "" }}</td>
-                    <td class="px-3 py-2 whitespace-nowrap">{{ sc.phone or "" }}</td>
-                    <td class="px-3 py-2 whitespace-nowrap text-xs">
-                        {% if sc.is_active %}
-                        <span class="px-2 py-0.5 rounded bg-green-100 text-green-800">
-                            Активен
-                        </span>
-                        {% else %}
-                        <span class="px-2 py-0.5 rounded bg-gray-200 text-gray-700">
-                            Неактивен
-                        </span>
-                        {% endif %}
-                    </td>
-                    <td class="px-3 py-2 whitespace-nowrap text-xs">
-                        {% if sc.is_active %}
-                        <form method="post" action="/admin/service-centers/{{ sc.id }}/toggle" class="inline">
-                            <input type="hidden" name="action" value="deactivate">
-                            <button type="submit" class="px-3 py-1 rounded bg-red-100 text-red-800 hover:bg-red-200">
-                                Деактивировать
-                            </button>
-                        </form>
-                        {% else %}
-                        <form method="post" action="/admin/service-centers/{{ sc.id }}/toggle" class="inline">
-                            <input type="hidden" name="action" value="activate">
-                            <button type="submit"
-                                class="px-3 py-1 rounded bg-green-100 text-green-800 hover:bg-green-200">
-                                Активировать
-                            </button>
-                        </form>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
+    <div class="bg-slate-800/80 rounded-2xl shadow-lg p-4">
+        <!-- Обёртка с горизонтальным скроллом -->
+        <div class="overflow-x-auto">
+            <table class="min-w-[880px] w-full text-sm text-left">
+                <thead class="bg-slate-900/80">
+                    <tr>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">ID</th>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Название</th>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Владелец (user_id)</th>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Адрес</th>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Телефон</th>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Статус</th>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Управление</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sc in service_centers %}
+                    <tr class="border-t border-slate-700/70 hover:bg-slate-700/40">
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-100 text-xs">
+                            {{ sc.id }}
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-100 text-xs">
+                            {{ sc.name }}
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-300 text-xs">
+                            {{ sc.user_id }}
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-300 text-xs">
+                            {{ sc.address or "" }}
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-300 text-xs">
+                            {{ sc.phone or "" }}
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-xs">
+                            {% if sc.is_active %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-400/40">
+                                Активен
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-200 border border-slate-400/40">
+                                Неактивен
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-xs">
+                            {% if sc.is_active %}
+                            <form method="post" action="/admin/service-centers/{{ sc.id }}/toggle" class="inline">
+                                <input type="hidden" name="action" value="deactivate">
+                                <button
+                                    type="submit"
+                                    class="px-3 py-1 rounded-full bg-red-500/15 text-red-200 border border-red-400/40 hover:bg-red-500/25 transition"
+                                >
+                                    Деактивировать
+                                </button>
+                            </form>
+                            {% else %}
+                            <form method="post" action="/admin/service-centers/{{ sc.id }}/toggle" class="inline">
+                                <input type="hidden" name="action" value="activate">
+                                <button
+                                    type="submit"
+                                    class="px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-200 border border-emerald-400/40 hover:bg-emerald-500/25 transition"
+                                >
+                                    Активировать
+                                </button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
 
-        </table>
+        <!-- Подсказка / «ползунок» для мобильного свайпа -->
+        <div class="mt-4 flex flex-col items-center gap-1">
+            <div class="h-1.5 w-16 rounded-full bg-slate-500/70"></div>
+            <p class="text-[11px] leading-tight text-slate-400 text-center">
+                Проведите таблицу влево/вправо, чтобы увидеть все колонки
+            </p>
+        </div>
     </div>
     {% else %}
-    <div class="p-4 bg-yellow-50 border border-yellow-200 rounded">
+    <div class="p-4 bg-yellow-500/10 border border-yellow-400/50 rounded-xl text-sm text-yellow-100">
         Сервисов пока нет.
     </div>
     {% endif %}
