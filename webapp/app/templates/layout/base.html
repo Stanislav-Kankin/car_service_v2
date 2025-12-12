@@ -69,7 +69,7 @@
 
                 // ✅ Перезаписываем cookie каждый раз
                 // (именно это гарантирует корректную смену аккаунта в Telegram)
-                document.cookie = `user_id=${data.user_id}; Path=/; SameSite=Lax`;
+                document.cookie = `user_id=${data.user_id}; Path=/; SameSite=None; Secure; Max-Age=2592000`;
 
                 // Если Telegram прислал стартовый путь — один раз перебросим
                 const sp = tg.initDataUnsafe && tg.initDataUnsafe.start_param;
