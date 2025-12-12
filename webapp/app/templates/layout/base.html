@@ -1,92 +1,120 @@
 <!DOCTYPE html>
 <html lang="ru">
-
 <head>
-    <meta charset="UTF-8">
-    <title>{% block title %}CarBot WebApp{% endblock %}</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-
-    <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8" />
+  <title>{% block title %}CarBot WebApp{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
 
 <body class="min-h-screen bg-slate-950 text-slate-50">
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">🚗</div>
+        <div class="text-sm font-semibold">CarBot</div>
+      </div>
 
-    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
-        <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-                <div class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
-                    🚗
-                </div>
-                <div class="text-sm font-semibold">CarBot</div>
-            </div>
+      <nav class="flex items-center gap-3 text-xs text-slate-300">
+        <a href="/me/dashboard" class="hover:text-emerald-300 transition">Клиент</a>
+        <a href="/sc/dashboard" class="hover:text-emerald-300 transition">СТО</a>
+        <a href="/admin/dashboard" class="hover:text-emerald-300 transition">Админка</a>
+      </nav>
+    </div>
+  </header>
 
-            <nav class="flex items-center gap-3 text-xs text-slate-300">
-                <a href="/me/dashboard" class="hover:text-emerald-300 transition">Клиент</a>
-                <a href="/sc/dashboard" class="hover:text-emerald-300 transition">СТО</a>
-                <a href="/admin/dashboard" class="hover:text-emerald-300 transition">Админка</a>
-            </nav>
-        </div>
-    </header>
+  <main class="max-w-5xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
 
-    <main class="max-w-5xl mx-auto px-4 py-6">
-        {% block content %}{% endblock %}
-    </main>
+  <script>
+    function getCookie(name) {
+      const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+      return m ? decodeURIComponent(m[2]) : null;
+    }
 
-    <script>
-        document.addEventListener("DOMContentLoaded", async () => {
-            // работаем только внутри Telegram WebApp
-            const tg = window.Telegram && window.Telegram.WebApp;
-            if (!tg) return;
+    function setUserIdCookie(userId) {
+      const isHttps = window.location.protocol === "https:";
+      // На https обязательно SameSite=None; Secure, иначе браузер/вебвью могут выкинуть cookie.
+      // На http Secure нельзя — cookie просто не сохранится.
+      const base = `user_id=${encodeURIComponent(userId)}; Path=/; Max-Age=2592000`;
+      if (isHttps) {
+        document.cookie = base + "; SameSite=None; Secure";
+      } else {
+        document.cookie = base + "; SameSite=Lax";
+      }
+    }
 
-            try {
-                tg.ready();
+    function extractInitDataFromUrl() {
+      // 1) tgWebAppData в query (иногда так открывает Telegram Desktop "в браузере")
+      const qs = new URLSearchParams(window.location.search);
+      const fromQuery = qs.get("tgWebAppData");
+      if (fromQuery) return decodeURIComponent(fromQuery);
 
-                const initData = tg.initData || "";
-                if (!initData) {
-                    console.warn("Telegram initData пустой — авторизация невозможна");
-                    return;
-                }
+      // 2) tgWebAppData в hash (часто используется)
+      // пример: #tgWebAppData=...&tgWebAppVersion=...
+      const hash = window.location.hash || "";
+      if (hash.includes("tgWebAppData=")) {
+        const h = hash.startsWith("#") ? hash.slice(1) : hash;
+        const hs = new URLSearchParams(h);
+        const fromHash = hs.get("tgWebAppData");
+        if (fromHash) return decodeURIComponent(fromHash);
+      }
 
-                // ✅ ВАЖНО:
-                // НЕ делаем "если cookie уже есть — return".
-                // Потому что на телефоне при переключении телеграм-аккаунта cookie остаётся!
-                const resp = await fetch("/api/v1/auth/telegram-webapp", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ init_data: initData })
-                });
+      return "";
+    }
 
-                if (!resp.ok) {
-                    console.error("Ошибка ответа от /api/v1/auth/telegram-webapp:", resp.status);
-                    return;
-                }
+    async function authViaTelegram(initData) {
+      const resp = await fetch("/api/v1/auth/telegram-webapp", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ init_data: initData })
+      });
 
-                const data = await resp.json();
-                if (!data.user_id) {
-                    console.error("Нет user_id в ответе /api/v1/auth/telegram-webapp:", data);
-                    return;
-                }
+      if (!resp.ok) {
+        console.error("Auth error:", resp.status);
+        return null;
+      }
 
-                // ✅ Перезаписываем cookie каждый раз
-                // (именно это гарантирует корректную смену аккаунта в Telegram)
-                document.cookie = `user_id=${data.user_id}; Path=/; SameSite=None; Secure; Max-Age=2592000`;
+      const data = await resp.json();
+      if (!data || !data.user_id) {
+        console.error("Auth response has no user_id:", data);
+        return null;
+      }
 
-                // Если Telegram прислал стартовый путь — один раз перебросим
-                const sp = tg.initDataUnsafe && tg.initDataUnsafe.start_param;
-                if (sp && typeof sp === "string") {
-                    // Пример: "me/dashboard" или "sc/dashboard"
-                    const targetPath = sp.startsWith("/") ? sp : ("/" + sp);
-                    if (window.location.pathname !== targetPath) {
-                        window.location.href = targetPath;
-                        return;
-                    }
-                }
-            } catch (err) {
-                console.error("Ошибка авторизации через Telegram WebApp:", err);
-            }
-        });
-    </script>
+      setUserIdCookie(data.user_id);
+      return data.user_id;
+    }
 
+    document.addEventListener("DOMContentLoaded", async () => {
+      // Если cookie уже есть — не обязаны переавторизовываться,
+      // но для Telegram WebView лучше иногда обновлять.
+      // Сделаем так: если есть Telegram/initData — авторизуемся и перезапишем cookie.
+      // Если нет — оставим как есть (и покажем подсказку, если cookie нет).
+      const existing = getCookie("user_id");
+
+      const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+
+      let initData = "";
+      if (tg) {
+        try { tg.ready(); } catch (e) {}
+        initData = tg.initData || "";
+      } else {
+        initData = extractInitDataFromUrl();
+      }
+
+      if (initData) {
+        // есть initData — авторизуемся и гарантированно обновим cookie
+        await authViaTelegram(initData);
+        return;
+      }
+
+      // initData нет
+      if (!existing) {
+        // cookie нет — в обычном браузере так и будет -> 401 на защищённых страницах
+        console.warn("Нет Telegram initData и нет cookie user_id. Открой WebApp из Telegram или добавь tgWebAppData в URL.");
+      }
+    });
+  </script>
 </body>
-
 </html>
