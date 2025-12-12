@@ -14,47 +14,42 @@
     <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
             <div class="flex items-center gap-2">
-                <div
-                    class="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-slate-900 font-bold">
-                    C</div>
-                <span class="font-semibold tracking-wide">CarBot</span>
+                <div class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+                    🚗
+                </div>
+                <div class="text-sm font-semibold">CarBot</div>
             </div>
+
+            <nav class="flex items-center gap-3 text-xs text-slate-300">
+                <a href="/me/dashboard" class="hover:text-emerald-300 transition">Клиент</a>
+                <a href="/sc/dashboard" class="hover:text-emerald-300 transition">СТО</a>
+                <a href="/admin/dashboard" class="hover:text-emerald-300 transition">Админка</a>
+            </nav>
         </div>
     </header>
 
-    <main class="max-w-5xl mx-auto px-4 py-8">
+    <main class="max-w-5xl mx-auto px-4 py-6">
         {% block content %}{% endblock %}
     </main>
 
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
         document.addEventListener("DOMContentLoaded", async () => {
-            const tg = window.Telegram?.WebApp;
-
-            // Если не в Telegram WebApp — не пытаемся авторизовывать
-            if (!tg) {
-                console.warn("Telegram WebApp не найден — страница открыта не из Mini App");
-                return;
-            }
-
-            const initData = tg.initData;
-            if (!initData) {
-                console.warn("Нет initData — Telegram не передал данные авторизации");
-                return;
-            }
-
-            // Проверяем, есть ли уже user_id в cookie
-            const hasUserCookie = document.cookie
-                .split(";")
-                .map(c => c.trim())
-                .some(c => c.startsWith("user_id="));
-
-            // Если cookie уже стоит — считаем пользователя авторизованным, больше ничего не делаем
-            if (hasUserCookie) {
-                return;
-            }
+            // работаем только внутри Telegram WebApp
+            const tg = window.Telegram && window.Telegram.WebApp;
+            if (!tg) return;
 
             try {
+                tg.ready();
+
+                const initData = tg.initData || "";
+                if (!initData) {
+                    console.warn("Telegram initData пустой — авторизация невозможна");
+                    return;
+                }
+
+                // ✅ ВАЖНО:
+                // НЕ делаем "если cookie уже есть — return".
+                // Потому что на телефоне при переключении телеграм-аккаунта cookie остаётся!
                 const resp = await fetch("/api/v1/auth/telegram-webapp", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -67,26 +62,30 @@
                 }
 
                 const data = await resp.json();
-                console.log("Ответ /api/v1/auth/telegram-webapp:", data);
+                if (!data.user_id) {
+                    console.error("Нет user_id в ответе /api/v1/auth/telegram-webapp:", data);
+                    return;
+                }
 
-                if (data.user_id) {
-                    // Ставим cookie
-                    document.cookie = `user_id=${data.user_id}; Path=/; SameSite=None; Secure`;
+                // ✅ Перезаписываем cookie каждый раз
+                // (именно это гарантирует корректную смену аккаунта в Telegram)
+                document.cookie = `user_id=${data.user_id}; Path=/; SameSite=Lax`;
 
-                    // Один раз отправляем пользователя в /me/dashboard (главный кабинет)
-                    const targetPath = "/me/dashboard";
+                // Если Telegram прислал стартовый путь — один раз перебросим
+                const sp = tg.initDataUnsafe && tg.initDataUnsafe.start_param;
+                if (sp && typeof sp === "string") {
+                    // Пример: "me/dashboard" или "sc/dashboard"
+                    const targetPath = sp.startsWith("/") ? sp : ("/" + sp);
                     if (window.location.pathname !== targetPath) {
                         window.location.href = targetPath;
+                        return;
                     }
-                    // Если уже на /me/dashboard — ничего не делаем, без reload-цикла
                 }
             } catch (err) {
                 console.error("Ошибка авторизации через Telegram WebApp:", err);
             }
         });
     </script>
-
-
 
 </body>
 
