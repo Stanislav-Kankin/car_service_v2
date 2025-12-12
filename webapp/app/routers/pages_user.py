@@ -692,6 +692,7 @@ async def request_create_post(
 
 
 @router.get("/requests/{request_id}/view", response_class=HTMLResponse)
+@router.get("/requests/{request_id}", response_class=HTMLResponse)
 async def request_detail(
     request_id: int,
     request: Request,
