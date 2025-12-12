@@ -374,8 +374,10 @@
         }
 
         // Jinja → JS: либо число, либо null (без кавычек)
-        const lat = {{ request_obj.latitude if request_obj.latitude is not none else 'null' }
+        const lat = {{ request_obj.latitude if request_obj.latitude is not none else "null" }
     };
+    const lng = {{ request_obj.longitude if request_obj.longitude is not none else "null" }};
+
     const lon = {{ request_obj.longitude if request_obj.longitude is not none else 'null' }};
     const address = wrapper.dataset.address || "";
 
