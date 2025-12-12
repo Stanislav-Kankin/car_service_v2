@@ -85,9 +85,9 @@ async def admin_service_centers(
     Список всех СТО (для админа): активные и неактивные.
 
     ВАЖНО:
-    - Не используем больше /api/v1/service-centers/all, т.к. он отдаёт 422.
-    - Вместо этого дергаем рабочий эндпоинт /api/v1/service-centers
-      дважды: is_active=True и is_active=False.
+    - Не используем больше /api/v1/service-centers/all.
+    - Дёргаем /api/v1/service-centers/ (со слешем) дважды:
+      is_active=True и is_active=False.
     """
     _ = await get_current_admin(request, client)
 
@@ -97,37 +97,41 @@ async def admin_service_centers(
     try:
         # Активные СТО
         resp_active = await client.get(
-            "/api/v1/service-centers",
+            "/api/v1/service-centers/",   # <--- ВАЖНО: со слешем
             params={"is_active": True},
+            follow_redirects=True,
         )
         resp_active.raise_for_status()
         active_list = resp_active.json()
 
         # Неактивные СТО
         resp_inactive = await client.get(
-            "/api/v1/service-centers",
+            "/api/v1/service-centers/",   # <--- ВАЖНО: со слешем
             params={"is_active": False},
+            follow_redirects=True,
         )
         resp_inactive.raise_for_status()
         inactive_list = resp_inactive.json()
 
         combined = list(active_list) + list(inactive_list)
 
-        # Если backend отдаёт created_at — попробуем отсортировать по дате создания
-        # (сначала новые). Если поля нет, сортировка просто не повлияет.
+        # Пытаемся отсортировать по created_at (если есть)
         try:
             combined.sort(
                 key=lambda sc: sc.get("created_at") or "",
                 reverse=True,
             )
         except Exception:
-            # Если что-то не так с форматом даты — не падаем, просто оставляем как есть.
+            # Если с датой что-то не так — просто оставляем порядок как есть.
             pass
 
         service_centers = combined
 
     except Exception as e:
-        print("ERROR loading service-centers for admin (via /service-centers):", repr(e))
+        print(
+            "ERROR loading service-centers for admin (via /service-centers/):",
+            repr(e),
+        )
         error_message = "Не удалось загрузить список СТО."
         service_centers = []
 
