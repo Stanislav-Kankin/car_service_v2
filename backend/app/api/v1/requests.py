@@ -1,9 +1,11 @@
 from typing import List, Optional
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
+from backend.app.core.notifier import BotNotifier
 from backend.app.schemas.request import (
     RequestCreate,
     RequestRead,
@@ -14,11 +16,15 @@ from backend.app.services.requests_service import RequestsService
 from backend.app.services.service_centers_service import ServiceCentersService
 from backend.app.core.catalogs.service_categories import get_specializations_for_category
 
+from backend.app.models import ServiceCenter
 
 router = APIRouter(
     prefix="/requests",
     tags=["requests"],
 )
+
+WEBAPP_PUBLIC_URL = os.getenv("WEBAPP_PUBLIC_URL", "").rstrip("/")
+notifier = BotNotifier()
 
 
 # ---------------------------------------------------------------------------
@@ -35,13 +41,15 @@ async def create_request(
 ):
     """
     Создать новую заявку.
+
+    Статус заявки по умолчанию: NEW.
     """
     request = await RequestsService.create_request(db, request_in)
     return request
 
 
 # ---------------------------------------------------------------------------
-# НОВОЕ: отправка заявки всем подходящим СТО
+# ОТПРАВКА ЗАЯВКИ ВСЕМ ПОДХОДЯЩИМ СТО
 # ---------------------------------------------------------------------------
 @router.post(
     "/{request_id}/send_to_all",
@@ -56,8 +64,10 @@ async def send_request_to_all_service_centers(
     Отправка заявки всем подходящим СТО.
 
     1) Берём заявку по ID.
-    2) Ищем подходящие СТО (по гео/радиусу/категории через словарь категорий).
-    3) Фиксируем распределение через RequestsService.distribute_request_to_service_centers.
+    2) Определяем спец-коды по категории заявки.
+    3) Ищем подходящие СТО (по гео/радиусу/категориям).
+    4) Фиксируем распределение через RequestsService.distribute_request_to_service_centers.
+    5) Отправляем уведомления СТО (если настроен BOT_API_URL).
     """
     request = await RequestsService.get_request_by_id(db, request_id)
     if not request:
@@ -75,12 +85,14 @@ async def send_request_to_all_service_centers(
 
     specializations = spec_codes or None
 
-    service_centers = await ServiceCentersService.search_service_centers(
+    # Ищем подходящие СТО
+    service_centers: List[ServiceCenter] = await ServiceCentersService.search_service_centers(
         db,
         latitude=request.latitude,
         longitude=request.longitude,
         radius_km=request.radius_km,
         specializations=specializations,
+        is_active=True,
     )
 
     service_center_ids = [sc.id for sc in service_centers]
@@ -91,63 +103,122 @@ async def send_request_to_all_service_centers(
             detail="No service centers found for this request",
         )
 
-    distributed_request = (
-        await RequestsService.distribute_request_to_service_centers(
-            db,
-            request_id=request_id,
-            service_center_ids=service_center_ids,
-        )
+    # Фиксируем распределение (создаём RequestDistribution и ставим статус SENT)
+    distributed_request = await RequestsService.distribute_request_to_service_centers(
+        db,
+        request_id=request_id,
+        service_center_ids=service_center_ids,
     )
+
+    # Уведомляем все СТО о новой заявке
+    if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
+        for sc in service_centers:
+            owner = sc.owner  # User-модель владельца
+            if not owner or not getattr(owner, "telegram_id", None):
+                continue
+
+            # Ссылка для СТО на деталку заявки в кабинете сервиса
+            url = f"{WEBAPP_PUBLIC_URL}/service-center/requests/{request_id}"
+
+            message = (
+                f"🆕 У вас новая заявка №{request_id}\n"
+                f"Категория: {request.service_category or 'не указана'}"
+            )
+
+            await notifier.send_notification(
+                recipient_type="service_center",
+                telegram_id=owner.telegram_id,
+                message=message,
+                buttons=[
+                    {"text": "Открыть заявку в веб-приложении", "url": url},
+                ],
+                extra={
+                    "request_id": request_id,
+                    "service_center_id": sc.id,
+                },
+            )
+
     return distributed_request
 
 
 # ---------------------------------------------------------------------------
-# НОВОЕ: отправка заявки выбранному СТО
+# ОТПРАВКА ЗАЯВКИ ОДНОМУ ВЫБРАННОМУ СТО
 # ---------------------------------------------------------------------------
 @router.post(
     "/{request_id}/send_to_service_center",
     response_model=RequestRead,
     status_code=status.HTTP_200_OK,
 )
-async def send_request_to_service_center(
+async def send_to_one_service(
     request_id: int,
-    payload: RequestDistributeIn,
+    data: dict,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Отправка заявки конкретному СТО (одному).
+    Отправить заявку ОДНОМУ выбранному СТО.
 
     Ожидает тело:
     {
-        "service_center_ids": [<один ID>]
+        "service_center_id": 5
     }
+
+    Поведение:
+    - фиксируем распределение только к одному СТО,
+    - уведомляем этот сервис о новой заявке.
     """
-    if not payload.service_center_ids:
+    sc_id = data.get("service_center_id")
+    if not sc_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="service_center_ids is required",
+            detail="service_center_id is required",
         )
 
-    # Берём только первый ID (MVP: один сервис)
-    service_center_id = payload.service_center_ids[0]
-
-    distributed_request = (
-        await RequestsService.distribute_request_to_service_centers(
-            db,
-            request_id=request_id,
-            service_center_ids=[service_center_id],
+    service_center = await ServiceCentersService.get_by_id(db, sc_id)
+    if not service_center or not service_center.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Service center not found or inactive",
         )
+
+    request = await RequestsService.distribute_request_to_service_centers(
+        db,
+        request_id=request_id,
+        service_center_ids=[sc_id],
     )
-    if not distributed_request:
+    if not request:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Request not found",
         )
-    return distributed_request
+
+    # Уведомляем СТО
+    owner = service_center.owner
+    if notifier.is_enabled() and WEBAPP_PUBLIC_URL and owner and getattr(owner, "telegram_id", None):
+        url = f"{WEBAPP_PUBLIC_URL}/service-center/requests/{request_id}"
+        message = (
+            f"📩 Вам отправлена заявка №{request_id}\n"
+            f"Категория: {request.service_category or 'не указана'}"
+        )
+
+        await notifier.send_notification(
+            recipient_type="service_center",
+            telegram_id=owner.telegram_id,
+            message=message,
+            buttons=[
+                {"text": "Открыть заявку в веб-приложении", "url": url},
+            ],
+            extra={
+                "request_id": request_id,
+                "service_center_id": service_center.id,
+            },
+        )
+
+    return request
+
 
 # ---------------------------------------------------------------------------
 # (СТАРОЕ) Список заявок для СТО по специализациям
-# Сейчас в боте не используется, но оставляем как запасной вариант.
+# Сейчас в боте почти не используется, оставляем для совместимости.
 # ---------------------------------------------------------------------------
 @router.get(
     "/for-service-centers",
@@ -173,7 +244,7 @@ async def get_requests_for_service_centers(
 
 
 # ---------------------------------------------------------------------------
-# НОВОЕ: распределение заявки по конкретным СТО
+# ЯВНОЕ распределение заявки по конкретным СТО (список ID)
 # ---------------------------------------------------------------------------
 @router.post(
     "/{request_id}/distribute",
@@ -207,7 +278,7 @@ async def distribute_request_to_service_centers(
 
 
 # ---------------------------------------------------------------------------
-# НОВОЕ: список заявок для конкретного СТО
+# НОВОЕ: список заявок для конкретного СТО (по RequestDistribution)
 # ---------------------------------------------------------------------------
 @router.get(
     "/for-service-center/{service_center_id}",
@@ -249,6 +320,28 @@ async def get_requests_by_user(
 
 
 # ---------------------------------------------------------------------------
+# Список ВСЕХ заявок (опционально по статусу)
+# ---------------------------------------------------------------------------
+@router.get(
+    "/",
+    response_model=List[RequestRead],
+)
+async def list_requests(
+    status_filter: Optional[str] = Query(
+        None,
+        alias="status",
+        description="Фильтр по статусу заявки (new, sent, in_work, done и т.п.)",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Список всех заявок, опционально по статусу.
+    """
+    requests = await RequestsService.list_requests(db, status=status_filter)
+    return requests
+
+
+# ---------------------------------------------------------------------------
 # Получить заявку по ID
 # ---------------------------------------------------------------------------
 @router.get(
@@ -285,6 +378,9 @@ async def update_request(
 ):
     """
     Частичное обновление заявки.
+
+    ⚠️ Логику изменения статусов лучше делать
+    через специализированные эндпоинты, а не здесь.
     """
     request = await RequestsService.update_request(db, request_id, request_in)
     if not request:
@@ -293,63 +389,3 @@ async def update_request(
             detail="Request not found",
         )
     return request
-
-
-@router.post("/{request_id}/send_to_all", response_model=RequestRead)
-async def send_to_all(
-    request_id: int,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Отправить заявку ВСЕМ подходящим СТО (старый эндпоинт, оставлен для совместимости).
-    Логика фильтрации по категориям синхронизирована с новым send_request_to_all_service_centers.
-    """
-    request = await RequestsService.get_request_by_id(db, request_id)
-    if not request:
-        raise HTTPException(404, "Request not found")
-
-    spec_codes = get_specializations_for_category(request.service_category)
-    if spec_codes is None and request.service_category and request.service_category not in ("sto",):
-        spec_codes = [request.service_category]
-
-    specializations = spec_codes or None
-
-    sc_list = await ServiceCentersService.search_service_centers(
-        db,
-        latitude=request.latitude,
-        longitude=request.longitude,
-        radius_km=request.radius_km,
-        specializations=specializations,
-    )
-
-    ids = [sc.id for sc in sc_list]
-
-    updated_request = await RequestsService.distribute_request_to_service_centers(
-        db,
-        request_id=request_id,
-        service_center_ids=ids,
-    )
-    return updated_request
-
-
-@router.post("/{request_id}/send_to_service_center", response_model=RequestRead)
-async def send_to_one_service(
-    request_id: int,
-    data: dict,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Отправить заявки одному выбранному СТО.
-    Формат:
-    { "service_center_id": 5 }
-    """
-    sc_id = data.get("service_center_id")
-    if not sc_id:
-        raise HTTPException(400, "service_center_id is required")
-
-    updated_request = await RequestsService.distribute_request_to_service_centers(
-        db,
-        request_id=request_id,
-        service_center_ids=[sc_id]
-    )
-    return updated_request
