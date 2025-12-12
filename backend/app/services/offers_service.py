@@ -145,12 +145,12 @@ class OffersService:
                 extra={"request_id": request_id, "service_center_id": sc_id},
             )
 
-        # --- уведомление клиента ---
+            # --- уведомление клиента ---
         client_user = request.user
         if notifier.is_enabled() and client_user and getattr(client_user, "telegram_id", None):
             url = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
             await notifier.send_notification(
-                recipient_type="user",
+                recipient_type="client",
                 telegram_id=client_user.telegram_id,
                 message=(
                     f"✅ Вы выбрали сервис по заявке №{request_id}.\n"

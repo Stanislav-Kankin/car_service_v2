@@ -11,13 +11,14 @@ class BotNotifier:
     """
     Тонкий клиент для REST-API бота.
 
-    Читает BOT_API_URL из окружения.
-    Если переменная не задана — уведомления просто отключены
-    (чтобы не ломать dev).
+    ENV:
+      BOT_API_URL   - базовый URL сервера бота (например http://127.0.0.1:8086)
+      BOT_API_TOKEN - секрет для авторизации (опционально, но рекомендовано)
     """
 
     def __init__(self, base_url: Optional[str] = None) -> None:
-        self.base_url = base_url or os.getenv("BOT_API_URL")
+        self.base_url = (base_url or os.getenv("BOT_API_URL", "")).rstrip("/")
+        self.token = os.getenv("BOT_API_TOKEN", "")
 
     def is_enabled(self) -> bool:
         return bool(self.base_url)
@@ -25,7 +26,7 @@ class BotNotifier:
     async def send_notification(
         self,
         *,
-        recipient_type: str,           # "client" или "service_center"
+        recipient_type: str,  # "client" или "service_center"
         telegram_id: int,
         message: str,
         buttons: Optional[List[Dict[str, str]]] = None,
@@ -43,17 +44,22 @@ class BotNotifier:
             "telegram_id": telegram_id,
             "message": message,
         }
-
         if buttons:
             payload["buttons"] = buttons
         if extra:
             payload["extra"] = extra
 
+        headers = {}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=10) as client:
-                resp = await client.post("/api/v1/notify", json=payload)
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"{self.base_url}/api/v1/notify",
+                    json=payload,
+                    headers=headers,
+                )
                 resp.raise_for_status()
         except Exception as e:
-            logger.exception(
-                "BotNotifier: failed to send notification to bot API: %r", e
-            )
+            logger.exception("BotNotifier: failed to send notification to bot API: %r", e)
