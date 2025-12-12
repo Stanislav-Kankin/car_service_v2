@@ -1,0 +1,100 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Заявки для {{ service_center.name }} — CarBot{% endblock %}
+
+{% block content %}
+<div class="mt-8 space-y-6">
+    <a href="/sc/dashboard" class="text-xs text-slate-400 hover:text-emerald-400 transition">
+        ← Назад в кабинет СТО
+    </a>
+
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
+                Заявки по сервису
+            </p>
+            <h1 class="text-2xl font-semibold">
+                {{ service_center.name or "Сервис без названия" }}
+            </h1>
+            <p class="text-sm text-slate-300">
+                Здесь отображаются заявки, которые были отправлены в этот сервис.
+            </p>
+        </div>
+    </div>
+
+    {% if error_message %}
+    <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+        {{ error_message }}
+    </div>
+    {% endif %}
+
+    <div class="relative mt-4">
+        <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
+
+        <div class="relative z-10 p-6 space-y-4">
+            {% if requests_list %}
+            <div class="overflow-x-auto">
+                <table class="min-w-[880px] w-full text-sm text-left">
+                    <thead class="bg-slate-900/80">
+                        <tr>
+                            <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">№</th>
+                            <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Категория</th>
+                            <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Авто</th>
+                            <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Статус</th>
+                            <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Создана</th>
+                            <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in requests_list %}
+                        <tr class="border-t border-slate-700/70 hover:bg-slate-700/40">
+                            <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-100">
+                                {{ r.id }}
+                            </td>
+                            <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-100">
+                                {{ r.service_category or "—" }}
+                            </td>
+                            <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-300">
+                                {% if r.car %}
+                                    {{ r.car.brand }} {{ r.car.model }} ({{ r.car.year or "—" }})
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td class="px-3 py-2 whitespace-nowrap text-xs">
+                                {{ r.status }}
+                            </td>
+                            <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-300">
+                                {{ r.created_at or "—" }}
+                            </td>
+                            <td class="px-3 py-2 whitespace-nowrap text-xs">
+                                <a href="/sc/{{ service_center.id }}/requests/{{ r.id }}"
+                                   class="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-3 py-1 hover:bg-emerald-500/30 text-emerald-100">
+                                    Открыть
+                                    <span class="text-base leading-none">→</span>
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-4 flex flex-col items-center gap-1">
+                <div class="h-1.5 w-16 rounded-full bg-slate-500/70"></div>
+                <p class="text-[11px] leading-tight text-slate-400 text-center">
+                    Проведите таблицу влево/вправо, чтобы увидеть все колонки
+                </p>
+            </div>
+            {% else %}
+            <div class="py-8 text-center text-sm text-slate-300">
+                <p class="mb-2">По этому сервису пока нет заявок.</p>
+                <p class="text-slate-500">
+                    Когда клиенты начнут отправлять заявки в ваш СТО, они появятся здесь.
+                </p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

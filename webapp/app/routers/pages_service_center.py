@@ -146,7 +146,7 @@ async def sc_create_post(
 
 
 # ---------------------------------------------------------------------------
-# ПРОСМОТР / РЕДАКТИРОВАНИЕ ПРОФИЛЯ СТО
+# ВСПОМОГАТЕЛЬНОЕ: загрузить СТО и проверить принадлежность
 # ---------------------------------------------------------------------------
 
 async def _load_sc_for_owner(
@@ -155,7 +155,7 @@ async def _load_sc_for_owner(
     sc_id: int,
 ) -> dict[str, Any]:
     """
-    Вспомогательная: загрузить СТО и проверить принадлежность пользователю.
+    Загрузить СТО и проверить, что он принадлежит текущему пользователю.
     """
     user_id = get_current_user_id(request)
 
@@ -175,6 +175,10 @@ async def _load_sc_for_owner(
 
     return sc
 
+
+# ---------------------------------------------------------------------------
+# ПРОСМОТР / РЕДАКТИРОВАНИЕ ПРОФИЛЯ СТО
+# ---------------------------------------------------------------------------
 
 @router.get("/edit/{sc_id}", response_class=HTMLResponse)
 async def sc_edit_get(
@@ -253,4 +257,169 @@ async def sc_edit_post(
             "error_message": error_message,
             "success": success,
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# СПИСОК ЗАЯВОК ДЛЯ КОНКРЕТНОГО СТО
+# ---------------------------------------------------------------------------
+
+@router.get("/{sc_id}/requests", response_class=HTMLResponse)
+async def sc_requests_list(
+    sc_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    """
+    Список заявок, которые были разосланы КОНКРЕТНОМУ СТО.
+    """
+    sc = await _load_sc_for_owner(request, client, sc_id)
+
+    requests_list: list[dict[str, Any]] = []
+    error_message: str | None = None
+
+    try:
+        resp = await client.get(f"/api/v1/requests/for-service-center/{sc_id}")
+        if resp.status_code == status.HTTP_404_NOT_FOUND:
+            requests_list = []
+        else:
+            resp.raise_for_status()
+            requests_list = resp.json()
+    except Exception:
+        error_message = "Не удалось загрузить заявки для этого сервиса. Попробуйте позже."
+        requests_list = []
+
+    return templates.TemplateResponse(
+        "service_center/requests.html",
+        {
+            "request": request,
+            "service_center": sc,
+            "requests_list": requests_list,
+            "error_message": error_message,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# ДЕТАЛЬНАЯ ЗАЯВКА + ОТКЛИК СТО
+# ---------------------------------------------------------------------------
+
+@router.get("/{sc_id}/requests/{request_id}", response_class=HTMLResponse)
+async def sc_request_detail(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    """
+    Детальная заявка для СТО + форма отклика.
+    """
+    sc = await _load_sc_for_owner(request, client, sc_id)
+
+    request_data: dict[str, Any] | None = None
+    offers: list[dict[str, Any]] = []
+    my_offer: dict[str, Any] | None = None
+    error_message: str | None = None
+
+    try:
+        # Сама заявка
+        resp_req = await client.get(f"/api/v1/requests/{request_id}")
+        resp_req.raise_for_status()
+        request_data = resp_req.json()
+
+        # Все отклики по заявке
+        resp_offers = await client.get(f"/api/v1/offers/by-request/{request_id}")
+        if resp_offers.status_code == status.HTTP_404_NOT_FOUND:
+            offers = []
+        else:
+            resp_offers.raise_for_status()
+            offers = resp_offers.json()
+
+        # Наш отклик (если уже есть)
+        for o in offers:
+            if o.get("service_center_id") == sc_id:
+                my_offer = o
+                break
+    except Exception:
+        error_message = "Не удалось загрузить данные заявки. Попробуйте позже."
+
+    return templates.TemplateResponse(
+        "service_center/request_detail.html",
+        {
+            "request": request,
+            "service_center": sc,
+            "req": request_data,
+            "offers": offers,
+            "my_offer": my_offer,
+            "error_message": error_message,
+        },
+    )
+
+
+@router.post("/{sc_id}/requests/{request_id}/offer", response_class=HTMLResponse)
+async def sc_request_offer_submit(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    price: float = Form(...),
+    eta_hours: int = Form(...),
+    comment: str = Form(""),
+) -> HTMLResponse:
+    """
+    Создание или обновление отклика СТО по заявке.
+    """
+    sc = await _load_sc_for_owner(request, client, sc_id)
+
+    # Сначала попробуем узнать, есть ли уже наш оффер
+    my_offer: dict[str, Any] | None = None
+    try:
+        resp_offers = await client.get(f"/api/v1/offers/by-request/{request_id}")
+        if resp_offers.status_code != status.HTTP_404_NOT_FOUND:
+            resp_offers.raise_for_status()
+            offers = resp_offers.json()
+            for o in offers:
+                if o.get("service_center_id") == sc_id:
+                    my_offer = o
+                    break
+    except Exception:
+        # Если не удалось — всё равно попробуем создать новый
+        my_offer = None
+
+    payload: dict[str, Any] = {
+        "request_id": request_id,
+        "service_center_id": sc_id,
+        "price": price,
+        "eta_hours": eta_hours,
+        "comment": comment or None,
+    }
+
+    try:
+        if my_offer:
+            # Обновляем существующий отклик
+            offer_id = my_offer["id"]
+            resp = await client.patch(f"/api/v1/offers/{offer_id}", json=payload)
+            resp.raise_for_status()
+        else:
+            # Создаём новый отклик
+            resp = await client.post("/api/v1/offers/", json=payload)
+            resp.raise_for_status()
+    except Exception:
+        # Вернёмся на страницу детали с ошибкой
+        return templates.TemplateResponse(
+            "service_center/request_detail.html",
+            {
+                "request": request,
+                "service_center": sc,
+                "req": None,
+                "offers": [],
+                "my_offer": None,
+                "error_message": "Не удалось сохранить отклик. Попробуйте позже.",
+            },
+        )
+
+    # После успешного сохранения — вернёмся на страницу заявки
+    return RedirectResponse(
+        url=f"/sc/{sc_id}/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )

@@ -13,11 +13,12 @@
                 Ваши сервисные центры
             </h1>
             <p class="text-sm text-slate-300">
-                Управляйте профилем своих СТО — редактируйте адрес, контакты и статус активности.
+                Управляйте профилем своих СТО и работайте с заявками от клиентов.
             </p>
         </div>
         <a href="/sc/create"
-           class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+           class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-9
+00 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
             <span class="text-lg leading-none">+</span>
             <span>Добавить новый СТО</span>
         </a>
@@ -30,7 +31,6 @@
     {% endif %}
 
     <div class="relative mt-4">
-        <!-- Размытый фон / панель -->
         <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
 
         <div class="relative z-10 p-6 space-y-4">
@@ -61,7 +61,10 @@
                             {% endif %}
                             {% if sc.website %}
                             <p class="text-xs text-slate-400 mt-1">
-                                Сайт: <a href="{{ sc.website }}" target="_blank" class="underline hover:text-emerald-300">{{ sc.website }}</a>
+                                Сайт:
+                                <a href="{{ sc.website }}" target="_blank" class="underline hover:text-emerald-300">
+                                    {{ sc.website }}
+                                </a>
                             </p>
                             {% endif %}
                         </div>
@@ -107,11 +110,18 @@
                             <span class="rounded-full bg-slate-800/70 px-2 py-0.5">{{ sc.org_type }}</span>
                             {% endif %}
                         </div>
-                        <a href="/sc/edit/{{ sc.id }}"
-                           class="inline-flex items-center gap-1 text-emerald-300 group-hover:text-emerald-200 transition">
-                            Редактировать
-                            <span class="text-base leading-none">→</span>
-                        </a>
+                        <div class="flex items-center gap-3">
+                            <a href="/sc/{{ sc.id }}/requests"
+                               class="inline-flex items-center gap-1 text-emerald-300 group-hover:text-emerald-200 transition">
+                                Заявки
+                                <span class="text-base leading-none">→</span>
+                            </a>
+                            <a href="/sc/edit/{{ sc.id }}"
+                               class="inline-flex items-center gap-1 text-slate-200 hover:text-white transition">
+                                Профиль
+                                <span class="text-base leading-none">✎</span>
+                            </a>
+                        </div>
                     </div>
                 </div>
                 {% endfor %}
