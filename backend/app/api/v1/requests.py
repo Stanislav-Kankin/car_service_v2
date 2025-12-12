@@ -1,5 +1,6 @@
 from typing import List, Optional
 import os
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -118,7 +119,7 @@ async def send_request_to_all_service_centers(
                 continue
 
             # Ссылка для СТО на деталку заявки в кабинете сервиса
-            url = f"{WEBAPP_PUBLIC_URL}/service-center/requests/{request_id}"
+            url = f"{WEBAPP_PUBLIC_URL}/sc/{sc.id}/requests/{request_id}"
 
             message = (
                 f"🆕 У вас новая заявка №{request_id}\n"
@@ -194,7 +195,7 @@ async def send_to_one_service(
     # Уведомляем СТО
     owner = service_center.owner
     if notifier.is_enabled() and WEBAPP_PUBLIC_URL and owner and getattr(owner, "telegram_id", None):
-        url = f"{WEBAPP_PUBLIC_URL}/service-center/requests/{request_id}"
+        url = f"{WEBAPP_PUBLIC_URL}/sc/{service_center.id}/requests/{request_id}"
         message = (
             f"📩 Вам отправлена заявка №{request_id}\n"
             f"Категория: {request.service_category or 'не указана'}"
@@ -389,3 +390,68 @@ async def update_request(
             detail="Request not found",
         )
     return request
+
+
+class ScActionIn(BaseModel):
+    service_center_id: int
+
+
+class ScDoneIn(BaseModel):
+    service_center_id: int
+    final_price: float | None = None
+
+
+class ScRejectIn(BaseModel):
+    service_center_id: int
+    reason: str | None = None
+
+
+@router.post("/{request_id}/set_in_work", response_model=RequestRead)
+async def set_in_work(
+    request_id: int,
+    payload: ScActionIn,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        req = await RequestsService.set_in_work(db, request_id, payload.service_center_id)
+        if not req:
+            raise HTTPException(status_code=404, detail="Request not found")
+        return req
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="No access to this request")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status transition")
+
+
+@router.post("/{request_id}/set_done", response_model=RequestRead)
+async def set_done(
+    request_id: int,
+    payload: ScDoneIn,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        req = await RequestsService.set_done(db, request_id, payload.service_center_id, payload.final_price)
+        if not req:
+            raise HTTPException(status_code=404, detail="Request not found")
+        return req
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="No access to this request")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status transition")
+
+
+@router.post("/{request_id}/reject_by_service", response_model=RequestRead)
+async def reject_by_service(
+    request_id: int,
+    payload: ScRejectIn,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        req = await RequestsService.reject_by_service(db, request_id, payload.service_center_id, payload.reason)
+        if not req:
+            raise HTTPException(status_code=404, detail="Request not found")
+        return req
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="No access to this request")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status transition")

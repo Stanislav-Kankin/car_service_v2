@@ -79,6 +79,12 @@ class Request(Base):
     # скрывать ли телефон клиента от СТО до явного согласия
     hide_phone = Column(Boolean, nullable=False, default=True)
 
+    # финальная цена (после завершения заявки)
+    final_price = Column(Float, nullable=True)
+
+    # причина отказа сервисом (если отклонили)
+    reject_reason = Column(Text, nullable=True)
+
     status = Column(
         SAEnum(RequestStatus),
         nullable=False,

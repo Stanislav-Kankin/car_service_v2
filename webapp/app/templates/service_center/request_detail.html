@@ -46,27 +46,35 @@
             {% if req %}
             <div class="grid md:grid-cols-2 gap-6">
                 <div class="space-y-4">
+
+                    <!-- Автомобиль -->
                     <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
                             Автомобиль
                         </p>
+
+                        {# Важно: backend request не содержит вложенный car, обычно есть только car_id #}
                         {% if req.car %}
-                        <p class="text-sm text-slate-100">
-                            {{ req.car.brand }} {{ req.car.model }}
-                            {% if req.car.year %}({{ req.car.year }} г.){% endif %}
-                        </p>
-                        {% if req.car.number %}
-                        <p class="text-xs text-slate-400">
-                            Госномер: {{ req.car.number }}
-                        </p>
-                        {% endif %}
+                            <p class="text-sm text-slate-100">
+                                {{ req.car.brand }} {{ req.car.model }}
+                                {% if req.car.year %}({{ req.car.year }} г.){% endif %}
+                            </p>
+                            {% if req.car.license_plate %}
+                            <p class="text-xs text-slate-400">
+                                Госномер: {{ req.car.license_plate }}
+                            </p>
+                            {% endif %}
                         {% else %}
-                        <p class="text-sm text-slate-300">
-                            Данные об автомобиле недоступны.
-                        </p>
+                            <p class="text-sm text-slate-300">
+                                Данные об автомобиле недоступны.
+                                {% if req.car_id %}
+                                <span class="text-slate-400">ID авто: {{ req.car_id }}</span>
+                                {% endif %}
+                            </p>
                         {% endif %}
                     </div>
 
+                    <!-- Описание -->
                     <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
                             Описание проблемы
@@ -76,17 +84,42 @@
                         </p>
                     </div>
 
+                    <!-- Адрес -->
                     <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
                             Адрес / район
                         </p>
                         <p class="text-sm text-slate-100">
-                            {{ req.address or "Не указан" }}
+                            {{ req.address_text or "Не указан" }}
                         </p>
                     </div>
+
+                    <!-- Итог / отказ -->
+                    {% if req.status == "done" %}
+                    <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-1">
+                        <p class="text-sm text-emerald-200 font-semibold">✅ Заявка завершена</p>
+                        {% if req.final_price is not none %}
+                        <p class="text-sm text-emerald-100/90">
+                            Итоговая цена: <b>{{ req.final_price }}</b>
+                        </p>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    {% if req.status == "rejected_by_service" %}
+                    <div class="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 space-y-1">
+                        <p class="text-sm text-red-200 font-semibold">❌ Заявка отклонена сервисом</p>
+                        {% if req.reject_reason %}
+                        <p class="text-sm text-red-100/90">
+                            Причина: <b>{{ req.reject_reason }}</b>
+                        </p>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                 </div>
 
                 <div class="space-y-4">
+                    <!-- Ваш отклик -->
                     <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
                             Ваш отклик
@@ -101,6 +134,9 @@
                             <li>Срок: <span class="font-semibold">{{ my_offer.eta_hours }} ч.</span></li>
                             {% if my_offer.comment %}
                             <li>Комментарий: <span class="font-semibold">{{ my_offer.comment }}</span></li>
+                            {% endif %}
+                            {% if my_offer.status %}
+                            <li>Статус: <span class="font-semibold">{{ my_offer.status }}</span></li>
                             {% endif %}
                         </ul>
                         {% else %}
@@ -137,7 +173,7 @@
                                 </label>
                                 <textarea name="comment" rows="3"
                                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
-                                          placeholder="Например: &laquo;Диагностика в подарок при ремонте&raquo;.">{{ my_offer.comment if my_offer else "" }}</textarea>
+                                          placeholder="Например: «Диагностика в подарок при ремонте».">{{ my_offer.comment if my_offer else "" }}</textarea>
                             </div>
 
                             <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
@@ -150,6 +186,79 @@
                                 </button>
                             </div>
                         </form>
+                    </div>
+
+                    <!-- Действия по заявке (СТО) -->
+                    <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
+                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
+                            Действия по заявке
+                        </p>
+
+                        {% if req.status == "accepted_by_service" %}
+                        <div class="flex flex-wrap gap-2">
+                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-in-work">
+                                <button type="submit"
+                                        class="inline-flex items-center justify-center rounded-full bg-amber-400 px-5 py-2 text-sm font-semibold text-slate-900 hover:bg-amber-300 transition">
+                                    В работу
+                                </button>
+                            </form>
+
+                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/reject"
+                                  class="flex flex-wrap gap-2 items-center">
+                                <input name="reason" placeholder="Причина отказа"
+                                       class="w-64 rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-red-400">
+                                <button type="submit"
+                                        class="inline-flex items-center justify-center rounded-full border border-red-400/70 px-5 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/10 transition">
+                                    Отказать
+                                </button>
+                            </form>
+                        </div>
+
+                        {% elif req.status == "in_work" %}
+                        <div class="space-y-2">
+                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-done"
+                                  class="flex flex-wrap gap-2 items-center">
+                                <input type="number" step="0.01" min="0" name="final_price" required
+                                       placeholder="Итоговая цена, ₽"
+                                       class="w-64 rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-400">
+                                <button type="submit"
+                                        class="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-slate-900 hover:bg-emerald-400 transition">
+                                    Завершить
+                                </button>
+                            </form>
+
+                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/reject"
+                                  class="flex flex-wrap gap-2 items-center">
+                                <input name="reason" placeholder="Причина отказа"
+                                       class="w-64 rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-red-400">
+                                <button type="submit"
+                                        class="inline-flex items-center justify-center rounded-full border border-red-400/70 px-5 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/10 transition">
+                                    Отказать
+                                </button>
+                            </form>
+                        </div>
+
+                        {% elif req.status == "done" %}
+                        <p class="text-sm text-emerald-200">
+                            ✅ Заявка завершена.
+                            {% if req.final_price is not none %}
+                            Итоговая цена: <b>{{ req.final_price }}</b>
+                            {% endif %}
+                        </p>
+
+                        {% elif req.status == "rejected_by_service" %}
+                        <p class="text-sm text-red-200">
+                            ❌ Заявка отклонена.
+                            {% if req.reject_reason %}
+                            Причина: <b>{{ req.reject_reason }}</b>
+                            {% endif %}
+                        </p>
+
+                        {% else %}
+                        <p class="text-sm text-slate-400">
+                            Для текущего статуса действий нет.
+                        </p>
+                        {% endif %}
                     </div>
 
                     {% if offers and offers|length > 0 %}

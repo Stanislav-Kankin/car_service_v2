@@ -179,8 +179,9 @@
                             Адрес / район
                         </p>
                         <p class="text-sm text-slate-100">
-                            {{ request_obj.address_text or "Адрес не указан" }}
+                            {{ req.address_text or "Адрес не указан" }}
                         </p>
+
                         <p class="text-[11px] text-slate-500">
                             В будущем здесь можно будет выбрать точку на карте или отправить геолокацию из бота.
                         </p>
@@ -264,7 +265,8 @@
                     </p>
                 </div>
 
-                {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none) %}
+                {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none)
+                %}
 
                 {% if already_chosen %}
                 <div class="rounded-2xl border border-emerald-500/30 bg-emerald-900/10 p-4">
@@ -292,7 +294,8 @@
                                 Сервис #{{ offer.service_center_id }}
                             </p>
                             <p class="text-xs text-slate-300">
-                                {% if offer.price is not none %}Цена: {{ offer.price }}{% else %}Цена не указана{% endif %}
+                                {% if offer.price is not none %}Цена: {{ offer.price }}{% else %}Цена не указана{% endif
+                                %}
                                 {% if offer.eta_hours is not none %} · Срок: ~{{ offer.eta_hours }} ч.{% endif %}
                             </p>
 
@@ -358,15 +361,16 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
 <script>
-(function () {
-    const mapContainer = document.getElementById("request-map-inner");
-    const wrapper = document.getElementById("request-map");
-    const hint = document.getElementById("map-hint");
+    (function () {
+        const mapContainer = document.getElementById("request-map-inner");
+        const wrapper = document.getElementById("request-map");
+        const hint = document.getElementById("map-hint");
 
-    if (!mapContainer || !wrapper) return;
+        if (!mapContainer || !wrapper) return;
 
-    // ✅ Jinja → JS: безопасно (number | null)
-    const lat = {{ request_obj.latitude | tojson }};
+        // ✅ Jinja → JS: безопасно (number | null)
+        const lat = {{ request_obj.latitude | tojson
+    }};
     const lon = {{ request_obj.longitude | tojson }};
     const address = wrapper.dataset.address || "";
 
@@ -419,6 +423,6 @@
         .catch(function () {
             showError("Ошибка при обращении к геосервису. Попробуйте позже.");
         });
-})();
+}) ();
 </script>
 {% endblock %}

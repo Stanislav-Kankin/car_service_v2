@@ -168,8 +168,10 @@ class RequestsService:
         active_statuses = [
             RequestStatus.NEW,
             RequestStatus.SENT,
+            RequestStatus.ACCEPTED_BY_SERVICE,
             RequestStatus.IN_WORK,
         ]
+
 
         stmt = select(Request).where(Request.status.in_(active_statuses))
 
@@ -225,6 +227,77 @@ class RequestsService:
         await db.refresh(request)
         return request
 
+    @staticmethod
+    async def set_in_work(
+        db: AsyncSession,
+        request_id: int,
+        service_center_id: int,
+    ) -> Optional[Request]:
+        request = await RequestsService.get_request_by_id(db, request_id)
+        if not request:
+            return None
+
+        # Защита: только выбранный сервис может менять статус
+        if request.service_center_id != service_center_id:
+            raise PermissionError("Service center has no access to this request")
+
+        # Разрешаем переводить в работу только из accepted_by_service
+        if request.status not in (RequestStatus.ACCEPTED_BY_SERVICE,):
+            raise ValueError("Invalid status transition")
+
+        request.status = RequestStatus.IN_WORK
+        await db.commit()
+        await db.refresh(request)
+        return request
+
+    @staticmethod
+    async def set_done(
+        db: AsyncSession,
+        request_id: int,
+        service_center_id: int,
+        final_price: float | None,
+    ) -> Optional[Request]:
+        request = await RequestsService.get_request_by_id(db, request_id)
+        if not request:
+            return None
+
+        if request.service_center_id != service_center_id:
+            raise PermissionError("Service center has no access to this request")
+
+        # Завершать можно только если уже в работе
+        if request.status not in (RequestStatus.IN_WORK,):
+            raise ValueError("Invalid status transition")
+
+        request.status = RequestStatus.DONE
+        request.final_price = final_price
+        await db.commit()
+        await db.refresh(request)
+        return request
+
+    @staticmethod
+    async def reject_by_service(
+        db: AsyncSession,
+        request_id: int,
+        service_center_id: int,
+        reason: str | None,
+    ) -> Optional[Request]:
+        request = await RequestsService.get_request_by_id(db, request_id)
+        if not request:
+            return None
+
+        if request.service_center_id != service_center_id:
+            raise PermissionError("Service center has no access to this request")
+
+        # Отказать можно до завершения (accepted/in_work)
+        if request.status not in (RequestStatus.ACCEPTED_BY_SERVICE, RequestStatus.IN_WORK):
+            raise ValueError("Invalid status transition")
+
+        request.status = RequestStatus.REJECTED_BY_SERVICE
+        request.reject_reason = (reason or "").strip() or None
+        await db.commit()
+        await db.refresh(request)
+        return request
+
     # ------------------------------------------------------------------
     # НОВОЕ: список заявок для конкретного СТО (только "его" заявки)
     # ------------------------------------------------------------------
@@ -244,6 +317,7 @@ class RequestsService:
         active_statuses = [
             RequestStatus.NEW,
             RequestStatus.SENT,
+            RequestStatus.ACCEPTED_BY_SERVICE,
             RequestStatus.IN_WORK,
         ]
 

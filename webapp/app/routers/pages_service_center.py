@@ -423,3 +423,86 @@ async def sc_request_offer_submit(
         url=f"/sc/{sc_id}/requests/{request_id}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+@router.post("/{sc_id}/requests/{request_id}/set-in-work", response_class=HTMLResponse)
+async def sc_set_in_work(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    _ = await _load_sc_for_owner(request, client, sc_id)
+
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/set_in_work",
+            json={"service_center_id": sc_id},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return RedirectResponse(
+            url=f"/sc/{sc_id}/requests/{request_id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return RedirectResponse(
+        url=f"/sc/{sc_id}/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/{sc_id}/requests/{request_id}/set-done", response_class=HTMLResponse)
+async def sc_set_done(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    final_price: float = Form(...),
+) -> HTMLResponse:
+    _ = await _load_sc_for_owner(request, client, sc_id)
+
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/set_done",
+            json={"service_center_id": sc_id, "final_price": final_price},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return RedirectResponse(
+            url=f"/sc/{sc_id}/requests/{request_id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return RedirectResponse(
+        url=f"/sc/{sc_id}/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/{sc_id}/requests/{request_id}/reject", response_class=HTMLResponse)
+async def sc_reject(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    reason: str = Form(""),
+) -> HTMLResponse:
+    _ = await _load_sc_for_owner(request, client, sc_id)
+
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/reject_by_service",
+            json={"service_center_id": sc_id, "reason": reason or None},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return RedirectResponse(
+            url=f"/sc/{sc_id}/requests/{request_id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return RedirectResponse(
+        url=f"/sc/{sc_id}/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
