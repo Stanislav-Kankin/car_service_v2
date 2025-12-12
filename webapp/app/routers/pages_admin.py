@@ -83,6 +83,11 @@ async def admin_service_centers(
 ) -> HTMLResponse:
     """
     Список всех СТО (для админа): активные и неактивные.
+
+    ВАЖНО:
+    - Не используем больше /api/v1/service-centers/all, т.к. он отдаёт 422.
+    - Вместо этого дергаем рабочий эндпоинт /api/v1/service-centers
+      дважды: is_active=True и is_active=False.
     """
     _ = await get_current_admin(request, client)
 
@@ -90,15 +95,39 @@ async def admin_service_centers(
     error_message: str | None = None
 
     try:
-        resp = await client.get(
-            "/api/v1/service-centers/all",
-            follow_redirects=True,  # на всякий случай, если где-то редирект
+        # Активные СТО
+        resp_active = await client.get(
+            "/api/v1/service-centers",
+            params={"is_active": True},
         )
-        resp.raise_for_status()
-        service_centers = resp.json()
+        resp_active.raise_for_status()
+        active_list = resp_active.json()
+
+        # Неактивные СТО
+        resp_inactive = await client.get(
+            "/api/v1/service-centers",
+            params={"is_active": False},
+        )
+        resp_inactive.raise_for_status()
+        inactive_list = resp_inactive.json()
+
+        combined = list(active_list) + list(inactive_list)
+
+        # Если backend отдаёт created_at — попробуем отсортировать по дате создания
+        # (сначала новые). Если поля нет, сортировка просто не повлияет.
+        try:
+            combined.sort(
+                key=lambda sc: sc.get("created_at") or "",
+                reverse=True,
+            )
+        except Exception:
+            # Если что-то не так с форматом даты — не падаем, просто оставляем как есть.
+            pass
+
+        service_centers = combined
+
     except Exception as e:
-        # здесь можно заменить на нормальное логирование, пока оставлю простую строку
-        print("ERROR loading service-centers for admin:", repr(e))
+        print("ERROR loading service-centers for admin (via /service-centers):", repr(e))
         error_message = "Не удалось загрузить список СТО."
         service_centers = []
 
