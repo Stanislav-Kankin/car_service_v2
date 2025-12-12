@@ -61,3 +61,30 @@ async def accept_by_client(
     if not offer:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
     return offer
+
+
+@router.post(
+    "/{offer_id}/accept-by-client",
+    response_model=OfferRead,
+)
+async def accept_offer_by_client(
+    offer_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Клиент принимает оффер.
+
+    Здесь просто дергаем сервис, который:
+      - отмечает этот оффер как ACCEPTED,
+      - остальные по заявке как REJECTED,
+      - записывает выбранный service_center_id в заявку,
+      - меняет статус заявки,
+      - шлёт уведомление СТО (если включен BotNotifier).
+    """
+    offer = await OffersService.accept_offer_by_client(db, offer_id)
+    if not offer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Offer not found",
+        )
+    return offer
