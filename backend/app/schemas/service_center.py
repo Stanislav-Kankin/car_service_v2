@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ServiceCenterBase(BaseModel):
@@ -78,15 +78,25 @@ class ServiceCenterUpdate(BaseModel):
 
 
 class ServiceCenterRead(ServiceCenterBase):
-    """
-    То, что отдаём наружу.
-    """
-
     id: int
     user_id: int
 
-    created_at: datetime
-    updated_at: datetime
+    address: str | None
+    latitude: float | None
+    longitude: float | None
 
-    class Config:
-        from_attributes = True
+    phone: str | None
+    website: str | None
+    social_links: dict | None
+
+    specializations: list[str] | None
+    org_type: str | None
+
+    is_mobile_service: bool
+    has_tow_truck: bool
+    is_active: bool
+
+    created_at: datetime
+    updated_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)
