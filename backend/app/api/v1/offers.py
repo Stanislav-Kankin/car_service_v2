@@ -1,10 +1,8 @@
-from typing import List
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
-from backend.app.schemas.offer import OfferCreate, OfferRead, OfferUpdate
+from backend.app.schemas.offer import OfferCreate, OfferUpdate, OfferRead
 from backend.app.services.offers_service import OffersService
 
 router = APIRouter(
@@ -13,75 +11,53 @@ router = APIRouter(
 )
 
 
-@router.post(
-    "/",
-    response_model=OfferRead,
-    status_code=status.HTTP_201_CREATED,
-)
+# ----------------------------------------------------------------------
+# Создать оффер
+# ----------------------------------------------------------------------
+@router.post("/", response_model=OfferRead)
 async def create_offer(
-    offer_in: OfferCreate,
+    payload: OfferCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Создать новый отклик СТО на заявку.
-    """
-    offer = await OffersService.create_offer(db, offer_in)
+    return await OffersService.create_offer(db, payload.dict())
+
+
+# ----------------------------------------------------------------------
+# Обновить оффер
+# ----------------------------------------------------------------------
+@router.patch("/{offer_id}", response_model=OfferRead)
+async def update_offer(
+    offer_id: int,
+    payload: OfferUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    offer = await OffersService.update_offer(db, offer_id, payload.dict())
+    if not offer:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
     return offer
 
 
-@router.get(
-    "/by-request/{request_id}",
-    response_model=List[OfferRead],
-)
-async def list_offers_by_request(
+# ----------------------------------------------------------------------
+# Все офферы по заявке
+# ----------------------------------------------------------------------
+@router.get("/by-request/{request_id}", response_model=list[OfferRead])
+async def offers_by_request(
     request_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Список откликов по конкретной заявке.
-    """
-    offers = await OffersService.list_by_request(db, request_id)
-    return offers
+    return await OffersService.get_offers_by_request(db, request_id)
 
 
-@router.get(
-    "/{offer_id}",
-    response_model=OfferRead,
-)
-async def get_offer(
+# ----------------------------------------------------------------------
+# КЛЮЧЕВОЙ ЭНДПОИНТ:
+# КЛИЕНТ ПРИНИМАЕТ ОФФЕР
+# ----------------------------------------------------------------------
+@router.post("/{offer_id}/accept-by-client", response_model=OfferRead)
+async def accept_by_client(
     offer_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Получить отклик по ID.
-    """
-    offer = await OffersService.get_by_id(db, offer_id)
+    offer = await OffersService.accept_offer_by_client(db, offer_id)
     if not offer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Offer not found",
-        )
-    return offer
-
-
-@router.patch(
-    "/{offer_id}",
-    response_model=OfferRead,
-)
-async def update_offer(
-    offer_id: int,
-    data_in: OfferUpdate,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Частичное обновление отклика (статус и т.п.).
-    """
-    offer = await OffersService.get_by_id(db, offer_id)
-    if not offer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Offer not found",
-        )
-
-    offer = await OffersService.update_offer(db, offer, data_in)
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
     return offer
