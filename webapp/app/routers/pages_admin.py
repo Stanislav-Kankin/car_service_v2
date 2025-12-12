@@ -90,11 +90,15 @@ async def admin_service_centers(
     error_message: str | None = None
 
     try:
-        # новый эндпоинт: /api/v1/service-centers/all
-        resp = await client.get("/api/v1/service-centers/all")
+        resp = await client.get(
+            "/api/v1/service-centers/all",
+            follow_redirects=True,  # на всякий случай, если где-то редирект
+        )
         resp.raise_for_status()
         service_centers = resp.json()
-    except Exception:
+    except Exception as e:
+        # здесь можно заменить на нормальное логирование, пока оставлю простую строку
+        print("ERROR loading service-centers for admin:", repr(e))
         error_message = "Не удалось загрузить список СТО."
         service_centers = []
 
@@ -134,9 +138,9 @@ async def admin_service_center_toggle(
             json={"is_active": is_active},
         )
         resp.raise_for_status()
-    except Exception:
-        # Можно будет потом добавить логирование, флеш-сообщения и т.п.
-        pass
+    except Exception as e:
+        print("ERROR toggling service-center:", sc_id, repr(e))
+        # Пока просто игнорируем, UI всё равно перерисуем
 
     # Перезагружаем список СТО
     return await admin_service_centers(request, client)
