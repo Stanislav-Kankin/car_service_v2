@@ -11,9 +11,6 @@ router = APIRouter(
 )
 
 
-# ----------------------------------------------------------------------
-# Создать оффер
-# ----------------------------------------------------------------------
 @router.post("/", response_model=OfferRead)
 async def create_offer(
     payload: OfferCreate,
@@ -22,9 +19,6 @@ async def create_offer(
     return await OffersService.create_offer(db, payload.dict())
 
 
-# ----------------------------------------------------------------------
-# Обновить оффер
-# ----------------------------------------------------------------------
 @router.patch("/{offer_id}", response_model=OfferRead)
 async def update_offer(
     offer_id: int,
@@ -37,9 +31,6 @@ async def update_offer(
     return offer
 
 
-# ----------------------------------------------------------------------
-# Все офферы по заявке
-# ----------------------------------------------------------------------
 @router.get("/by-request/{request_id}", response_model=list[OfferRead])
 async def offers_by_request(
     request_id: int,
@@ -48,40 +39,33 @@ async def offers_by_request(
     return await OffersService.get_offers_by_request(db, request_id)
 
 
-# ----------------------------------------------------------------------
-# КЛЮЧЕВОЙ ЭНДПОИНТ:
+# ----------------------------
 # КЛИЕНТ ПРИНИМАЕТ ОФФЕР
-# ----------------------------------------------------------------------
+# ----------------------------
 @router.post("/{offer_id}/accept-by-client", response_model=OfferRead)
-async def accept_by_client(
+async def accept_offer_by_client(
     offer_id: int,
     db: AsyncSession = Depends(get_db),
 ):
     offer = await OffersService.accept_offer_by_client(db, offer_id)
     if not offer:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Offer not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Offer not found",
+        )
     return offer
 
 
-@router.post(
-    "/{offer_id}/accept-by-client",
-    response_model=OfferRead,
-)
-async def accept_offer_by_client(
+# ----------------------------
+# КЛИЕНТ ОТКЛОНЯЕТ ОФФЕР
+# (нужно, потому что webapp уже вызывает этот роут)
+# ----------------------------
+@router.post("/{offer_id}/reject-by-client", response_model=OfferRead)
+async def reject_offer_by_client(
     offer_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Клиент принимает оффер.
-
-    Здесь просто дергаем сервис, который:
-      - отмечает этот оффер как ACCEPTED,
-      - остальные по заявке как REJECTED,
-      - записывает выбранный service_center_id в заявку,
-      - меняет статус заявки,
-      - шлёт уведомление СТО (если включен BotNotifier).
-    """
-    offer = await OffersService.accept_offer_by_client(db, offer_id)
+    offer = await OffersService.reject_offer_by_client(db, offer_id)
     if not offer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

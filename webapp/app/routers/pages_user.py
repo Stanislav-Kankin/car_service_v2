@@ -732,7 +732,7 @@ async def request_detail(
             car = None
 
     # Загрузка откликов
-    offers = []
+    offers: list[dict[str, Any]] = []
     try:
         resp2 = await client.get(f"/api/v1/offers/by-request/{request_id}")
         if resp2.status_code == 200:
@@ -741,6 +741,15 @@ async def request_detail(
             offers = []
     except Exception:
         offers = []
+
+    # ✅ Новое: вычисляем выбранный оффер (если есть)
+    accepted_offer_id: int | None = None
+    accepted_sc_id: int | None = None
+    for o in offers:
+        if o.get("status") == "accepted":
+            accepted_offer_id = o.get("id")
+            accepted_sc_id = o.get("service_center_id")
+            break
 
     return templates.TemplateResponse(
         "user/request_detail.html",
@@ -752,6 +761,10 @@ async def request_detail(
             "sent_all": sent_all,
             "chosen_service_id": chosen_service_id,
             "offers": offers,
+
+            # ✅ Новое: для UI (скрыть кнопки, показать выбранный сервис)
+            "accepted_offer_id": accepted_offer_id,
+            "accepted_sc_id": accepted_sc_id,
         },
     )
 
@@ -775,9 +788,15 @@ async def request_accept_offer(
         resp = await client.post(f"/api/v1/offers/{offer_id}/accept-by-client")
         resp.raise_for_status()
     except Exception:
-        pass
+        # ✅ не делаем silent-pass и не возвращаем “как ни в чём не бывало”
+        # просто оставим на странице (можно потом красиво отрисовать баннер ошибки)
+        return await request_detail(request_id, request, client)
 
-    return await request_detail(request_id, request, client)
+    # ✅ Важно: редирект, чтобы не было повторной отправки формы при обновлении
+    return RedirectResponse(
+        url=f"/me/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 # --------------------------------------------------------------------
@@ -799,9 +818,13 @@ async def request_reject_offer(
         resp = await client.post(f"/api/v1/offers/{offer_id}/reject-by-client")
         resp.raise_for_status()
     except Exception:
-        pass
+        # reject не критичен — просто вернём страницу
+        return await request_detail(request_id, request, client)
 
-    return await request_detail(request_id, request, client)
+    return RedirectResponse(
+        url=f"/me/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 # --------------------------------------------------------------------

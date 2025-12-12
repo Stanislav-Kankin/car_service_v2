@@ -264,6 +264,29 @@
                     </p>
                 </div>
 
+                {# ✅ Новое: считаем, что выбор уже сделан, если:
+                - request_obj.service_center_id уже стоит
+                - или есть accepted_offer_id (мы передали из pages_user.py)
+                #}
+                {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none)
+                %}
+
+                {% if already_chosen %}
+                <div class="rounded-2xl border border-emerald-500/30 bg-emerald-900/10 p-4">
+                    <p class="text-sm text-emerald-200 font-semibold">
+                        ✅ Сервис выбран
+                    </p>
+                    <p class="text-[11px] text-emerald-200/80">
+                        {% if accepted_sc_id %}
+                        Выбран сервис #{{ accepted_sc_id }}.
+                        {% elif request_obj.service_center_id %}
+                        Выбран сервис #{{ request_obj.service_center_id }}.
+                        {% endif %}
+                        Кнопки принятия скрыты, чтобы не было повторного выбора.
+                    </p>
+                </div>
+                {% endif %}
+
                 {% if offers %}
                 <div class="space-y-3">
                     {% for offer in offers %}
@@ -278,17 +301,28 @@
                                 %}
                                 {% if offer.eta_hours is not none %} · Срок: ~{{ offer.eta_hours }} ч.{% endif %}
                             </p>
+
                             {% if offer.comment %}
                             <p class="text-xs text-slate-400">
                                 {{ offer.comment }}
                             </p>
                             {% endif %}
+
                             {% if offer.status %}
                             <p class="text-[11px] text-slate-500">
                                 Статус: {{ offer.status }}
                             </p>
                             {% endif %}
+
+                            {% if offer.status == "accepted" %}
+                            <span
+                                class="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-200 border border-emerald-500/30">
+                                ✅ Выбранный оффер
+                            </span>
+                            {% endif %}
                         </div>
+
+                        {% if not already_chosen %}
                         <div class="flex flex-wrap gap-2 text-xs">
                             <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/accept">
                                 <button type="submit"
@@ -296,6 +330,7 @@
                                     Принять
                                 </button>
                             </form>
+
                             <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/reject">
                                 <button type="submit"
                                     class="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 font-semibold text-slate-200 hover:bg-slate-800 transition">
@@ -303,6 +338,11 @@
                                 </button>
                             </form>
                         </div>
+                        {% else %}
+                        <div class="text-[11px] text-slate-500">
+                            Действия недоступны — сервис уже выбран.
+                        </div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -312,18 +352,16 @@
                 </p>
                 {% endif %}
             </div>
+
         </div>
     </div>
 </div>
 
 <!-- Leaflet + геокодинг через Nominatim -->
-<link rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-        crossorigin=""></script>
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
 <script>
     (function () {
@@ -336,61 +374,62 @@
         }
 
         // Jinja → JS: либо число, либо null (без кавычек)
-        const lat = {{ request_obj.latitude if request_obj.latitude is not none else 'null' }};
-        const lon = {{ request_obj.longitude if request_obj.longitude is not none else 'null' }};
-        const address = wrapper.dataset.address || "";
+        const lat = {{ request_obj.latitude if request_obj.latitude is not none else 'null' }
+    };
+    const lon = {{ request_obj.longitude if request_obj.longitude is not none else 'null' }};
+    const address = wrapper.dataset.address || "";
 
-        function showError(msg) {
-            if (!hint) return;
-            hint.textContent = msg;
-            hint.classList.remove("text-slate-500");
-            hint.classList.add("text-slate-400");
-        }
+    function showError(msg) {
+        if (!hint) return;
+        hint.textContent = msg;
+        hint.classList.remove("text-slate-500");
+        hint.classList.add("text-slate-400");
+    }
 
-        function initMap(centerLat, centerLon) {
-            const map = L.map(mapContainer).setView([centerLat, centerLon], 14);
-            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                maxZoom: 19,
-                attribution: "&copy; OpenStreetMap contributors"
-            }).addTo(map);
+    function initMap(centerLat, centerLon) {
+        const map = L.map(mapContainer).setView([centerLat, centerLon], 14);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(map);
 
-            L.marker([centerLat, centerLon]).addTo(map);
-        }
+        L.marker([centerLat, centerLon]).addTo(map);
+    }
 
-        // Если в заявке уже есть координаты — используем их
-        if (lat !== null && lon !== null) {
-            initMap(lat, lon);
-            return;
-        }
+    // Если в заявке уже есть координаты — используем их
+    if (lat !== null && lon !== null) {
+        initMap(lat, lon);
+        return;
+    }
 
-        // Если нет ни координат, ни адреса — ничего сделать нельзя
-        if (!address) {
-            showError("Координаты и адрес не указаны — карту показать нельзя.");
-            return;
-        }
+    // Если нет ни координат, ни адреса — ничего сделать нельзя
+    if (!address) {
+        showError("Координаты и адрес не указаны — карту показать нельзя.");
+        return;
+    }
 
-        // Геокодинг адреса через Nominatim (OpenStreetMap)
-        fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(address))
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                if (!Array.isArray(data) || data.length === 0) {
-                    showError("Не удалось определить координаты по адресу.");
-                    return;
-                }
-                const item = data[0];
-                const glat = parseFloat(item.lat);
-                const glon = parseFloat(item.lon);
+    // Геокодинг адреса через Nominatim (OpenStreetMap)
+    fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(address))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!Array.isArray(data) || data.length === 0) {
+                showError("Не удалось определить координаты по адресу.");
+                return;
+            }
+            const item = data[0];
+            const glat = parseFloat(item.lat);
+            const glon = parseFloat(item.lon);
 
-                if (Number.isNaN(glat) || Number.isNaN(glon)) {
-                    showError("Не удалось определить координаты по адресу.");
-                    return;
-                }
+            if (Number.isNaN(glat) || Number.isNaN(glon)) {
+                showError("Не удалось определить координаты по адресу.");
+                return;
+            }
 
-                initMap(glat, glon);
-            })
-            .catch(function () {
-                showError("Ошибка при обращении к геосервису. Попробуйте позже.");
-            });
-    })();
+            initMap(glat, glon);
+        })
+        .catch(function () {
+            showError("Ошибка при обращении к геосервису. Попробуйте позже.");
+        });
+    }) ();
 </script>
 {% endblock %}
