@@ -235,3 +235,68 @@ async def admin_user_lookup_post(
             "error_message": error_message,
         },
     )
+
+
+@router.get("/users", response_class=HTMLResponse)
+async def admin_users(
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    """
+    Список пользователей для админа с фильтрами по дате/ID/Telegram ID.
+    """
+    _ = await get_current_admin(request, client)
+
+    # Читаем фильтры из query-параметров
+    qp = request.query_params
+    date_from = qp.get("date_from") or None
+    date_to = qp.get("date_to") or None
+    user_id = qp.get("user_id") or None
+    telegram_id = qp.get("telegram_id") or None
+
+    params: dict[str, Any] = {}
+
+    if date_from:
+        params["registered_from"] = date_from
+    if date_to:
+        params["registered_to"] = date_to
+    if user_id:
+        try:
+            params["user_id"] = int(user_id)
+        except ValueError:
+            pass
+    if telegram_id:
+        try:
+            params["telegram_id"] = int(telegram_id)
+        except ValueError:
+            pass
+
+    users: list[dict[str, Any]] = []
+    error_message: str | None = None
+
+    try:
+        resp = await client.get(
+            "/api/v1/users/",
+            params=params,
+            follow_redirects=True,
+        )
+        resp.raise_for_status()
+        users = resp.json()
+    except Exception as e:
+        print("ERROR loading users for admin:", repr(e))
+        error_message = "Не удалось загрузить список пользователей."
+
+    return templates.TemplateResponse(
+        "admin/users.html",
+        {
+            "request": request,
+            "users": users,
+            "error_message": error_message,
+            "filters": {
+                "date_from": date_from or "",
+                "date_to": date_to or "",
+                "user_id": user_id or "",
+                "telegram_id": telegram_id or "",
+            },
+        },
+    )

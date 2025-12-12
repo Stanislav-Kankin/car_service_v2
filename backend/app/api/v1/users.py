@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import date
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.db import get_db
@@ -55,3 +58,36 @@ async def get_user_by_telegram(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+@router.get("/", response_model=List[UserRead])
+async def list_users(
+    db: AsyncSession = Depends(get_db),
+    registered_from: Optional[date] = Query(
+        None,
+        description="Дата регистрации с (включительно), формат YYYY-MM-DD",
+    ),
+    registered_to: Optional[date] = Query(
+        None,
+        description="Дата регистрации по (включительно), формат YYYY-MM-DD",
+    ),
+    user_id: Optional[int] = Query(
+        None,
+        description="Фильтр по внутреннему ID пользователя",
+    ),
+    telegram_id: Optional[int] = Query(
+        None,
+        description="Фильтр по Telegram ID",
+    ),
+):
+    """
+    Список пользователей для админки с базовыми фильтрами.
+    """
+    users = await UsersService.list_users(
+        db,
+        registered_from=registered_from,
+        registered_to=registered_to,
+        user_id=user_id,
+        telegram_id=telegram_id,
+    )
+    return users

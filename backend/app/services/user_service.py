@@ -1,5 +1,5 @@
 from typing import Optional
-
+from datetime import date, datetime, time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +31,52 @@ class UsersService:
             select(User).where(User.telegram_id == telegram_id)
         )
         return result.scalar_one_or_none()
+
+    @staticmethod
+    async def list_users(
+        db: AsyncSession,
+        *,
+        registered_from: Optional[date] = None,
+        registered_to: Optional[date] = None,
+        user_id: Optional[int] = None,
+        telegram_id: Optional[int] = None,
+    ) -> list[User]:
+        """
+        Получить список пользователей с простыми фильтрами для админки.
+        """
+        stmt = select(User)
+        conditions = []
+
+        # Фильтр по ID пользователя
+        if user_id is not None:
+            conditions.append(User.id == user_id)
+
+        # Фильтр по Telegram ID
+        if telegram_id is not None:
+            conditions.append(User.telegram_id == telegram_id)
+
+        # Фильтры по дате регистрации (по полю created_at, если оно есть)
+        created_at_col = getattr(User, "created_at", None)
+        if created_at_col is not None:
+            if registered_from is not None:
+                dt_from = datetime.combine(registered_from, time.min)
+                conditions.append(created_at_col >= dt_from)
+            if registered_to is not None:
+                dt_to = datetime.combine(registered_to, time.max)
+                conditions.append(created_at_col <= dt_to)
+
+        if conditions:
+            stmt = stmt.where(*conditions)
+
+        # Новые сверху
+        if created_at_col is not None:
+            stmt = stmt.order_by(created_at_col.desc())
+        else:
+            stmt = stmt.order_by(User.id.desc())
+
+        result = await db.execute(stmt)
+        users = result.scalars().all()
+        return list(users)
 
     @staticmethod
     async def update_user(
