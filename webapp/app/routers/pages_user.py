@@ -756,13 +756,12 @@ async def request_detail(
         {
             "request": request,
             "request_obj": req_data,
+            "req": req_data,
             "car": car,
             "can_distribute": can_distribute,
             "sent_all": sent_all,
             "chosen_service_id": chosen_service_id,
             "offers": offers,
-
-            # ✅ Новое: для UI (скрыть кнопки, показать выбранный сервис)
             "accepted_offer_id": accepted_offer_id,
             "accepted_sc_id": accepted_sc_id,
         },
