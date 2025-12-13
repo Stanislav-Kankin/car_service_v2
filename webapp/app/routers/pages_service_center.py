@@ -75,16 +75,30 @@ async def sc_dashboard(
 async def sc_create_get(
     request: Request,
 ) -> HTMLResponse:
-    """
-    Форма создания нового сервис-центра.
-    """
     _ = get_current_user_id(request)
+
+    # ✅ Единый список специализаций (код -> лейбл)
+    # Подогнано под твой реальный список из бота (SERVICE_SPECIALIZATION_OPTIONS).
+    # Если ты хочешь хранить это в backend — позже вынесем в /api/v1/dicts.
+    specialization_options = [
+        ("wash", "Автомойка"),
+        ("tire", "Шиномонтаж"),
+        ("electric", "Автоэлектрик"),
+        ("mechanic", "Слесарные работы"),
+        ("paint", "Кузовные/покраска"),
+        ("maint", "ТО/обслуживание"),
+        ("agg_turbo", "Турбины"),
+        ("agg_starter", "Стартеры"),
+        ("agg_generator", "Генераторы"),
+        ("agg_steering", "Рулевые рейки"),
+    ]
 
     return templates.TemplateResponse(
         "service_center/create.html",
         {
             "request": request,
             "error_message": None,
+            "specialization_options": specialization_options,
         },
     )
 
@@ -100,11 +114,34 @@ async def sc_create_post(
     org_type: str = Form("company"),
     is_mobile_service: bool = Form(False),
     has_tow_truck: bool = Form(False),
+    # ✅ НОВОЕ: специализации приходят как multi-select/checkboxes (несколько значений)
+    specializations: list[str] = Form(default_factory=list),
 ) -> HTMLResponse:
-    """
-    Обработка создания СТО.
-    """
     user_id = get_current_user_id(request)
+
+    # ✅ Валидация: минимум 1 специализация
+    specializations = [s.strip() for s in (specializations or []) if s and s.strip()]
+    if not specializations:
+        specialization_options = [
+            ("wash", "Автомойка"),
+            ("tire", "Шиномонтаж"),
+            ("electric", "Автоэлектрик"),
+            ("mechanic", "Слесарные работы"),
+            ("paint", "Кузовные/покраска"),
+            ("maint", "ТО/обслуживание"),
+            ("agg_turbo", "Турбины"),
+            ("agg_starter", "Стартеры"),
+            ("agg_generator", "Генераторы"),
+            ("agg_steering", "Рулевые рейки"),
+        ]
+        return templates.TemplateResponse(
+            "service_center/create.html",
+            {
+                "request": request,
+                "error_message": "Выберите хотя бы одну специализацию.",
+                "specialization_options": specialization_options,
+            },
+        )
 
     payload: dict[str, Any] = {
         "user_id": user_id,
@@ -115,30 +152,40 @@ async def sc_create_post(
         "org_type": org_type or None,
         "is_mobile_service": bool(is_mobile_service),
         "has_tow_truck": bool(has_tow_truck),
-        # пока без гео и специализаций — это дополним позже
         "latitude": None,
         "longitude": None,
-        "specializations": [],
+        # ✅ НОВОЕ: отправляем выбранные специализации
+        "specializations": specializations,
         "social_links": None,
-        "is_active": True,
+        # модерация: создаём неактивной
+        "is_active": False,
     }
-
-    error_message: str | None = None
 
     try:
         resp = await client.post("/api/v1/service-centers/", json=payload)
         resp.raise_for_status()
     except Exception:
-        error_message = "Не удалось создать СТО. Проверьте данные и попробуйте ещё раз."
+        specialization_options = [
+            ("wash", "Автомойка"),
+            ("tire", "Шиномонтаж"),
+            ("electric", "Автоэлектрик"),
+            ("mechanic", "Слесарные работы"),
+            ("paint", "Кузовные/покраска"),
+            ("maint", "ТО/обслуживание"),
+            ("agg_turbo", "Турбины"),
+            ("agg_starter", "Стартеры"),
+            ("agg_generator", "Генераторы"),
+            ("agg_steering", "Рулевые рейки"),
+        ]
         return templates.TemplateResponse(
             "service_center/create.html",
             {
                 "request": request,
-                "error_message": error_message,
+                "error_message": "Не удалось создать СТО. Проверьте данные и попробуйте ещё раз.",
+                "specialization_options": specialization_options,
             },
         )
 
-    # После успешного создания — в дашборд СТО
     return RedirectResponse(
         url="/sc/dashboard",
         status_code=status.HTTP_303_SEE_OTHER,

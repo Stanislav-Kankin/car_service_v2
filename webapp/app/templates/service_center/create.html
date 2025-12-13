@@ -21,7 +21,7 @@
                         Добавить новый СТО
                     </h1>
                     <p class="text-sm text-slate-300 mt-1">
-                        Укажите базовую информацию — адрес, телефон и сайт. Специализации и гео дополним позже.
+                        Укажите базовую информацию — адрес, телефон и сайт. Теперь специализации указываем сразу (обязательно).
                     </p>
                 </div>
             </div>
@@ -102,15 +102,44 @@
                     </div>
                 </div>
 
+                <!-- ✅ НОВОЕ: Специализации (обязательно) -->
+                <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
+                                Специализации<span class="text-red-400">*</span>
+                            </p>
+                            <p class="text-sm text-slate-300 mt-1">
+                                Выберите минимум одну — по ним будут приходить заявки.
+                            </p>
+                        </div>
+                    </div>
+
+                    {% if specialization_options %}
+                    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 text-sm text-slate-200">
+                        {% for code, label in specialization_options %}
+                        <label class="inline-flex items-center gap-2 cursor-pointer rounded-xl border border-slate-800 bg-slate-950/30 px-3 py-2 hover:border-emerald-500/40 transition">
+                            <input type="checkbox" name="specializations" value="{{ code }}"
+                                   class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
+                            <span class="leading-tight">{{ label }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-sm text-slate-300">
+                        Список специализаций не загружен. Сообщите администратору.
+                    </p>
+                    {% endif %}
+                </div>
+
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
                     <p class="text-xs text-slate-400 max-w-md">
-                        После создания вы сможете редактировать данные сервиса в кабинете СТО.
-                        Геолокацию и специализации подключим на следующем этапе.
+                        После создания СТО попадёт на модерацию и станет активной только после подтверждения админом.
                     </p>
 
                     <button type="submit"
                             class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-                        Сохранить и перейти в кабинет
+                        Сохранить и отправить на модерацию
                     </button>
                 </div>
             </form>
