@@ -160,10 +160,30 @@ async def admin_service_center_toggle(
     Активировать или деактивировать СТО.
 
     Использует PATCH /api/v1/service-centers/{id} с полем is_active.
+
+    ДОПОЛНИТЕЛЬНО (важно для модерации):
+    - при активации СТО best-effort поднимаем роль владельца до service_owner,
+      чтобы у него появилось меню/кабинет СТО.
     """
     _ = await get_current_admin(request, client)
 
     is_active = True if action == "activate" else False
+
+    # ✅ НОВОЕ: если активируем — поднимаем роль владельцу (best-effort)
+    if is_active:
+        try:
+            resp_sc = await client.get(f"/api/v1/service-centers/{sc_id}")
+            if resp_sc.status_code == status.HTTP_200_OK:
+                sc_obj = resp_sc.json()
+                owner_id = sc_obj.get("user_id")
+                if owner_id:
+                    await client.patch(
+                        f"/api/v1/users/{int(owner_id)}",
+                        json={"role": "service_owner"},
+                    )
+        except Exception as e:
+            # Не валим модерацию из-за роли — это best-effort.
+            print("WARN: cannot promote owner role:", sc_id, repr(e))
 
     try:
         resp = await client.patch(
@@ -175,7 +195,6 @@ async def admin_service_center_toggle(
         print("ERROR toggling service-center:", sc_id, repr(e))
         # Пока просто игнорируем, UI всё равно перерисуем
 
-    # Перезагружаем список СТО
     return await admin_service_centers(request, client)
 
 

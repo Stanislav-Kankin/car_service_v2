@@ -733,14 +733,19 @@ async def sto_specs(callback: CallbackQuery, state: FSMContext):
             profile = await state.get_data()
             specs_codes: set[str] = set(profile.get("specializations") or [])
 
+            # ✅ НОВОЕ: нельзя подтверждать без выбранных специализаций
             if not specs_codes:
-                specs_text = "— (специализации не выбраны)"
-            else:
-                labels = []
-                for c, lbl in SERVICE_SPECIALIZATION_OPTIONS:
-                    if c in specs_codes:
-                        labels.append(lbl)
-                specs_text = ", ".join(labels) if labels else "—"
+                await callback.answer("Выберите хотя бы одну специализацию", show_alert=True)
+                # возвращаем пользователя к выбору, не переводим в confirm реально
+                await state.set_state(STORegister.waiting_specs)
+                await callback.answer()
+                return
+
+            labels = []
+            for c, lbl in SERVICE_SPECIALIZATION_OPTIONS:
+                if c in specs_codes:
+                    labels.append(lbl)
+            specs_text = ", ".join(labels) if labels else "—"
 
             text = (
                 "Проверьте данные:\n\n"
@@ -804,7 +809,8 @@ async def sto_specs(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(STORegister.waiting_confirm)
 async def sto_finish(callback: CallbackQuery, state: FSMContext):
     """
-    Финальный шаг: создаём СТО и меняем роль пользователя.
+    Финальный шаг: создаём СТО.
+    ВАЖНО: роль пользователя НЕ меняем до модерации админом.
     """
     if callback.data == "sto_reg_no":
         await state.clear()
@@ -853,6 +859,8 @@ async def sto_finish(callback: CallbackQuery, state: FSMContext):
         "phone": data.get("phone"),
         "website": data.get("website"),
         "specializations": specializations,
+        # ✅ НОВОЕ: модерация — создаём неактивной
+        "is_active": False,
     }
 
     try:
@@ -865,18 +873,12 @@ async def sto_finish(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    try:
-        await api_client.update_user(user_id, {"role": "service_owner"})
-    except Exception as e:
-        logger.exception(
-            "Не удалось обновить роль пользователя до service_owner: %s", e
-        )
-
+    # ✅ НОВОЕ: роль НЕ меняем здесь. Её выставит админ при активации СТО.
     await state.clear()
 
     await callback.message.edit_text(
-        f"СТО зарегистрировано успешно! 🎉\n\n"
+        "Заявка на регистрацию СТО отправлена на модерацию ✅\n\n"
         f"ID: {created.get('id')}\n"
-        "Теперь вам доступно «🛠 Меню СТО» в главном меню.",
+        "Ожидайте подтверждения администратором.",
     )
     await callback.answer()
