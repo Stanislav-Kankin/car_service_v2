@@ -7,6 +7,8 @@ from typing import List, Optional
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from backend.app.services.user_service import UserService
+
 
 from backend.app.core.notifier import BotNotifier
 from backend.app.models import (
@@ -176,13 +178,14 @@ class RequestsService:
     # ------------------------------------------------------------------
     # Статусы со стороны СТО
     # ------------------------------------------------------------------
+
     @staticmethod
     async def set_in_work(
         db: AsyncSession,
         request_id: int,
         service_center_id: int,
         *,
-        notify_client_telegram_id: int | None = None,
+        notify_client_telegram_id: int | None = None,  # оставляем параметр для совместимости, но он больше не обязателен
     ) -> Optional[Request]:
         req = await RequestsService.get_request_by_id(db, request_id)
         if not req:
@@ -190,21 +193,29 @@ class RequestsService:
 
         # защита: в работу может перевести только выбранный сервис
         if req.service_center_id != service_center_id:
-            logger.warning("set_in_work: sc_id mismatch (req=%s sc=%s)", req.service_center_id, service_center_id)
+            logger.warning(
+                "set_in_work: sc_id mismatch (req=%s sc=%s)",
+                req.service_center_id, service_center_id
+            )
             return req
 
         req.status = RequestStatus.IN_WORK
         await db.commit()
         await db.refresh(req)
 
-        # уведомление клиенту (если знаем telegram_id)
-        if notifier.is_enabled() and WEBAPP_PUBLIC_URL and notify_client_telegram_id:
+        # --- уведомление клиенту: берём telegram_id сами ---
+        tg_id = notify_client_telegram_id
+        if tg_id is None:
+            client = await UserService.get_by_id(db, req.user_id)
+            tg_id = getattr(client, "telegram_id", None) if client else None
+
+        if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
             await notifier.send_notification(
                 recipient_type="client",
-                telegram_id=notify_client_telegram_id,
+                telegram_id=int(tg_id),
                 message=f"🛠 Заявка №{request_id} взята в работу сервисом.",
                 buttons=[_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")],
-                extra={"request_id": request_id},
+                extra={"request_id": request_id, "status": "IN_WORK"},
             )
 
         return req
@@ -216,31 +227,40 @@ class RequestsService:
         service_center_id: int,
         *,
         final_price: float | None = None,
-        notify_client_telegram_id: int | None = None,
+        notify_client_telegram_id: int | None = None,  # оставляем параметр, но он больше не обязателен
     ) -> Optional[Request]:
         req = await RequestsService.get_request_by_id(db, request_id)
         if not req:
             return None
 
         if req.service_center_id != service_center_id:
-            logger.warning("set_done: sc_id mismatch (req=%s sc=%s)", req.service_center_id, service_center_id)
+            logger.warning(
+                "set_done: sc_id mismatch (req=%s sc=%s)",
+                req.service_center_id, service_center_id
+            )
             return req
 
         req.status = RequestStatus.DONE
         if final_price is not None:
-            req.final_price = final_price
+            req.final_price = float(final_price)
 
         await db.commit()
         await db.refresh(req)
 
-        if notifier.is_enabled() and WEBAPP_PUBLIC_URL and notify_client_telegram_id:
-            text_price = f"\n💰 Итоговая цена: {final_price:.0f}" if final_price is not None else ""
+        # --- уведомление клиенту: берём telegram_id сами ---
+        tg_id = notify_client_telegram_id
+        if tg_id is None:
+            client = await UserService.get_by_id(db, req.user_id)
+            tg_id = getattr(client, "telegram_id", None) if client else None
+
+        if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
+            text_price = f"\n💰 Итоговая цена: {req.final_price:.0f}" if req.final_price is not None else ""
             await notifier.send_notification(
                 recipient_type="client",
-                telegram_id=notify_client_telegram_id,
+                telegram_id=int(tg_id),
                 message=f"✅ Заявка №{request_id} завершена сервисом.{text_price}",
                 buttons=[_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")],
-                extra={"request_id": request_id},
+                extra={"request_id": request_id, "status": "DONE"},
             )
 
         return req
@@ -252,14 +272,17 @@ class RequestsService:
         service_center_id: int,
         *,
         reason: str | None = None,
-        notify_client_telegram_id: int | None = None,
+        notify_client_telegram_id: int | None = None,  # оставляем параметр, но он больше не обязателен
     ) -> Optional[Request]:
         req = await RequestsService.get_request_by_id(db, request_id)
         if not req:
             return None
 
         if req.service_center_id != service_center_id:
-            logger.warning("reject_by_service: sc_id mismatch (req=%s sc=%s)", req.service_center_id, service_center_id)
+            logger.warning(
+                "reject_by_service: sc_id mismatch (req=%s sc=%s)",
+                req.service_center_id, service_center_id
+            )
             return req
 
         req.status = RequestStatus.REJECTED_BY_SERVICE
@@ -268,14 +291,20 @@ class RequestsService:
         await db.commit()
         await db.refresh(req)
 
-        if notifier.is_enabled() and WEBAPP_PUBLIC_URL and notify_client_telegram_id:
+        # --- уведомление клиенту: берём telegram_id сами ---
+        tg_id = notify_client_telegram_id
+        if tg_id is None:
+            client = await UserService.get_by_id(db, req.user_id)
+            tg_id = getattr(client, "telegram_id", None) if client else None
+
+        if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
             suffix = f"\nПричина: {reason}" if reason else ""
             await notifier.send_notification(
                 recipient_type="client",
-                telegram_id=notify_client_telegram_id,
+                telegram_id=int(tg_id),
                 message=f"❌ Сервис отказался от заявки №{request_id}.{suffix}",
                 buttons=[_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")],
-                extra={"request_id": request_id},
+                extra={"request_id": request_id, "status": "REJECTED_BY_SERVICE"},
             )
 
         return req
