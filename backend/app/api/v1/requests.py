@@ -131,7 +131,7 @@ async def send_request_to_all_service_centers(
                 telegram_id=owner.telegram_id,
                 message=message,
                 buttons=[
-                    {"text": "Открыть заявку в веб-приложении", "url": url},
+                    {"text": "Открыть заявку", "type": "web_app", "url": url},
                 ],
                 extra={
                     "request_id": request_id,
@@ -206,7 +206,7 @@ async def send_to_one_service(
             telegram_id=owner.telegram_id,
             message=message,
             buttons=[
-                {"text": "Открыть заявку в веб-приложении", "url": url},
+                {"text": "Открыть заявку", "type": "web_app", "url": url},
             ],
             extra={
                 "request_id": request_id,

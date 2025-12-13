@@ -7,7 +7,7 @@ from typing import List, Optional
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from backend.app.services.user_service import UserService
+from backend.app.services.user_service import UsersService
 
 
 from backend.app.core.notifier import BotNotifier
@@ -206,7 +206,7 @@ class RequestsService:
         # --- уведомление клиенту: берём telegram_id сами ---
         tg_id = notify_client_telegram_id
         if tg_id is None:
-            client = await UserService.get_by_id(db, req.user_id)
+            client = await UsersService.get_by_id(db, req.user_id)
             tg_id = getattr(client, "telegram_id", None) if client else None
 
         if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
@@ -250,7 +250,7 @@ class RequestsService:
         # --- уведомление клиенту: берём telegram_id сами ---
         tg_id = notify_client_telegram_id
         if tg_id is None:
-            client = await UserService.get_by_id(db, req.user_id)
+            client = await UsersService.get_by_id(db, req.user_id)
             tg_id = getattr(client, "telegram_id", None) if client else None
 
         if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
@@ -294,7 +294,7 @@ class RequestsService:
         # --- уведомление клиенту: берём telegram_id сами ---
         tg_id = notify_client_telegram_id
         if tg_id is None:
-            client = await UserService.get_by_id(db, req.user_id)
+            client = await UsersService.get_by_id(db, req.user_id)
             tg_id = getattr(client, "telegram_id", None) if client else None
 
         if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
