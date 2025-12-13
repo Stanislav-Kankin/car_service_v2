@@ -34,6 +34,26 @@ class OffersService:
         db.add(offer)
         await db.commit()
         await db.refresh(offer)
+
+        # --- Уведомление клиента о новом оффере ---
+        # Берём оффер уже с подтянутыми связями (request.user, service_center.owner)
+        offer_full = await OffersService.get_offer_by_id(db, offer.id)
+        if offer_full and offer_full.request and offer_full.request.user:
+            client = offer_full.request.user
+            if notifier.is_enabled() and getattr(client, "telegram_id", None):
+                request_id = offer_full.request.id
+                url = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
+                await notifier.send_notification(
+                    recipient_type="client",
+                    telegram_id=client.telegram_id,
+                    message=(
+                        f"📩 По вашей заявке №{request_id} пришёл новый отклик!\n"
+                        f"Откройте заявку и выберите предложение."
+                    ),
+                    buttons=[{"text": "Открыть заявку", "url": url}],
+                    extra={"request_id": request_id},
+                )
+
         return offer
 
     @staticmethod

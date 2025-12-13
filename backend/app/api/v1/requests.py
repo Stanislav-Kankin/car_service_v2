@@ -430,7 +430,12 @@ async def set_done(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        req = await RequestsService.set_done(db, request_id, payload.service_center_id, payload.final_price)
+        req = await RequestsService.set_done(
+            db,
+            request_id,
+            payload.service_center_id,
+            final_price=payload.final_price,  # ВАЖНО: keyword-arg
+        )
         if not req:
             raise HTTPException(status_code=404, detail="Request not found")
         return req
@@ -447,7 +452,12 @@ async def reject_by_service(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        req = await RequestsService.reject_by_service(db, request_id, payload.service_center_id, payload.reason)
+        req = await RequestsService.reject_by_service(
+            db,
+            request_id,
+            payload.service_center_id,
+            reason=payload.reason,  # ВАЖНО: keyword-arg
+        )
         if not req:
             raise HTTPException(status_code=404, detail="Request not found")
         return req

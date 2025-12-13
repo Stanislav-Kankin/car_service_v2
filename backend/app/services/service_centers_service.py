@@ -2,6 +2,7 @@ from typing import List, Optional
 import math
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models import ServiceCenter
@@ -57,7 +58,11 @@ class ServiceCentersService:
         db: AsyncSession,
         sc_id: int,
     ) -> Optional[ServiceCenter]:
-        stmt = select(ServiceCenter).where(ServiceCenter.id == sc_id)
+        stmt = (
+            select(ServiceCenter)
+            .options(selectinload(ServiceCenter.owner))
+            .where(ServiceCenter.id == sc_id)
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -102,18 +107,16 @@ class ServiceCentersService:
         has_tow_truck: Optional[bool] = None,
         is_mobile_service: Optional[bool] = None,
     ) -> List[ServiceCenter]:
-        """
-        Базовый поиск СТО.
+        stmt = select(ServiceCenter).options(selectinload(ServiceCenter.owner))  # <-- важно
+        if is_active is not None:
+            stmt = stmt.where(ServiceCenter.is_active == is_active)
+        if has_tow_truck is not None:
+            stmt = stmt.where(ServiceCenter.has_tow_truck == has_tow_truck)
+        if is_mobile_service is not None:
+            stmt = stmt.where(ServiceCenter.is_mobile_service == is_mobile_service)
 
-        Делает:
-        - фильтрует по is_active (если передано),
-        - опционально фильтрует по флагам эвакуатора/выездного сервиса,
-        - опционально фильтрует по пересечению специализаций,
-        - опционально фильтрует по радиусу от заданной точки (latitude/longitude),
-          и сортирует по расстоянию от ближних к дальним.
-
-        Если координаты или radius_km не переданы — гео-фильтрация не применяется.
-        """
+        result = await db.execute(stmt)
+        items: List[ServiceCenter] = list(result.scalars().all())
 
         # 1. Базовый запрос к БД
         stmt = select(ServiceCenter)
