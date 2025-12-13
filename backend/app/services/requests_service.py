@@ -1,13 +1,20 @@
 from typing import List, Optional
 
+import os
+import logging
+
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from backend.app.core.notifier import BotNotifier
 from backend.app.models import (
     Request,
     RequestStatus,
     RequestDistribution,
     RequestDistributionStatus,
+    User,
+    ServiceCenter,
 )
 from backend.app.schemas.request import (
     RequestCreate,
@@ -15,10 +22,18 @@ from backend.app.schemas.request import (
     RequestUpdate,
 )
 
+logger = logging.getLogger(__name__)
+WEBAPP_PUBLIC_URL = os.getenv("WEBAPP_PUBLIC_URL", "").rstrip("/")
+notifier = BotNotifier()
+
+
+def _btn_webapp(text: str, url: str) -> dict[str, str]:
+    return {"text": text, "type": "web_app", "url": url}
+
 
 class RequestsService:
     """
-    Сервисный слой для работы с заявками.
+    Сервисный слой для заявок.
     """
 
     # ------------------------------------------------------------------
@@ -29,50 +44,22 @@ class RequestsService:
         db: AsyncSession,
         data: RequestCreate,
     ) -> Request:
-        """
-        Создать новую заявку.
-
-        Ожидается, что RequestCreate содержит поля:
-        - user_id: int
-        - car_id: Optional[int]
-        - latitude: Optional[float]
-        - longitude: Optional[float]
-        - address_text: Optional[str]
-        - is_car_movable: bool
-        - need_tow_truck: bool
-        - need_mobile_master: bool
-        - radius_km: Optional[int]
-        - service_category: Optional[str]
-        - description: str
-        - photos: Optional[List[str]]
-        - hide_phone: bool
-
-        Статус заявки устанавливаем NEW (new) по умолчанию.
-        """
-
         request = Request(
             user_id=data.user_id,
             car_id=data.car_id,
-            # гео
             latitude=data.latitude,
             longitude=data.longitude,
             address_text=data.address_text,
-            # состояние авто
             is_car_movable=data.is_car_movable,
             need_tow_truck=data.need_tow_truck,
             need_mobile_master=data.need_mobile_master,
-            # радиус/район + категория услуги
             radius_km=data.radius_km,
             service_category=data.service_category,
-            # описание и фото
             description=data.description,
             photos=data.photos,
-            # скрытие телефона
             hide_phone=data.hide_phone,
-            # статус
             status=RequestStatus.NEW,
         )
-
         db.add(request)
         await db.commit()
         await db.refresh(request)
@@ -91,43 +78,15 @@ class RequestsService:
         return result.scalar_one_or_none()
 
     # ------------------------------------------------------------------
-    # Список заявок по пользователю
-    # ------------------------------------------------------------------
-    @staticmethod
-    async def list_requests_by_user(
-        db: AsyncSession,
-        user_id: int,
-    ) -> List[Request]:
-        stmt = (
-            select(Request)
-            .where(Request.user_id == user_id)
-            .order_by(Request.created_at.desc())
-        )
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
-
-    # ------------------------------------------------------------------
     # Обновление заявки
     # ------------------------------------------------------------------
     @staticmethod
     async def update_request(
         db: AsyncSession,
-        request_id: int,
+        request: Request,
         data: RequestUpdate,
-    ) -> Optional[Request]:
-        """
-        Частичное обновление заявки по RequestUpdate.
-        Все поля в RequestUpdate должны быть опциональными,
-        мы обновляем только те, которые реально передали.
-        """
-        request = await RequestsService.get_request_by_id(db, request_id)
-        if not request:
-            return None
-
-        # Pydantic v1: dict(exclude_unset=True)
-        update_data = data.dict(exclude_unset=True)
-
-        for field, value in update_data.items():
+    ) -> Request:
+        for field, value in data.model_dump(exclude_unset=True).items():
             setattr(request, field, value)
 
         await db.commit()
@@ -135,56 +94,7 @@ class RequestsService:
         return request
 
     # ------------------------------------------------------------------
-    # Список всех заявок (опционально по статусу)
-    # ------------------------------------------------------------------
-    @staticmethod
-    async def list_requests(
-        db: AsyncSession,
-        status: Optional[str] = None,
-    ) -> List[Request]:
-        stmt = select(Request)
-        if status:
-            # status ожидается как строка, например "new", "in_work"
-            stmt = stmt.where(Request.status == RequestStatus(status))
-
-        stmt = stmt.order_by(Request.created_at.desc())
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
-
-    # ------------------------------------------------------------------
-    # СТАРЫЙ способ: список заявок для СТО по специализациям
-    # (оставляем как запасной/для админки, но в боте использовать не будем)
-    # ------------------------------------------------------------------
-    @staticmethod
-    async def list_requests_for_service_centers_by_specializations(
-        db: AsyncSession,
-        specializations: Optional[list[str]] = None,
-    ) -> List[Request]:
-        """
-        Список активных заявок для отображения СТО (старый режим, по категориям).
-
-        Если переданы specializations — фильтруем только по этим категориям.
-        """
-        active_statuses = [
-            RequestStatus.NEW,
-            RequestStatus.SENT,
-            RequestStatus.ACCEPTED_BY_SERVICE,
-            RequestStatus.IN_WORK,
-        ]
-
-
-        stmt = select(Request).where(Request.status.in_(active_statuses))
-
-        if specializations:
-            stmt = stmt.where(Request.service_category.in_(specializations))
-
-        stmt = stmt.order_by(Request.created_at.desc())
-
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
-
-    # ------------------------------------------------------------------
-    # НОВОЕ: распределение заявки по конкретным СТО
+    # Рассылка заявки в СТО (фиксируем distribution + статус заявки = SENT)
     # ------------------------------------------------------------------
     @staticmethod
     async def distribute_request_to_service_centers(
@@ -192,26 +102,16 @@ class RequestsService:
         request_id: int,
         service_center_ids: List[int],
     ) -> Optional[Request]:
-        """
-        Зафиксировать, каким СТО была отправлена заявка.
-
-        1) Проверяем, что заявка существует.
-        2) Удаляем старые записи распределения (если вдруг были).
-        3) Создаём новые записи RequestDistribution со статусом SENT.
-        4) Меняем статус заявки на SENT.
-        """
         request = await RequestsService.get_request_by_id(db, request_id)
         if not request:
             return None
 
-        # На всякий случай чистим старое распределение
+        # удаляем старые записи распределения (на всякий)
         await db.execute(
-            delete(RequestDistribution).where(
-                RequestDistribution.request_id == request_id
-            )
+            delete(RequestDistribution).where(RequestDistribution.request_id == request_id)
         )
 
-        # Создаём новые записи
+        # создаём новые записи
         for sc_id in service_center_ids:
             dist = RequestDistribution(
                 request_id=request_id,
@@ -220,13 +120,16 @@ class RequestsService:
             )
             db.add(dist)
 
-        # Обновляем статус заявки
+        # обновляем статус заявки
         request.status = RequestStatus.SENT
 
         await db.commit()
         await db.refresh(request)
         return request
 
+    # ------------------------------------------------------------------
+    # Статусы заявки со стороны СТО + уведомления клиенту
+    # ------------------------------------------------------------------
     @staticmethod
     async def set_in_work(
         db: AsyncSession,
@@ -237,17 +140,32 @@ class RequestsService:
         if not request:
             return None
 
-        # Защита: только выбранный сервис может менять статус
         if request.service_center_id != service_center_id:
             raise PermissionError("Service center has no access to this request")
 
-        # Разрешаем переводить в работу только из accepted_by_service
         if request.status not in (RequestStatus.ACCEPTED_BY_SERVICE,):
             raise ValueError("Invalid status transition")
 
         request.status = RequestStatus.IN_WORK
         await db.commit()
         await db.refresh(request)
+
+        if notifier.is_enabled():
+            try:
+                res_u = await db.execute(select(User).where(User.id == request.user_id))
+                user = res_u.scalar_one_or_none()
+                if user and getattr(user, "telegram_id", None) and WEBAPP_PUBLIC_URL:
+                    url = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
+                    await notifier.send_notification(
+                        recipient_type="client",
+                        telegram_id=user.telegram_id,
+                        message=f"🚗 Сервис взял вашу заявку №{request_id} в работу.",
+                        buttons=[_btn_webapp("Открыть заявку", url)],
+                        extra={"request_id": request_id, "service_center_id": service_center_id},
+                    )
+            except Exception:
+                logger.exception("Notify client failed (IN_WORK), request_id=%s", request_id)
+
         return request
 
     @staticmethod
@@ -264,7 +182,6 @@ class RequestsService:
         if request.service_center_id != service_center_id:
             raise PermissionError("Service center has no access to this request")
 
-        # Завершать можно только если уже в работе
         if request.status not in (RequestStatus.IN_WORK,):
             raise ValueError("Invalid status transition")
 
@@ -272,6 +189,24 @@ class RequestsService:
         request.final_price = final_price
         await db.commit()
         await db.refresh(request)
+
+        if notifier.is_enabled():
+            try:
+                res_u = await db.execute(select(User).where(User.id == request.user_id))
+                user = res_u.scalar_one_or_none()
+                if user and getattr(user, "telegram_id", None) and WEBAPP_PUBLIC_URL:
+                    url = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
+                    price_txt = f" Итоговая цена: {final_price:g}." if final_price is not None else ""
+                    await notifier.send_notification(
+                        recipient_type="client",
+                        telegram_id=user.telegram_id,
+                        message=f"✅ Заявка №{request_id} завершена.{price_txt}",
+                        buttons=[_btn_webapp("Открыть заявку", url)],
+                        extra={"request_id": request_id, "service_center_id": service_center_id},
+                    )
+            except Exception:
+                logger.exception("Notify client failed (DONE), request_id=%s", request_id)
+
         return request
 
     @staticmethod
@@ -288,7 +223,6 @@ class RequestsService:
         if request.service_center_id != service_center_id:
             raise PermissionError("Service center has no access to this request")
 
-        # Отказать можно до завершения (accepted/in_work)
         if request.status not in (RequestStatus.ACCEPTED_BY_SERVICE, RequestStatus.IN_WORK):
             raise ValueError("Invalid status transition")
 
@@ -296,6 +230,24 @@ class RequestsService:
         request.reject_reason = (reason or "").strip() or None
         await db.commit()
         await db.refresh(request)
+
+        if notifier.is_enabled():
+            try:
+                res_u = await db.execute(select(User).where(User.id == request.user_id))
+                user = res_u.scalar_one_or_none()
+                if user and getattr(user, "telegram_id", None) and WEBAPP_PUBLIC_URL:
+                    url = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
+                    reason_txt = f" Причина: {request.reject_reason}" if request.reject_reason else ""
+                    await notifier.send_notification(
+                        recipient_type="client",
+                        telegram_id=user.telegram_id,
+                        message=f"❌ Сервис отказался от заявки №{request_id}.{reason_txt}",
+                        buttons=[_btn_webapp("Открыть заявку", url)],
+                        extra={"request_id": request_id, "service_center_id": service_center_id},
+                    )
+            except Exception:
+                logger.exception("Notify client failed (REJECTED), request_id=%s", request_id)
+
         return request
 
     # ------------------------------------------------------------------
@@ -307,17 +259,14 @@ class RequestsService:
         service_center_id: int,
     ) -> List[Request]:
         """
-        Список активных заявок, которые были разосланы КОНКРЕТНОМУ СТО.
-
-        Используется модель RequestDistribution:
-        - берём только те заявки, которые были отправлены этому service_center_id;
+        Возвращаем:
+        - только те заявки, которые были отправлены этому service_center_id;
         - фильтруем по статусам (new, sent, in_work);
         - сортируем по дате создания (новые сверху).
         """
         active_statuses = [
             RequestStatus.NEW,
             RequestStatus.SENT,
-            RequestStatus.ACCEPTED_BY_SERVICE,
             RequestStatus.IN_WORK,
         ]
 

@@ -141,7 +141,7 @@ async def setup_menu_button(bot: Bot) -> None:
     try:
         await bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(
-                text="Открыть CarBot",
+                text="Открыть MeGarage",
                 web_app=WebAppInfo(url=webapp_url),
             )
         )
