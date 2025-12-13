@@ -1,4 +1,5 @@
 import logging
+import os
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -7,6 +8,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     ReplyKeyboardRemove,
+    WebAppInfo
 )
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
@@ -809,8 +811,8 @@ async def sto_specs(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(STORegister.waiting_confirm)
 async def sto_finish(callback: CallbackQuery, state: FSMContext):
     """
-    Финальный шаг: создаём СТО.
-    ВАЖНО: роль пользователя НЕ меняем до модерации админом.
+    Финальный шаг: создаём СТО как НЕактивную (на модерацию),
+    уведомляем админов, роль пользователю НЕ повышаем до решения админа.
     """
     if callback.data == "sto_reg_no":
         await state.clear()
@@ -859,7 +861,7 @@ async def sto_finish(callback: CallbackQuery, state: FSMContext):
         "phone": data.get("phone"),
         "website": data.get("website"),
         "specializations": specializations,
-        # ✅ НОВОЕ: модерация — создаём неактивной
+        # ✅ модерация
         "is_active": False,
     }
 
@@ -873,7 +875,12 @@ async def sto_finish(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ✅ НОВОЕ: роль НЕ меняем здесь. Её выставит админ при активации СТО.
+    # ✅ Уведомление админам (best-effort, не валим flow)
+    try:
+        await _notify_admins_new_service_center(callback, created)
+    except Exception:
+        pass
+
     await state.clear()
 
     await callback.message.edit_text(
@@ -882,3 +889,86 @@ async def sto_finish(callback: CallbackQuery, state: FSMContext):
         "Ожидайте подтверждения администратором.",
     )
     await callback.answer()
+
+
+def _parse_admin_ids_from_env() -> list[int]:
+    raw = (os.getenv("TELEGRAM_ADMIN_IDS") or "").strip()
+    if not raw:
+        return []
+    parts = raw.replace(";", ",").split(",")
+    ids: list[int] = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        try:
+            ids.append(int(p))
+        except ValueError:
+            continue
+    return ids
+
+
+def _admin_moderation_webapp_url() -> str:
+    """
+    Куда вести админа из уведомления.
+    Делаем страницу списка СТО: /admin/service-centers
+    """
+    base = (os.getenv("WEBAPP_PUBLIC_URL") or "").strip().rstrip("/")
+    if not base:
+        return ""
+    return f"{base}/admin/service-centers"
+
+
+async def _notify_admins_new_service_center(
+    callback: CallbackQuery,
+    created_sc: dict,
+) -> None:
+    """
+    Уведомление админам о новой СТО на модерации.
+    Не должно ронять регистрацию, поэтому любые ошибки проглатываем.
+    """
+    admin_ids = _parse_admin_ids_from_env()
+    if not admin_ids:
+        return
+
+    sc_id = created_sc.get("id")
+    name = created_sc.get("name") or "Без названия"
+    phone = created_sc.get("phone") or "—"
+    address = created_sc.get("address") or "—"
+    org_type = created_sc.get("org_type") or "—"
+    specs = created_sc.get("specializations") or []
+    if isinstance(specs, list):
+        specs_text = ", ".join(str(x) for x in specs) if specs else "—"
+    else:
+        specs_text = str(specs)
+
+    text = (
+        "🛂 <b>Новая СТО на модерации</b>\n\n"
+        f"ID: <b>{sc_id}</b>\n"
+        f"Название: <b>{name}</b>\n"
+        f"Тип: <b>{org_type}</b>\n"
+        f"Телефон: <b>{phone}</b>\n"
+        f"Адрес: <b>{address}</b>\n"
+        f"Специализации: <b>{specs_text}</b>\n\n"
+        "Откройте админку и активируйте СТО, если всё ок."
+    )
+
+    url = _admin_moderation_webapp_url()
+    kb = None
+    if url:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🛂 Открыть модерацию",
+                        web_app=WebAppInfo(url=url),
+                    )
+                ]
+            ]
+        )
+
+    for admin_id in admin_ids:
+        try:
+            await callback.bot.send_message(admin_id, text, reply_markup=kb)
+        except Exception:
+            continue
