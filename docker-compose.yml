@@ -1,0 +1,116 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: carbot_postgres
+    environment:
+      POSTGRES_DB: carbot_v2
+      POSTGRES_USER: carbot
+      POSTGRES_PASSWORD: carbot_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carbot -d carbot_v2"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: carbot_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carbot_backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # --- обязательное (у тебя backend падает без BOT_TOKEN)
+      BOT_TOKEN: ${BOT_TOKEN}
+
+      # --- DB
+      DB_TYPE: postgres
+      DB_URL: postgresql+asyncpg://carbot:carbot_password@postgres:5432/carbot_v2
+
+      # --- Redis (если используешь где-то)
+      REDIS_URL: redis://redis:6379/0
+
+      # --- уведомления в бота (notify api)
+      BOT_API_URL: http://bot:8086
+      BOT_API_TOKEN: ${BOT_API_TOKEN}
+
+      # --- внешняя ссылка для web_app кнопок
+      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL}
+
+      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS}
+
+      # необязательно
+      DEBUG: "false"
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8044"]
+    ports:
+      - "8044:8044"
+    restart: unless-stopped
+
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carbot_webapp
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      # pydantic-settings читает env, alias="backend_url"
+      backend_url: http://backend:8044
+      DEBUG: "false"
+    command: ["uvicorn", "webapp.app.main:app", "--host", "0.0.0.0", "--port", "8045"]
+    ports:
+      - "8045:8045"
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carbot_bot
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      BACKEND_URL: http://backend:8044
+
+      # если у бота есть BOT_API_TOKEN/TELEGRAM_ADMIN_IDS — оставим
+      BOT_API_TOKEN: ${BOT_API_TOKEN}
+      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS}
+
+      # если бот умеет Redis FSM через env — добавим
+      REDIS_URL: redis://redis:6379/0
+
+      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL}
+      WEBAPP_URL: ${WEBAPP_URL}
+    command: ["python", "-m", "bot.app.main"]
+    ports:
+      # Notify API бота наружу можно не выставлять, но удобно для теста
+      - "8086:8086"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
