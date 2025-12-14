@@ -109,68 +109,26 @@ def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    """
-    Точка входа.
-
-    Теперь регистрация делается через WebApp.
-    В боте /start всегда показывает меню + кнопку WebApp.
-    """
     await state.clear()
 
-    user = await api_client.get_user_by_telegram(message.from_user.id)
-
-    if user:
-        full_name = None
-        role = None
-
-        if isinstance(user, dict):
-            full_name = user.get("full_name") or user.get("name")
-            role = user.get("role")
-
-        if not full_name:
-            full_name = message.from_user.full_name
-
-        await message.answer(f"Рады снова видеть, {full_name}!")
-        await message.answer(
-            "Выберите действие из меню ниже 👇",
-            reply_markup=get_main_menu(role),
-        )
+    if not WEBAPP_URL:
+        await message.answer("WEBAPP_URL не настроен. Сообщите администратору.")
         return
 
-    # ✅ Новый пользователь: не запускаем FSM регистрацию в боте
-    if WEBAPP_URL:
-        await message.answer(
-            "Привет! 👋\n"
-            "Регистрация и заполнение профиля теперь делаются в WebApp.\n\n"
-            "Нажмите кнопку ниже, чтобы открыть веб-кабинет:",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="🚀 Открыть WebApp",
-                            web_app=WebAppInfo(url=WEBAPP_URL),
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text="🌐 Веб-кабинет (в меню)",
-                            callback_data="main:menu",
-                        )
-                    ],
-                ]
-            ),
-        )
-    else:
-        await message.answer(
-            "Привет! 👋\n"
-            "WebApp не настроен (переменная WEBAPP_URL пустая).\n"
-            "Сообщите администратору."
-        )
-
-    # Покажем базовое меню (роль неизвестна — как клиент)
     await message.answer(
-        "Меню доступно ниже 👇",
-        reply_markup=get_main_menu("client"),
+        "Привет! 👋\n"
+        "MyGarage работает через WebApp (Mini App).\n\n"
+        "Нажмите кнопку ниже:",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🚀 Открыть WebApp",
+                        web_app=WebAppInfo(url=WEBAPP_URL),
+                    )
+                ]
+            ]
+        ),
     )
 
 
