@@ -1,7 +1,10 @@
 from typing import List, Optional
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
+import httpx
 
 from backend.app.core.db import get_db
 from backend.app.schemas.service_center import (
@@ -20,6 +23,95 @@ router = APIRouter(
 
 
 # ----------------------------------------------------------------------
+# ВСПОМОГАТЕЛЬНОЕ: уведомление админам о новой СТО на модерации
+# ----------------------------------------------------------------------
+
+def _parse_admin_ids_from_env() -> list[int]:
+    raw = (os.getenv("TELEGRAM_ADMIN_IDS") or "").strip()
+    if not raw:
+        return []
+    parts = raw.replace(";", ",").split(",")
+    ids: list[int] = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        try:
+            ids.append(int(p))
+        except ValueError:
+            continue
+    return ids
+
+
+def _admin_moderation_webapp_url() -> str:
+    base = (os.getenv("WEBAPP_PUBLIC_URL") or "").strip().rstrip("/")
+    if not base:
+        return ""
+    return f"{base}/admin/service-centers"
+
+
+async def _notify_admins_new_service_center(sc: ServiceCenterRead) -> None:
+    """
+    Best-effort уведомление админов в Telegram через bot notify API.
+    НЕ должно валить создание СТО при ошибках.
+    """
+    admin_ids = _parse_admin_ids_from_env()
+    bot_api_url = (os.getenv("BOT_API_URL") or "").strip().rstrip("/")
+    bot_api_token = (os.getenv("BOT_API_TOKEN") or "").strip()
+
+    if not admin_ids or not bot_api_url:
+        return
+
+    # Текст уведомления
+    specs = sc.specializations or []
+    specs_text = ", ".join([str(x) for x in specs]) if isinstance(specs, list) and specs else "—"
+
+    text = (
+        "🛂 Новая СТО на модерации\n\n"
+        f"ID: {sc.id}\n"
+        f"Название: {sc.name}\n"
+        f"Тип: {sc.org_type or '—'}\n"
+        f"Телефон: {sc.phone or '—'}\n"
+        f"Адрес: {sc.address or '—'}\n"
+        f"Специализации: {specs_text}\n\n"
+        "Откройте админку и активируйте СТО, если всё ок."
+    )
+
+    url = _admin_moderation_webapp_url()
+
+    # Пытаемся быть совместимыми с твоим форматом "buttons"
+    payload_buttons = []
+    if url:
+        payload_buttons = [
+            {
+                "text": "🛂 Открыть модерацию",
+                "web_app": {"url": url},
+            }
+        ]
+
+    headers: dict[str, str] = {}
+    if bot_api_token:
+        # два популярных варианта сразу
+        headers["Authorization"] = f"Bearer {bot_api_token}"
+        headers["X-API-Token"] = bot_api_token
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for admin_id in admin_ids:
+            try:
+                await client.post(
+                    f"{bot_api_url}/notify",
+                    json={
+                        "telegram_id": admin_id,
+                        "text": text,
+                        "buttons": payload_buttons,
+                    },
+                    headers=headers,
+                )
+            except Exception:
+                continue
+
+
+# ----------------------------------------------------------------------
 # Создание
 # ----------------------------------------------------------------------
 @router.post(
@@ -32,6 +124,15 @@ async def create_service_center(
     db: AsyncSession = Depends(get_db),
 ):
     sc = await ServiceCentersService.create_service_center(db, data_in)
+
+    # ✅ если СТО создаётся НЕактивной — это модерация -> уведомляем админов
+    try:
+        # sc может быть pydantic (ServiceCenterRead)
+        if getattr(sc, "is_active", True) is False:
+            await _notify_admins_new_service_center(sc)  # best-effort
+    except Exception:
+        pass
+
     return sc
 
 
@@ -141,14 +242,9 @@ async def list_all_service_centers(
     db: AsyncSession = Depends(get_db),
     is_active: Optional[bool] = Query(
         None,
-        description="Фильтр по активности: true/false или пусто для всех.",
+        description="Фильтр по активности: true/false или
     ),
 ):
-    """
-    Админский список всех СТО.
-
-    Если is_active не передан -> показываем и активные, и неактивные.
-    """
     sc_list = await ServiceCentersService.list_all(db, is_active=is_active)
     return sc_list
 
@@ -183,16 +279,6 @@ async def get_service_centers_for_request(
     request_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Подобрать подходящие СТО под конкретную заявку.
-
-    Используем данные заявки (гео, радиус, категория услуги).
-
-    Логика категорий:
-    - для 'sto' и категорий без явного маппинга по спецам НЕ режем по специализациям;
-    - для остальных категорий берём список спецов через словарь
-      CATEGORY_TO_SPECIALIZATIONS.
-    """
     request = await RequestsService.get_request_by_id(db, request_id)
     if not request:
         raise HTTPException(
@@ -200,14 +286,10 @@ async def get_service_centers_for_request(
             detail="Request not found",
         )
 
-    # Специализации по категории заявки
     spec_codes = get_specializations_for_category(request.service_category)
-
-    # Если категорию не знаем и это не 'sto' — пробуем 1:1
     if spec_codes is None and request.service_category and request.service_category not in ("sto",):
         spec_codes = [request.service_category]
 
-    # Пустой список -> не фильтруем по специализациям
     specializations = spec_codes or None
 
     has_tow_truck = request.need_tow_truck or None
