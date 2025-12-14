@@ -60,23 +60,35 @@ async def get_current_admin(request: Request, client: AsyncClient) -> dict[str, 
 
     user = resp.json()
     role = (user.get("role") or "").lower()
-    telegram_id = user.get("telegram_id")
+    telegram_id_raw = user.get("telegram_id")
 
+    # ✅ роли, которые считаем админскими
     admin_roles = {"admin", "superadmin"}
 
-    # ✅ allowlist из настроек webapp (env)
-    admin_ids = _parse_admin_ids(settings.TELEGRAM_ADMIN_IDS)
+    # ✅ allowlist из .env
+    admin_ids = _parse_admin_ids(os.getenv("TELEGRAM_ADMIN_IDS"))
 
-    is_admin = (role in admin_roles) or (isinstance(telegram_id, int) and telegram_id in admin_ids)
+    # ✅ приводим telegram_id к int (backend может вернуть str)
+    telegram_id_int: int | None = None
+    if isinstance(telegram_id_raw, int):
+        telegram_id_int = telegram_id_raw
+    elif isinstance(telegram_id_raw, str):
+        try:
+            telegram_id_int = int(telegram_id_raw.strip())
+        except ValueError:
+            telegram_id_int = None
+
+    is_admin = (role in admin_roles) or (telegram_id_int is not None and telegram_id_int in admin_ids)
 
     if not is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Недостаточно прав (нужен админ)")
 
-    # best-effort: если прошёл по TELEGRAM_ADMIN_IDS, но роли admin нет — можем поднять роль
-    if role not in admin_roles and isinstance(telegram_id, int) and telegram_id in admin_ids:
+    # ✅ best-effort: если прошёл по TELEGRAM_ADMIN_IDS, но роли admin нет — можем поднять роль
+    if role not in admin_roles and telegram_id_int is not None and telegram_id_int in admin_ids:
         try:
             await client.patch(f"/api/v1/users/{int(user_id)}", json={"role": "admin"})
         except Exception:
+            # не валим админку, просто не смогли обновить роль
             pass
 
     return user
