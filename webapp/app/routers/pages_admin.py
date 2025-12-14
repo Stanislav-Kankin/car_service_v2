@@ -8,6 +8,7 @@ from httpx import AsyncClient
 
 from ..dependencies import get_templates
 from ..api_client import get_backend_client
+from ..config import settings
 
 router = APIRouter(
     prefix="/admin",
@@ -61,23 +62,21 @@ async def get_current_admin(request: Request, client: AsyncClient) -> dict[str, 
     role = (user.get("role") or "").lower()
     telegram_id = user.get("telegram_id")
 
-    # ✅ роли, которые считаем админскими
     admin_roles = {"admin", "superadmin"}
 
-    # ✅ allowlist из .env
-    admin_ids = _parse_admin_ids(os.getenv("TELEGRAM_ADMIN_IDS"))
+    # ✅ allowlist из настроек webapp (env)
+    admin_ids = _parse_admin_ids(settings.TELEGRAM_ADMIN_IDS)
 
     is_admin = (role in admin_roles) or (isinstance(telegram_id, int) and telegram_id in admin_ids)
 
     if not is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Недостаточно прав (нужен админ)")
 
-    # ✅ best-effort: если прошёл по TELEGRAM_ADMIN_IDS, но роли admin нет — можем поднять роль
+    # best-effort: если прошёл по TELEGRAM_ADMIN_IDS, но роли admin нет — можем поднять роль
     if role not in admin_roles and isinstance(telegram_id, int) and telegram_id in admin_ids:
         try:
             await client.patch(f"/api/v1/users/{int(user_id)}", json={"role": "admin"})
         except Exception:
-            # не валим админку, просто не смогли обновить роль
             pass
 
     return user
@@ -92,9 +91,6 @@ async def admin_dashboard(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Стартовая страница админки.
-    """
     admin_user = await get_current_admin(request, client)
 
     return templates.TemplateResponse(
