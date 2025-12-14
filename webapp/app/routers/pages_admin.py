@@ -15,16 +15,31 @@ router = APIRouter(
 templates = get_templates()
 
 
-async def get_current_admin(
-    request: Request,
-    client: AsyncClient,
-) -> dict[str, Any]:
+def _parse_admin_ids(raw: str | None) -> set[int]:
     """
-    Проверяем, что пользователь авторизован и что у него роль 'admin'.
+    TELEGRAM_ADMIN_IDS может быть: "123" или "123,456" или "123 456"
+    """
+    if not raw:
+        return set()
+    parts = raw.replace(" ", ",").split(",")
+    out: set[int] = set()
+    for p in parts:
+        p = (p or "").strip()
+        if not p:
+            continue
+        try:
+            out.add(int(p))
+        except ValueError:
+            continue
+    return out
 
-    ВАЖНО:
-    Если в Enum UserRole значение для админа другое — поменяй строку 'admin'
-    на актуальное.
+
+async def get_current_admin(request: Request, client: AsyncClient) -> dict[str, Any]:
+    """
+    Пользователь должен быть авторизован (cookie user_id).
+    Дальше проверяем:
+      - роль в backend = 'admin' (или 'superadmin')
+      - ИЛИ его telegram_id входит в TELEGRAM_ADMIN_IDS (env)
     """
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
@@ -41,10 +56,27 @@ async def get_current_admin(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Ошибка при загрузке профиля пользователя")
 
     user = resp.json()
-    role = user.get("role")
-    if role != "admin":
-        # если Enum сериализуется иначе — изменишь это условие
+    role = (user.get("role") or "").lower()
+    telegram_id = user.get("telegram_id")
+
+    # ✅ роли, которые считаем админскими
+    admin_roles = {"admin", "superadmin"}
+
+    # ✅ allowlist из .env
+    admin_ids = _parse_admin_ids(os.getenv("TELEGRAM_ADMIN_IDS"))
+
+    is_admin = (role in admin_roles) or (isinstance(telegram_id, int) and telegram_id in admin_ids)
+
+    if not is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Недостаточно прав (нужен админ)")
+
+    # ✅ best-effort: если прошёл по TELEGRAM_ADMIN_IDS, но роли admin нет — можем поднять роль
+    if role not in admin_roles and isinstance(telegram_id, int) and telegram_id in admin_ids:
+        try:
+            await client.patch(f"/api/v1/users/{int(user_id)}", json={"role": "admin"})
+        except Exception:
+            # не валим админку, просто не смогли обновить роль
+            pass
 
     return user
 
