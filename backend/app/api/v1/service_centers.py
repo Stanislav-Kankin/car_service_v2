@@ -242,7 +242,7 @@ async def list_all_service_centers(
     db: AsyncSession = Depends(get_db),
     is_active: Optional[bool] = Query(
         None,
-        description="Фильтр по активности: true/false или
+        description="Фильтр по активности: true/false или"
     ),
 ):
     sc_list = await ServiceCentersService.list_all(db, is_active=is_active)
