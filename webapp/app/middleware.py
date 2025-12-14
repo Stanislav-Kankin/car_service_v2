@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -6,22 +7,34 @@ from starlette.responses import Response
 
 class UserIDMiddleware(BaseHTTPMiddleware):
     """
-    Middleware, который вытаскивает user_id из cookie
-    и кладёт его в request.state.user_id.
+    Достаём user_id из cookie и кладём в request.state.user_id.
 
-    Cookie ставится из base.html через вызов /api/v1/auth/telegram-webapp.
+    Поддерживаем:
+      - cookie: user_id (основная)
+      - cookie: userId (на всякий случай, если где-то был другой нейминг)
+      - header: X-User-Id (если когда-то понадобится проксировать/пробрасывать)
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         user_id: int | None = None
-        raw = request.cookies.get("user_id")
-        if raw is not None:
+
+        # 1) Cookie (основной сценарий)
+        raw = request.cookies.get("user_id") or request.cookies.get("userId")
+        if raw:
             try:
                 user_id = int(raw)
-            except ValueError:
+            except (TypeError, ValueError):
                 user_id = None
 
-        # user_id = None если не авторизован
+        # 2) Fallback: header (не мешает, но может спасти при прокси/диагностике)
+        if user_id is None:
+            hdr = request.headers.get("x-user-id")
+            if hdr:
+                try:
+                    user_id = int(hdr)
+                except (TypeError, ValueError):
+                    user_id = None
+
         request.state.user_id = user_id
 
         response = await call_next(request)
