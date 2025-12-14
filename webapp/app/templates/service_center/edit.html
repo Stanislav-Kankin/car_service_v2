@@ -12,20 +12,20 @@
         <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
 
         <div class="relative z-10 p-6 md:p-8 space-y-6">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                    <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
-                        Профиль сервисного центра
-                    </p>
-                    <h1 class="text-2xl font-semibold">
-                        {{ service_center.name or "Сервис без названия" }}
-                    </h1>
-                    <p class="text-sm text-slate-300 mt-1">
-                        Обновите контактные данные, формат работы и статус активности сервиса.
-                    </p>
-                </div>
-                <div class="flex flex-col items-start md:items-end gap-2 text-xs text-slate-400">
-                    <span>ID: {{ service_center.id }}</span>
+            <div>
+                <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
+                    Профиль сервисного центра
+                </p>
+                <h1 class="text-2xl font-semibold">
+                    {{ service_center.name }}
+                </h1>
+                <p class="text-sm text-slate-300">
+                    Обновите контактные данные, формат работы и статус активности сервиса.
+                </p>
+                <p class="text-xs text-slate-400 mt-2">
+                    ID: {{ service_center.id }}
+                </p>
+                <div class="mt-2">
                     {% if service_center.is_active %}
                     <span class="inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">
                         ● Активный
@@ -38,66 +38,60 @@
                 </div>
             </div>
 
+            {% if success %}
+            <div class="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                Изменения сохранены ✅
+            </div>
+            {% endif %}
+
             {% if error_message %}
             <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
                 {{ error_message }}
             </div>
             {% endif %}
 
-            {% if success %}
-            <div class="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                Изменения успешно сохранены.
-            </div>
-            {% endif %}
-
-            <form method="post" class="space-y-5">
+            <form method="post" class="space-y-6">
                 <div class="grid md:grid-cols-2 gap-4">
-                    <div class="space-y-1.5">
+                    <div class="space-y-2">
                         <label class="block text-xs font-semibold text-slate-300">
-                            Название сервиса<span class="text-red-400">*</span>
+                            Название сервиса*
                         </label>
-                        <input type="text" name="name" required
-                               value="{{ service_center.name or '' }}"
-                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                        <input name="name" value="{{ service_center.name }}"
+                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
                     </div>
 
-                    <div class="space-y-1.5">
+                    <div class="space-y-2">
                         <label class="block text-xs font-semibold text-slate-300">
                             Телефон
                         </label>
-                        <input type="text" name="phone"
-                               value="{{ service_center.phone or '' }}"
-                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                        <input name="phone" value="{{ service_center.phone or '' }}"
+                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
                     </div>
-                </div>
 
-                <div class="space-y-1.5">
-                    <label class="block text-xs font-semibold text-slate-300">
-                        Адрес
-                    </label>
-                    <input type="text" name="address"
-                           value="{{ service_center.address or '' }}"
-                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                </div>
+                    <div class="space-y-2 md:col-span-2">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Адрес
+                        </label>
+                        <input name="address" value="{{ service_center.address or '' }}"
+                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                    </div>
 
-                <div class="space-y-1.5">
-                    <label class="block text-xs font-semibold text-slate-300">
-                        Сайт или страница в соцсетях
-                    </label>
-                    <input type="text" name="website"
-                           value="{{ service_center.website or '' }}"
-                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                </div>
+                    <div class="space-y-2 md:col-span-2">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Сайт или страница в соцсетях
+                        </label>
+                        <input name="website" value="{{ service_center.website or '' }}"
+                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                    </div>
 
-                <div class="grid md:grid-cols-2 gap-4">
-                    <div class="space-y-1.5">
+                    <div class="space-y-2">
                         <label class="block text-xs font-semibold text-slate-300">
                             Тип организации
                         </label>
                         <select name="org_type"
-                                class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                                class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
                             <option value="company"
-                                    {% if service_center.org_type == "company" or not service_center.org_type %}selected{% endif %}>
+                                    {% if service_center.org_type == "company" %}selected{% endif %}>
                                 Юрлицо / ИП
                             </option>
                             <option value="individual"
@@ -105,6 +99,34 @@
                                 Частный мастер
                             </option>
                         </select>
+                    </div>
+
+                    {# ✅ НОВОЕ: специализации #}
+                    <div class="space-y-2 md:col-span-2">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Специализации (обязательно)
+                        </label>
+
+                        {% if specialization_options %}
+                        <div class="flex flex-wrap gap-2">
+                            {% set current_specs = service_center.specializations or [] %}
+                            {% for code, label in specialization_options %}
+                            <label class="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-200 cursor-pointer hover:border-emerald-400/60 hover:bg-slate-900 transition">
+                                <input type="checkbox" name="specializations" value="{{ code }}"
+                                       {% if code in current_specs %}checked{% endif %}
+                                       class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
+                                <span>{{ label }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                        <p class="text-xs text-slate-400 mt-2">
+                            Выберите минимум одну специализацию — по ним система будет рассылать заявки.
+                        </p>
+                        {% else %}
+                        <p class="text-xs text-slate-400">
+                            Список специализаций недоступен.
+                        </p>
+                        {% endif %}
                     </div>
 
                     <div class="space-y-2">
@@ -136,11 +158,11 @@
 
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
                     <p class="text-xs text-slate-400 max-w-md">
-                        Изменения вступают в силу сразу. В будущем здесь появятся настройки специализаций и зон обслуживания.
+                        Изменения вступают в силу сразу.
                     </p>
 
                     <button type="submit"
-                            class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                            class="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
                         Сохранить изменения
                     </button>
                 </div>

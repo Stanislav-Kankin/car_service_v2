@@ -3,6 +3,26 @@
 {% block title %}Заявки для {{ service_center.name }} — CarBot{% endblock %}
 
 {% block content %}
+{# ✅ локальный mapping категорий для UI #}
+{% set category_labels = {
+    "sto": "СТО / общий ремонт",
+    "wash": "Автомойка",
+    "tire": "Шиномонтаж",
+    "electric": "Автоэлектрик",
+    "mechanic": "Слесарные работы",
+    "paint": "Малярные / кузовные работы",
+    "maint": "ТО / обслуживание",
+    "agg_turbo": "Ремонт турбин",
+    "agg_starter": "Ремонт стартеров",
+    "agg_generator": "Ремонт генераторов",
+    "agg_steering": "Рулевые рейки",
+    "mech": "Слесарные работы",
+    "elec": "Автоэлектрик",
+    "body": "Малярные / кузовные работы",
+    "diag": "Диагностика",
+    "agg": "Ремонт агрегатов"
+} %}
+
 <div class="mt-8 space-y-6">
     <a href="/sc/dashboard" class="text-xs text-slate-400 hover:text-emerald-400 transition">
         ← Назад в кабинет СТО
@@ -52,7 +72,11 @@
                                 {{ r.id }}
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-100">
-                                {{ r.service_category or "—" }}
+                                {% if r.service_category %}
+                                    {{ category_labels.get(r.service_category, r.service_category) }}
+                                {% else %}
+                                    —
+                                {% endif %}
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-300">
                                 {% if r.car %}

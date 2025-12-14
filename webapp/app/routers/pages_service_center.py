@@ -238,6 +238,20 @@ async def sc_edit_get(
     """
     sc = await _load_sc_for_owner(request, client, sc_id)
 
+    # ✅ список специализаций для UI (коды должны совпадать с backend)
+    specialization_options = [
+        ("wash", "Автомойка"),
+        ("tire", "Шиномонтаж"),
+        ("electric", "Автоэлектрик"),
+        ("mechanic", "Слесарные работы"),
+        ("paint", "Малярные / кузовные работы"),
+        ("maint", "ТО / обслуживание"),
+        ("agg_turbo", "Ремонт турбин"),
+        ("agg_starter", "Ремонт стартеров"),
+        ("agg_generator", "Ремонт генераторов"),
+        ("agg_steering", "Рулевые рейки"),
+    ]
+
     return templates.TemplateResponse(
         "service_center/edit.html",
         {
@@ -245,6 +259,7 @@ async def sc_edit_get(
             "service_center": sc,
             "error_message": None,
             "success": False,
+            "specialization_options": specialization_options,
         },
     )
 
@@ -259,6 +274,8 @@ async def sc_edit_post(
     phone: str = Form(""),
     website: str = Form(""),
     org_type: str = Form("company"),
+    # ✅ НОВОЕ: список чекбоксов специализаций
+    specializations: list[str] = Form([]),
     is_mobile_service: bool = Form(False),
     has_tow_truck: bool = Form(False),
     is_active: bool = Form(True),
@@ -268,12 +285,42 @@ async def sc_edit_post(
     """
     _ = get_current_user_id(request)
 
+    # ✅ список специализаций для UI (чтобы при ошибке форма не "обнулялась")
+    specialization_options = [
+        ("wash", "Автомойка"),
+        ("tire", "Шиномонтаж"),
+        ("electric", "Автоэлектрик"),
+        ("mechanic", "Слесарные работы"),
+        ("paint", "Малярные / кузовные работы"),
+        ("maint", "ТО / обслуживание"),
+        ("agg_turbo", "Ремонт турбин"),
+        ("agg_starter", "Ремонт стартеров"),
+        ("agg_generator", "Ремонт генераторов"),
+        ("agg_steering", "Рулевые рейки"),
+    ]
+
+    # ✅ валидация: минимум одна специализация
+    specs_clean = [s for s in (specializations or []) if s]
+    if not specs_clean:
+        sc = await _load_sc_for_owner(request, client, sc_id)
+        return templates.TemplateResponse(
+            "service_center/edit.html",
+            {
+                "request": request,
+                "service_center": sc,
+                "error_message": "Выберите минимум одну специализацию.",
+                "success": False,
+                "specialization_options": specialization_options,
+            },
+        )
+
     payload: dict[str, Any] = {
         "name": name,
         "address": address or None,
         "phone": phone or None,
         "website": website or None,
         "org_type": org_type or None,
+        "specializations": specs_clean,  # ✅ отправляем в backend
         "is_mobile_service": bool(is_mobile_service),
         "has_tow_truck": bool(has_tow_truck),
         "is_active": bool(is_active),
@@ -290,7 +337,6 @@ async def sc_edit_post(
         success = True
     except Exception:
         error_message = "Не удалось сохранить изменения. Попробуйте позже."
-        # Попробуем ещё раз подгрузить текущие данные
         try:
             sc = await _load_sc_for_owner(request, client, sc_id)
         except HTTPException:
@@ -303,6 +349,7 @@ async def sc_edit_post(
             "service_center": sc,
             "error_message": error_message,
             "success": success,
+            "specialization_options": specialization_options,
         },
     )
 
