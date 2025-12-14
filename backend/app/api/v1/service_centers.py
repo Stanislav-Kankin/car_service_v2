@@ -53,61 +53,78 @@ def _admin_moderation_webapp_url() -> str:
 async def _notify_admins_new_service_center(sc: ServiceCenterRead) -> None:
     """
     Best-effort уведомление админов в Telegram через bot notify API.
-    НЕ должно валить создание СТО при ошибках.
+    Контракт 1:1 как в bot/app/notify_api.py:
+      POST {BOT_API_URL}/api/v1/notify
+      payload: recipient_type, telegram_id, message, buttons[{text,type,url}]
+      auth: Authorization: Bearer BOT_API_TOKEN
     """
     admin_ids = _parse_admin_ids_from_env()
     bot_api_url = (os.getenv("BOT_API_URL") or "").strip().rstrip("/")
     bot_api_token = (os.getenv("BOT_API_TOKEN") or "").strip()
 
-    if not admin_ids or not bot_api_url:
+    if not admin_ids:
+        print("WARN notify_admins_new_sc: TELEGRAM_ADMIN_IDS is empty in BACKEND env")
         return
-
-    # Текст уведомления
-    specs = sc.specializations or []
-    specs_text = ", ".join([str(x) for x in specs]) if isinstance(specs, list) and specs else "—"
-
-    text = (
-        "🛂 Новая СТО на модерации\n\n"
-        f"ID: {sc.id}\n"
-        f"Название: {sc.name}\n"
-        f"Тип: {sc.org_type or '—'}\n"
-        f"Телефон: {sc.phone or '—'}\n"
-        f"Адрес: {sc.address or '—'}\n"
-        f"Специализации: {specs_text}\n\n"
-        "Откройте админку и активируйте СТО, если всё ок."
-    )
+    if not bot_api_url:
+        print("WARN notify_admins_new_sc: BOT_API_URL is empty in BACKEND env")
+        return
 
     url = _admin_moderation_webapp_url()
 
-    # Пытаемся быть совместимыми с твоим форматом "buttons"
-    payload_buttons = []
+    specs = sc.specializations or []
+    if isinstance(specs, list) and specs:
+        specs_text = ", ".join(str(x) for x in specs)
+    else:
+        specs_text = "—"
+
+    msg = (
+        "🛂 <b>Новая СТО на модерации</b>\n\n"
+        f"ID: <b>{sc.id}</b>\n"
+        f"Название: <b>{sc.name}</b>\n"
+        f"Тип: <b>{sc.org_type or '—'}</b>\n"
+        f"Телефон: <b>{sc.phone or '—'}</b>\n"
+        f"Адрес: <b>{sc.address or '—'}</b>\n"
+        f"Специализации: <b>{specs_text}</b>\n\n"
+        "Откройте админку и активируйте СТО, если всё ок."
+    )
+
+    buttons = []
     if url:
-        payload_buttons = [
+        buttons = [
             {
                 "text": "🛂 Открыть модерацию",
-                "web_app": {"url": url},
+                "type": "web_app",
+                "url": url,
             }
         ]
 
-    headers: dict[str, str] = {}
+    headers = {}
     if bot_api_token:
-        # два популярных варианта сразу
         headers["Authorization"] = f"Bearer {bot_api_token}"
-        headers["X-API-Token"] = bot_api_token
+
+    endpoint = f"{bot_api_url}/api/v1/notify"
 
     async with httpx.AsyncClient(timeout=5.0) as client:
         for admin_id in admin_ids:
             try:
-                await client.post(
-                    f"{bot_api_url}/notify",
+                r = await client.post(
+                    endpoint,
                     json={
-                        "telegram_id": admin_id,
-                        "text": text,
-                        "buttons": payload_buttons,
+                        "recipient_type": "admin",
+                        "telegram_id": int(admin_id),
+                        "message": msg,
+                        "buttons": buttons,
                     },
                     headers=headers,
                 )
-            except Exception:
+                if r.status_code >= 400:
+                    print(
+                        "WARN notify_admins_new_sc: notify failed",
+                        r.status_code,
+                        r.text[:300],
+                    )
+            except Exception as e:
+                print("WARN notify_admins_new_sc: exception", repr(e))
                 continue
 
 
@@ -127,11 +144,10 @@ async def create_service_center(
 
     # ✅ если СТО создаётся НЕактивной — это модерация -> уведомляем админов
     try:
-        # sc может быть pydantic (ServiceCenterRead)
         if getattr(sc, "is_active", True) is False:
             await _notify_admins_new_service_center(sc)  # best-effort
-    except Exception:
-        pass
+    except Exception as e:
+        print("WARN create_service_center: notify exception", repr(e))
 
     return sc
 
