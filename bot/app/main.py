@@ -72,14 +72,22 @@ async def run_notify_api(bot: Bot) -> None:
     """
     Запускает FastAPI сервер внутри процесса бота.
 
-    ВАЖНО: используем build_notify_app() из bot/app/notify_api.py,
-    там поддерживаются кнопки типа web_app (Mini App), а не только url.
+    ВАЖНО:
+    - В Docker нужно слушать 0.0.0.0, иначе backend (другой контейнер) не сможет достучаться.
+    - Снаружи (на хосте) порт проброшен через docker-compose.
     """
-    host = os.getenv("BOT_API_HOST", "127.0.0.1")
+    # ✅ дефолт для Docker / прод: 0.0.0.0
+    host = os.getenv("BOT_API_HOST", "0.0.0.0")
     port = int(os.getenv("BOT_API_PORT", "8086"))
 
     app = build_notify_app(bot)
-    config_uv = uvicorn.Config(app, host=host, port=port, log_level="info", access_log=False)
+    config_uv = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+        access_log=False,
+    )
     server = uvicorn.Server(config_uv)
     logging.info("Notify API запущен: http://%s:%s", host, port)
     await server.serve()
