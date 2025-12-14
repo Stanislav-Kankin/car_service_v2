@@ -3,6 +3,7 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 import httpx
 
@@ -15,6 +16,7 @@ from backend.app.schemas.service_center import (
 from backend.app.services.service_centers_service import ServiceCentersService
 from backend.app.services.requests_service import RequestsService
 from backend.app.core.catalogs.service_categories import get_specializations_for_category
+from backend.app.models.user import User
 
 router = APIRouter(
     prefix="/service-centers",
@@ -268,6 +270,91 @@ async def list_all_service_centers(
 # ----------------------------------------------------------------------
 # Обновление профиля СТО
 # ----------------------------------------------------------------------
+async def _get_owner_telegram_id(db: AsyncSession, user_id: int) -> int | None:
+    """
+    Достаём telegram_id владельца СТО по user_id.
+    """
+    try:
+        res = await db.execute(select(User.telegram_id).where(User.id == user_id))
+        tg_id = res.scalar_one_or_none()
+        if tg_id is None:
+            return None
+        return int(tg_id)
+    except Exception as e:
+        print("WARN _get_owner_telegram_id:", repr(e))
+        return None
+
+
+async def _notify_owner_sc_moderation_result(
+    *,
+    telegram_id: int,
+    sc_id: int,
+    sc_name: str,
+    approved: bool,
+) -> None:
+    """
+    Уведомление владельцу СТО об одобрении/отклонении модерации.
+    Контракт 1:1 как в bot/app/notify_api.py.
+    """
+    bot_api_url = (os.getenv("BOT_API_URL") or "").strip().rstrip("/")
+    bot_api_token = (os.getenv("BOT_API_TOKEN") or "").strip()
+    webapp_base = (os.getenv("WEBAPP_PUBLIC_URL") or "").strip().rstrip("/")
+
+    if not bot_api_url:
+        print("WARN notify_owner_sc: BOT_API_URL is empty in BACKEND env")
+        return
+
+    if approved:
+        msg = (
+            "✅ <b>Ваша СТО прошла модерацию</b>\n\n"
+            f"СТО: <b>{sc_name}</b>\n"
+            f"ID: <b>{sc_id}</b>\n\n"
+            "Теперь вы можете принимать заявки и отправлять отклики."
+        )
+    else:
+        msg = (
+            "❌ <b>Ваша СТО не прошла модерацию</b>\n\n"
+            f"СТО: <b>{sc_name}</b>\n"
+            f"ID: <b>{sc_id}</b>\n\n"
+            "СТО отключена администратором. Если это ошибка — свяжитесь с поддержкой."
+        )
+
+    buttons = []
+    # Куда вести владельца: кабинет СТО
+    # (минимально полезно: /sc/dashboard)
+    if webapp_base:
+        buttons = [
+            {
+                "text": "🛠 Открыть кабинет СТО",
+                "type": "web_app",
+                "url": f"{webapp_base}/sc/dashboard",
+            }
+        ]
+
+    headers = {}
+    if bot_api_token:
+        headers["Authorization"] = f"Bearer {bot_api_token}"
+
+    endpoint = f"{bot_api_url}/api/v1/notify"
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            r = await client.post(
+                endpoint,
+                json={
+                    "recipient_type": "service_center",
+                    "telegram_id": int(telegram_id),
+                    "message": msg,
+                    "buttons": buttons,
+                },
+                headers=headers,
+            )
+            if r.status_code >= 400:
+                print("WARN notify_owner_sc: failed", r.status_code, r.text[:300])
+        except Exception as e:
+            print("WARN notify_owner_sc: exception", repr(e))
+
+
 @router.patch(
     "/{sc_id}",
     response_model=ServiceCenterRead,
@@ -277,48 +364,39 @@ async def update_service_center(
     data_in: ServiceCenterUpdate,
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Обновление профиля СТО.
+
+    ДОПОЛНИТЕЛЬНО:
+    - если изменили is_active (модерация) -> шлём уведомление владельцу СТО.
+    """
     sc = await ServiceCentersService.get_by_id(db, sc_id)
     if not sc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Service center not found",
         )
-    sc = await ServiceCentersService.update_service_center(db, sc, data_in)
-    return sc
 
+    old_is_active = getattr(sc, "is_active", True)
 
-@router.get(
-    "/for-request/{request_id}",
-    response_model=List[ServiceCenterRead],
-)
-async def get_service_centers_for_request(
-    request_id: int,
-    db: AsyncSession = Depends(get_db),
-):
-    request = await RequestsService.get_request_by_id(db, request_id)
-    if not request:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Request not found",
-        )
+    sc_updated = await ServiceCentersService.update_service_center(db, sc, data_in)
 
-    spec_codes = get_specializations_for_category(request.service_category)
-    if spec_codes is None and request.service_category and request.service_category not in ("sto",):
-        spec_codes = [request.service_category]
+    new_is_active = getattr(sc_updated, "is_active", True)
 
-    specializations = spec_codes or None
+    # ✅ Уведомление владельцу о результате модерации
+    try:
+        if old_is_active != new_is_active:
+            owner_user_id = getattr(sc_updated, "user_id", None)
+            if owner_user_id:
+                tg_id = await _get_owner_telegram_id(db, int(owner_user_id))
+                if tg_id:
+                    await _notify_owner_sc_moderation_result(
+                        telegram_id=tg_id,
+                        sc_id=int(getattr(sc_updated, "id")),
+                        sc_name=str(getattr(sc_updated, "name", "СТО")),
+                        approved=bool(new_is_active),
+                    )
+    except Exception as e:
+        print("WARN update_service_center notify moderation:", repr(e))
 
-    has_tow_truck = request.need_tow_truck or None
-    is_mobile_service = request.need_mobile_master or None
-
-    service_centers = await ServiceCentersService.search_service_centers(
-        db,
-        latitude=request.latitude,
-        longitude=request.longitude,
-        radius_km=request.radius_km,
-        specializations=specializations,
-        is_active=True,
-        has_tow_truck=has_tow_truck,
-        is_mobile_service=is_mobile_service,
-    )
-    return service_centers
+    return sc_updated
