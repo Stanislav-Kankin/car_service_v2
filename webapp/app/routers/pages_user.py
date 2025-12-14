@@ -40,6 +40,44 @@ def get_current_user_id(request: Request) -> int:
         )
     return int(user_id)
 
+def _coerce_int(value) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+async def _get_current_user_obj(request: Request, client: AsyncClient) -> dict[str, Any] | None:
+    """
+    Возвращает user из backend или None, если user_id нет / backend вернул 404.
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        return None
+
+    try:
+        resp = await client.get(f"/api/v1/users/{int(user_id)}")
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return None
+
+
+def _is_profile_complete(user: dict[str, Any] | None) -> bool:
+    if not user:
+        return False
+    full_name = (user.get("full_name") or "").strip()
+    phone = (user.get("phone") or "").strip()
+    return bool(full_name) and bool(phone)
+
 
 # --------------------------------------------------------------------
 # Справочники для подписей категорий и статусов
@@ -148,16 +186,115 @@ async def _load_car_for_owner(
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-async def user_dashboard(request: Request) -> HTMLResponse:
+async def user_dashboard(
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
     """
-    Важно: dashboard должен открываться даже без авторизации,
-    чтобы Telegram Mini App мог загрузить страницу, выполнить JS
-    и пройти авторизацию через /api/v1/auth/telegram-webapp.
+    Dashboard должен открываться даже без авторизации — чтобы Telegram Mini App
+    мог загрузить страницу и пройти JS auth.
+
+    Но если cookie user_id уже есть — проверяем профиль:
+    если нет пользователя/нет обязательных полей -> ведём на /me/register.
     """
+    user_id = getattr(request.state, "user_id", None)
+    if user_id:
+        user_obj = await _get_current_user_obj(request, client)
+        if not _is_profile_complete(user_obj):
+            return RedirectResponse(url="/me/register", status_code=status.HTTP_302_FOUND)
+
     return templates.TemplateResponse(
         "user/dashboard.html",
         {"request": request},
     )
+
+
+@router.get("/register", response_class=HTMLResponse)
+async def user_register_get(
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    """
+    Форма регистрации при первом входе.
+    Требуем, чтобы уже был user_id cookie (его ставит Telegram WebApp auth JS).
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        # JS авторизация ещё не прошла — возвращаем на dashboard
+        return RedirectResponse(url="/me/dashboard", status_code=status.HTTP_302_FOUND)
+
+    user_obj = await _get_current_user_obj(request, client)
+
+    # если профиль уже заполнен — в кабинет
+    if _is_profile_complete(user_obj):
+        return RedirectResponse(url="/me/dashboard", status_code=status.HTTP_302_FOUND)
+
+    return templates.TemplateResponse(
+        "user/register.html",
+        {
+            "request": request,
+            "error_message": None,
+            "form": {
+                "full_name": (user_obj or {}).get("full_name") or "",
+                "phone": (user_obj or {}).get("phone") or "",
+                "city": (user_obj or {}).get("city") or "",
+            },
+        },
+    )
+
+
+@router.post("/register", response_class=HTMLResponse)
+async def user_register_post(
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    full_name: str = Form(""),
+    phone: str = Form(""),
+    city: str = Form(""),
+) -> HTMLResponse:
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        return RedirectResponse(url="/me/dashboard", status_code=status.HTTP_302_FOUND)
+
+    full_name = (full_name or "").strip()
+    phone = (phone or "").strip()
+    city = (city or "").strip()
+
+    if not full_name or not phone:
+        return templates.TemplateResponse(
+            "user/register.html",
+            {
+                "request": request,
+                "error_message": "ФИО и телефон обязательны.",
+                "form": {"full_name": full_name, "phone": phone, "city": city},
+            },
+        )
+
+    payload = {
+        "full_name": full_name,
+        "phone": phone,
+        "city": city or None,
+    }
+
+    # основной сценарий: user уже создан backend-ом, обновляем его
+    try:
+        resp = await client.patch(f"/api/v1/users/{int(user_id)}", json=payload)
+        resp.raise_for_status()
+    except Exception:
+        return templates.TemplateResponse(
+            "user/register.html",
+            {
+                "request": request,
+                "error_message": "Не удалось сохранить регистрацию. Попробуйте ещё раз.",
+                "form": {"full_name": full_name, "phone": phone, "city": city},
+            },
+        )
+
+    # куда вести после регистрации
+    next_url = request.query_params.get("next") or "/me/dashboard"
+    if not next_url.startswith("/"):
+        next_url = "/me/dashboard"
+
+    return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
 # --------------------------------------------------------------------
@@ -172,6 +309,9 @@ async def user_garage(
 ) -> HTMLResponse:
 
     user_id = get_current_user_id(request)
+    user_obj = await _get_current_user_obj(request, client)
+    if not _is_profile_complete(user_obj):
+        return RedirectResponse(url="/me/register?next=/me/garage", status_code=status.HTTP_302_FOUND)
 
     cars: list[dict[str, Any]] = []
     error_message: str | None = None
