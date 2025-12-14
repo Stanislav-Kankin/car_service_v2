@@ -126,6 +126,8 @@ async def main() -> None:
     dp = Dispatcher(storage=storage)
 
     # Роутеры
+    dp.include_router(general_router)
+
     dp.include_router(user_registration_router)
     dp.include_router(sto_registration_router)
     dp.include_router(user_profile_router)
@@ -136,7 +138,6 @@ async def main() -> None:
     # dp.include_router(chat_router)
     dp.include_router(rating_bonus_router)
     # dp.include_router(admin_router)
-    dp.include_router(general_router)
 
     # Кнопка WebApp в меню (опционально, но удобно)
     await setup_menu_button(bot)
