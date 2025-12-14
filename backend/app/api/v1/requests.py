@@ -15,7 +15,11 @@ from backend.app.schemas.request import (
 from backend.app.schemas.request_distribution import RequestDistributeIn
 from backend.app.services.requests_service import RequestsService
 from backend.app.services.service_centers_service import ServiceCentersService
-from backend.app.core.catalogs.service_categories import get_specializations_for_category
+from backend.app.core.catalogs.service_categories import (
+    get_specializations_for_category,
+    SERVICE_CATEGORY_LABELS,
+)
+
 
 from backend.app.models import ServiceCenter
 
@@ -61,15 +65,6 @@ async def send_request_to_all_service_centers(
     request_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Отправка заявки всем подходящим СТО.
-
-    1) Берём заявку по ID.
-    2) Определяем спец-коды по категории заявки.
-    3) Ищем подходящие СТО (по гео/радиусу/категориям).
-    4) Фиксируем распределение через RequestsService.distribute_request_to_service_centers.
-    5) Отправляем уведомления СТО (если настроен BOT_API_URL).
-    """
     request = await RequestsService.get_request_by_id(db, request_id)
     if not request:
         raise HTTPException(
@@ -77,16 +72,13 @@ async def send_request_to_all_service_centers(
             detail="Request not found",
         )
 
-    # Специализации по категории заявки (см. catalogs.service_categories)
     spec_codes = get_specializations_for_category(request.service_category)
 
-    # Если категорию не знаем и это не 'sto' — пробуем 1:1
     if spec_codes is None and request.service_category and request.service_category not in ("sto",):
         spec_codes = [request.service_category]
 
     specializations = spec_codes or None
 
-    # Ищем подходящие СТО
     service_centers: List[ServiceCenter] = await ServiceCentersService.search_service_centers(
         db,
         latitude=request.latitude,
@@ -104,26 +96,26 @@ async def send_request_to_all_service_centers(
             detail="No service centers found for this request",
         )
 
-    # Фиксируем распределение (создаём RequestDistribution и ставим статус SENT)
     distributed_request = await RequestsService.distribute_request_to_service_centers(
         db,
         request_id=request_id,
         service_center_ids=service_center_ids,
     )
 
-    # Уведомляем все СТО о новой заявке
     if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
+        cat_code = request.service_category or "—"
+        cat_label = SERVICE_CATEGORY_LABELS.get(cat_code, cat_code)
+
         for sc in service_centers:
-            owner = sc.owner  # User-модель владельца
+            owner = sc.owner
             if not owner or not getattr(owner, "telegram_id", None):
                 continue
 
-            # Ссылка для СТО на деталку заявки в кабинете сервиса
             url = f"{WEBAPP_PUBLIC_URL}/sc/{sc.id}/requests/{request_id}"
 
             message = (
                 f"🆕 У вас новая заявка №{request_id}\n"
-                f"Категория: {request.service_category or 'не указана'}"
+                f"Категория: {cat_label}"
             )
 
             await notifier.send_notification(
@@ -155,18 +147,6 @@ async def send_to_one_service(
     data: dict,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Отправить заявку ОДНОМУ выбранному СТО.
-
-    Ожидает тело:
-    {
-        "service_center_id": 5
-    }
-
-    Поведение:
-    - фиксируем распределение только к одному СТО,
-    - уведомляем этот сервис о новой заявке.
-    """
     sc_id = data.get("service_center_id")
     if not sc_id:
         raise HTTPException(
@@ -192,13 +172,15 @@ async def send_to_one_service(
             detail="Request not found",
         )
 
-    # Уведомляем СТО
     owner = service_center.owner
     if notifier.is_enabled() and WEBAPP_PUBLIC_URL and owner and getattr(owner, "telegram_id", None):
+        cat_code = request.service_category or "—"
+        cat_label = SERVICE_CATEGORY_LABELS.get(cat_code, cat_code)
+
         url = f"{WEBAPP_PUBLIC_URL}/sc/{service_center.id}/requests/{request_id}"
         message = (
             f"📩 Вам отправлена заявка №{request_id}\n"
-            f"Категория: {request.service_category or 'не указана'}"
+            f"Категория: {cat_label}"
         )
 
         await notifier.send_notification(

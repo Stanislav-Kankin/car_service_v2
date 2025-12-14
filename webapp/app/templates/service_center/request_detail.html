@@ -3,6 +3,26 @@
 {% block title %}Заявка №{{ req.id if req else "" }} — {{ service_center.name }}{% endblock %}
 
 {% block content %}
+{# ✅ локальный mapping категорий для UI #}
+{% set category_labels = {
+    "sto": "СТО / общий ремонт",
+    "wash": "Автомойка",
+    "tire": "Шиномонтаж",
+    "electric": "Автоэлектрик",
+    "mechanic": "Слесарные работы",
+    "paint": "Малярные / кузовные работы",
+    "maint": "ТО / обслуживание",
+    "agg_turbo": "Ремонт турбин",
+    "agg_starter": "Ремонт стартеров",
+    "agg_generator": "Ремонт генераторов",
+    "agg_steering": "Рулевые рейки",
+    "mech": "Слесарные работы",
+    "elec": "Автоэлектрик",
+    "body": "Малярные / кузовные работы",
+    "diag": "Диагностика",
+    "agg": "Ремонт агрегатов"
+} %}
+
 <div class="mt-8 space-y-6">
     <a href="/sc/{{ service_center.id }}/requests" class="text-xs text-slate-400 hover:text-emerald-400 transition">
         ← Ко всем заявкам сервиса
@@ -18,7 +38,7 @@
                         Заявка №{{ req.id if req else "—" }}
                     </p>
                     <h1 class="text-2xl font-semibold">
-                        {{ req.service_category or "Без категории" }}
+                        {{ category_labels.get(req.service_category, req.service_category) if req and req.service_category else "Без категории" }}
                     </h1>
                     {% if req and req.status %}
                     <p class="text-sm text-slate-300 mt-1">
@@ -53,7 +73,6 @@
                             Автомобиль
                         </p>
 
-                        {# Важно: backend request не содержит вложенный car, обычно есть только car_id #}
                         {% if req.car %}
                             <p class="text-sm text-slate-100">
                                 {{ req.car.brand }} {{ req.car.model }}

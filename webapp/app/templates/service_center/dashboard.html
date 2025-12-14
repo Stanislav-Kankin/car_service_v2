@@ -3,6 +3,26 @@
 {% block title %}Кабинет СТО — CarBot{% endblock %}
 
 {% block content %}
+{# ✅ локальный mapping для читабельности (UI-слой) #}
+{% set category_labels = {
+    "sto": "СТО / общий ремонт",
+    "wash": "Автомойка",
+    "tire": "Шиномонтаж",
+    "electric": "Автоэлектрик",
+    "mechanic": "Слесарные работы",
+    "paint": "Малярные / кузовные работы",
+    "maint": "ТО / обслуживание",
+    "agg_turbo": "Ремонт турбин",
+    "agg_starter": "Ремонт стартеров",
+    "agg_generator": "Ремонт генераторов",
+    "agg_steering": "Рулевые рейки",
+    "mech": "Слесарные работы",
+    "elec": "Автоэлектрик",
+    "body": "Малярные / кузовные работы",
+    "diag": "Диагностика",
+    "agg": "Ремонт агрегатов"
+} %}
+
 <div class="mt-8 space-y-6">
     <div class="flex items-center justify-between gap-4">
         <div>
@@ -17,8 +37,7 @@
             </p>
         </div>
         <a href="/sc/create"
-           class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-9
-00 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+           class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
             <span class="text-lg leading-none">+</span>
             <span>Добавить новый СТО</span>
         </a>
@@ -97,7 +116,7 @@
                     <div class="mt-3 flex flex-wrap gap-1.5">
                         {% for cat in sc.specializations %}
                         <span class="rounded-full bg-slate-800/70 px-2.5 py-1 text-[11px] text-slate-200">
-                            {{ cat }}
+                            {{ category_labels.get(cat, cat) }}
                         </span>
                         {% endfor %}
                     </div>
