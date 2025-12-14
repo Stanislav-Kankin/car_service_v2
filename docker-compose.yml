@@ -1,117 +1,130 @@
+version: "3.8"
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: carbot_postgres
     environment:
-      POSTGRES_DB: carbot_v2
       POSTGRES_USER: carbot
       POSTGRES_PASSWORD: carbot_password
+      POSTGRES_DB: carbot_v2
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - carbot_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U carbot -d carbot_v2"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
     restart: unless-stopped
+    networks:
+      - carbot_net
 
   redis:
     image: redis:7-alpine
     container_name: carbot_redis
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - redisdata:/data
+      - carbot_redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
     restart: unless-stopped
+    networks:
+      - carbot_net
 
   backend:
     build:
       context: .
       dockerfile: Dockerfile
+    image: car_service_v2_backend:latest
     container_name: carbot_backend
+    env_file:
+      - .env
+    environment:
+      # Явно прокидываем то, что критично внутри docker-сети
+      DB_TYPE: ${DB_TYPE:-postgres}
+      DB_URL: ${DB_URL:-postgresql+asyncpg://carbot:carbot_password@postgres:5432/carbot_v2}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+
+      BOT_API_URL: ${BOT_API_URL:-http://bot:8086}
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-supersecret123}
+
+      # На всякий случай, если backend у тебя это читает
+      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS:-}
+
+      # Важно: если backend падает без BOT_TOKEN — пусть будет из .env
+      BOT_TOKEN: ${BOT_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    environment:
-      # --- обязательное (у тебя backend падает без BOT_TOKEN)
-      BOT_TOKEN: ${BOT_TOKEN}
-
-      # --- DB
-      DB_TYPE: postgres
-      DB_URL: postgresql+asyncpg://carbot:carbot_password@postgres:5432/carbot_v2
-
-      # --- Redis (если используешь где-то)
-      REDIS_URL: redis://redis:6379/0
-
-      # --- уведомления в бота (notify api)
-      BOT_API_URL: http://bot:8086
-      BOT_API_TOKEN: ${BOT_API_TOKEN}
-
-      # --- внешняя ссылка для web_app кнопок
-      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL}
-
-      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS}
-
-      # необязательно
-      DEBUG: "false"
     command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8044"]
     ports:
       - "8044:8044"
     restart: unless-stopped
+    networks:
+      - carbot_net
 
   webapp:
     build:
       context: .
       dockerfile: Dockerfile
+    image: car_service_v2_webapp:latest
     container_name: carbot_webapp
+    env_file:
+      - .env
+    environment:
+      # Ключевое: base_url для webapp -> backend по имени сервиса
+      backend_url: ${BACKEND_URL:-http://backend:8044}
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8044}
+
+      # allowlist админов
+      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS:-}
+
+      DEBUG: "false"
     depends_on:
       backend:
         condition: service_started
-    environment:
-      # pydantic-settings читает env, alias="backend_url"
-      backend_url: http://backend:8044
-      DEBUG: "false"
-      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS}
     command: ["uvicorn", "webapp.app.main:app", "--host", "0.0.0.0", "--port", "8045"]
     ports:
       - "8045:8045"
     restart: unless-stopped
+    networks:
+      - carbot_net
 
   bot:
     build:
       context: .
       dockerfile: Dockerfile
+    image: car_service_v2_bot:latest
     container_name: carbot_bot
+    env_file:
+      - .env
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8044}
+      BOT_API_URL: ${BOT_API_URL:-http://bot:8086}
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-supersecret123}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      BOT_TOKEN: ${BOT_TOKEN:-}
     depends_on:
       backend:
         condition: service_started
       redis:
         condition: service_healthy
-    environment:
-      BOT_TOKEN: ${BOT_TOKEN}
-      BACKEND_URL: http://backend:8044
-
-      # если у бота есть BOT_API_TOKEN/TELEGRAM_ADMIN_IDS — оставим
-      BOT_API_TOKEN: ${BOT_API_TOKEN}
-      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS}
-
-      # если бот умеет Redis FSM через env — добавим
-      REDIS_URL: redis://redis:6379/0
-
-      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL}
-      WEBAPP_URL: ${WEBAPP_URL}
     command: ["python", "-m", "bot.app.main"]
     ports:
-      # Notify API бота наружу можно не выставлять, но удобно для теста
       - "8086:8086"
     restart: unless-stopped
+    networks:
+      - carbot_net
 
 volumes:
-  pgdata:
-  redisdata:
+  carbot_postgres_data:
+  carbot_redis_data:
+
+networks:
+  carbot_net:
+    driver: bridge
