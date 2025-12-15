@@ -12,9 +12,9 @@
     <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
             <div class="flex items-center gap-2">
-                <div class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
-                    🚗
-                </div>
+                <div
+                    class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+                    🚗</div>
                 <div class="text-sm font-semibold">MyGarage</div>
             </div>
 
@@ -38,30 +38,32 @@
 
         function setUserIdCookie(userId) {
             const isHttps = window.location.protocol === "https:";
-            const base = `user_id=${encodeURIComponent(userId)}; Path=/; Max-Age=2592000`;
+            const host = window.location.hostname;
 
-            // Для Telegram WebView на https — лучше SameSite=None; Secure
+            // чтобы работало и на www.dev-cloud-ksa.ru, и на dev-cloud-ksa.ru
+            // Если ты используешь другой домен в будущем — подстрой условие.
+            const useDomain =
+                host === "dev-cloud-ksa.ru" ||
+                host === "www.dev-cloud-ksa.ru";
+
+            const baseParts = [
+                `user_id=${encodeURIComponent(userId)}`,
+                "Path=/",
+                "Max-Age=2592000" // 30 дней
+            ];
+
+            if (useDomain) {
+                baseParts.push("Domain=.dev-cloud-ksa.ru");
+            }
+
             if (isHttps) {
-                document.cookie = base + "; SameSite=None; Secure";
+                baseParts.push("SameSite=None");
+                baseParts.push("Secure");
             } else {
-                document.cookie = base + "; SameSite=Lax";
-            }
-        }
-
-        function extractInitDataFromUrl() {
-            const qs = new URLSearchParams(window.location.search);
-            const fromQuery = qs.get("tgWebAppData");
-            if (fromQuery) return decodeURIComponent(fromQuery);
-
-            const hash = window.location.hash || "";
-            if (hash.includes("tgWebAppData=")) {
-                const h = hash.startsWith("#") ? hash.slice(1) : hash;
-                const hs = new URLSearchParams(h);
-                const fromHash = hs.get("tgWebAppData");
-                if (fromHash) return decodeURIComponent(fromHash);
+                baseParts.push("SameSite=Lax");
             }
 
-            return "";
+            document.cookie = baseParts.join("; ");
         }
 
         async function authViaTelegram(initData) {
@@ -84,39 +86,34 @@
             }
 
             setUserIdCookie(data.user_id);
-            return data.user_id;
+            return String(data.user_id);
         }
 
         document.addEventListener("DOMContentLoaded", async () => {
-            const existing = getCookie("user_id");
+            const before = getCookie("user_id");
+
+            // Telegram WebApp
             const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-
-            let initData = "";
-            if (tg) {
-                try { tg.ready(); } catch (e) { }
-                initData = tg.initData || "";
-            } else {
-                initData = extractInitDataFromUrl();
-            }
-
-            // Если initData есть — всегда переавторизуемся и обновим cookie
-            if (initData) {
-                const before = existing;
-                const uid = await authViaTelegram(initData);
-
-                // Если cookie не было (или поменялось) — перезагрузим страницу без hash,
-                // чтобы все дальнейшие переходы точно шли с cookie.
-                const after = getCookie("user_id");
-                if (uid && (!before || before !== after)) {
-                    const url = window.location.pathname + window.location.search;
-                    window.location.replace(url);
-                }
+            if (!tg) {
+                // Если открыли не из Telegram — просто живём как есть.
                 return;
             }
 
-            // initData нет
-            if (!existing) {
-                console.warn("Нет Telegram initData и нет cookie user_id. Открой WebApp из Telegram.");
+            try { tg.ready(); } catch (e) { }
+
+            if (!tg.initData || tg.initData.length === 0) {
+                console.warn("Telegram initData is empty");
+                return;
+            }
+
+            const uid = await authViaTelegram(tg.initData);
+            const after = getCookie("user_id");
+
+            // Если cookie не было / поменялось — перезагрузим страницу,
+            // чтобы последующие клики точно шли уже с cookie.
+            if (uid && (!before || before !== after)) {
+                const url = window.location.pathname + window.location.search;
+                window.location.replace(url);
             }
         });
     </script>
