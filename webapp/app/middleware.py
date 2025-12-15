@@ -41,7 +41,6 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
     _REGISTER_PATHS = ("/me/register", "/me/register/")
 
     def _clear_user_cookie(self, resp: Response) -> None:
-        # Удаляем cookie и для корня, и для общего домена (на всякий случай)
         resp.delete_cookie("user_id", path="/")
         resp.delete_cookie("user_id", path="/", domain=".dev-cloud-ksa.ru")
         resp.delete_cookie("userId", path="/")
@@ -53,33 +52,34 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
         if path.startswith(self._ALWAYS_ALLOW_PREFIXES):
             return await call_next(request)
 
-        # register всегда доступен
+        # /me/register всегда доступен (но сам handler решит, что делать без cookie)
         if path in self._REGISTER_PATHS:
             return await call_next(request)
 
+        # Не защищённые страницы не трогаем
         if not path.startswith(self._PROTECTED_PREFIXES):
             return await call_next(request)
 
         user_id = getattr(request.state, "user_id", None)
+
+        # ✅ КЛЮЧЕВОЕ: если cookie нет — НЕ /me/register, а /
         if not user_id:
-            return RedirectResponse(url="/me/register", status_code=302)
+            return RedirectResponse(url="/", status_code=302)
 
         # грузим пользователя
         try:
             async with httpx.AsyncClient(base_url=str(settings.BACKEND_API_URL), timeout=10.0) as client:
                 resp = await client.get(f"/api/v1/users/{int(user_id)}")
 
-                # КЛЮЧЕВОЕ: cookie битая, пользователя нет
                 if resp.status_code == 404:
-                    r = RedirectResponse(url="/me/register", status_code=302)
+                    r = RedirectResponse(url="/", status_code=302)
                     self._clear_user_cookie(r)
                     return r
 
                 resp.raise_for_status()
                 user_obj = resp.json()
         except Exception:
-            r = RedirectResponse(url="/me/register", status_code=302)
-            return r
+            return RedirectResponse(url="/", status_code=302)
 
         request.state.user_obj = user_obj
 

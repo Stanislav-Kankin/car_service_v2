@@ -190,23 +190,12 @@ async def user_dashboard(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """ 
-    /me/dashboard — единственная страница, которую мы допускаем БЕЗ cookie,
-    чтобы Telegram Mini App мог загрузиться и выполнить JS auth.
-
-    Важно: как только cookie есть, и профиль заполнен — показываем кабинет.
-    Если cookie есть, но профиль НЕ заполнен — middleware уже редиректит на /me/register.
-    """
     user_id = getattr(request.state, "user_id", None)
 
-    # Без cookie: показываем только экран "Авторизация..." (без функциональных ссылок)
+    # ✅ если cookie нет — идём в единую точку auth
     if not user_id:
-        return templates.TemplateResponse(
-            "user/dashboard.html",
-            {"request": request, "show_dashboard": False, "user": None},
-        )
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
 
-    # С cookie: user_obj мог быть загружен middleware, но на всякий случай подстрахуемся
     user_obj = getattr(request.state, "user_obj", None)
     if user_obj is None:
         user_obj = await _get_current_user_obj(request, client)
@@ -222,13 +211,11 @@ async def user_register_get(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Форма регистрации при первом входе.
-    Требуем, чтобы уже был user_id cookie (его ставит Telegram WebApp auth JS).
-    """
     user_id = getattr(request.state, "user_id", None)
+
+    # ✅ если cookie нет — идём в единую точку auth
     if not user_id:
-        return RedirectResponse(url="/me/dashboard", status_code=status.HTTP_302_FOUND)
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
 
     user_obj = await _get_current_user_obj(request, client)
 
@@ -258,8 +245,10 @@ async def user_register_post(
     city: str = Form(""),
 ) -> HTMLResponse:
     user_id = getattr(request.state, "user_id", None)
+
+    # ✅ если cookie нет — идём в единую точку auth
     if not user_id:
-        return RedirectResponse(url="/me/dashboard", status_code=status.HTTP_302_FOUND)
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
 
     full_name = (full_name or "").strip()
     phone = (phone or "").strip()
