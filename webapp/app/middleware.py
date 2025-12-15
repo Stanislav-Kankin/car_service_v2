@@ -46,10 +46,8 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
         "/sc/",
     )
 
-    # Разрешённые пути без cookie (чтобы не было тупика):
-    _ALLOW_WITHOUT_COOKIE = (
-        "/me/register",
-    )
+    # Разрешаем оба варианта (со слэшем и без)
+    _REGISTER_PATHS = ("/me/register", "/me/register/")
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path or "/"
@@ -58,30 +56,28 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
         if path.startswith(self._ALWAYS_ALLOW_PREFIXES):
             return await call_next(request)
 
-        # 1) Если это не защищённая зона — пропускаем
+        # 1) /me/register (и /me/register/) ВСЕГДА доступен, иначе будут циклы
+        if path in self._REGISTER_PATHS:
+            return await call_next(request)
+
+        # 2) Если это не защищённая зона — пропускаем
         if not path.startswith(self._PROTECTED_PREFIXES):
             return await call_next(request)
 
         user_id = getattr(request.state, "user_id", None)
 
-        # 2) НЕТ cookie => считаем пользователя незарегистрированным => жёстко на /me/register
+        # 3) НЕТ cookie => жёстко на /me/register
         if not user_id:
-            if path in self._ALLOW_WITHOUT_COOKIE:
-                return await call_next(request)
             return RedirectResponse(url="/me/register", status_code=302)
 
-        # 3) Есть cookie: грузим user из backend и проверяем заполненность профиля
-        user_obj: dict | None = None
+        # 4) Есть cookie: грузим user из backend и проверяем заполненность профиля
         try:
             async with httpx.AsyncClient(base_url=str(settings.BACKEND_API_URL), timeout=10.0) as client:
                 resp = await client.get(f"/api/v1/users/{int(user_id)}")
-                if resp.status_code == 404:
-                    user_obj = None
-                else:
-                    resp.raise_for_status()
-                    user_obj = resp.json()
+                resp.raise_for_status()
+                user_obj = resp.json()
         except Exception:
-            # backend недоступен => не пускаем в кабинет
+            # backend недоступен / user не найден => не пускаем дальше
             return RedirectResponse(url="/me/register", status_code=302)
 
         request.state.user_obj = user_obj
@@ -90,11 +86,6 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
         phone = ((user_obj or {}).get("phone") or "").strip()
         profile_complete = bool(full_name) and bool(phone)
 
-        # /me/register всегда разрешаем (иначе цикл)
-        if path == "/me/register":
-            return await call_next(request)
-
-        # 4) Профиль не заполнен => на регистрацию
         if not profile_complete:
             next_url = str(request.url)
             parsed = urllib.parse.urlsplit(next_url)
