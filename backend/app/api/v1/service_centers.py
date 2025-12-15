@@ -235,6 +235,47 @@ async def list_service_centers(
 
 
 # ----------------------------------------------------------------------
+# Подходящие СТО для конкретной заявки (для экрана выбора СТО в webapp)
+# ----------------------------------------------------------------------
+@router.get(
+    "/for-request/{request_id}",
+    response_model=List[ServiceCenterRead],
+)
+async def list_service_centers_for_request(
+    request_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    req = await RequestsService.get_request_by_id(db, request_id)
+    if not req:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Request not found",
+        )
+
+    spec_codes = get_specializations_for_category(req.service_category)
+
+    if spec_codes is None and req.service_category and req.service_category not in ("sto",):
+        spec_codes = [req.service_category]
+
+    specializations = spec_codes or None
+
+    # Если клиенту нужен эвакуатор/выезд — фильтруем СТО
+    has_tow_truck = True if getattr(req, "need_tow_truck", False) else None
+    is_mobile_service = True if getattr(req, "need_mobile_master", False) else None
+
+    sc_list = await ServiceCentersService.search_service_centers(
+        db,
+        latitude=req.latitude,
+        longitude=req.longitude,
+        radius_km=req.radius_km,
+        specializations=specializations,
+        is_active=True,
+        has_tow_truck=has_tow_truck,
+        is_mobile_service=is_mobile_service,
+    )
+    return sc_list
+
+# ----------------------------------------------------------------------
 # СТО конкретного владельца (по user_id)
 # ----------------------------------------------------------------------
 @router.get(

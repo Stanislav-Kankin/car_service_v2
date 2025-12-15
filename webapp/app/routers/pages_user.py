@@ -961,13 +961,13 @@ async def request_reject_offer(
 # --------------------------------------------------------------------
 
 
+@router.post("/requests/{request_id}/send-to-all", response_class=HTMLResponse)
 @router.post("/requests/{request_id}/send-all", response_class=HTMLResponse)
 async def request_send_all_post(
     request_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-
     _ = get_current_user_id(request)
 
     try:
