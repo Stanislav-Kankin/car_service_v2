@@ -118,10 +118,5 @@ async def auth_telegram_webapp(
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        # Повышаем роль до admin
-        user.role = UserRole.admin
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
 
     return {"user_id": user.id}

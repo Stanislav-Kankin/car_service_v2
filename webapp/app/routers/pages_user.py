@@ -228,12 +228,10 @@ async def user_register_get(
     """
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
-        # JS авторизация ещё не прошла — возвращаем на dashboard
         return RedirectResponse(url="/me/dashboard", status_code=status.HTTP_302_FOUND)
 
     user_obj = await _get_current_user_obj(request, client)
 
-    # если профиль уже заполнен — в кабинет
     if _is_profile_complete(user_obj):
         return RedirectResponse(url="/me/dashboard", status_code=status.HTTP_302_FOUND)
 
@@ -251,60 +249,49 @@ async def user_register_get(
     )
 
 
-@router.post("/me/register")
-async def register_post(
+@router.post("/register", response_class=HTMLResponse)
+async def user_register_post(
     request: Request,
-    full_name: str = Form(...),
-    phone: str = Form(...),
-    city: str | None = Form(None),
     client: AsyncClient = Depends(get_backend_client),
-):
-    user_id = request.cookies.get("user_id")
+    full_name: str = Form(""),
+    phone: str = Form(""),
+    city: str = Form(""),
+) -> HTMLResponse:
+    user_id = getattr(request.state, "user_id", None)
     if not user_id:
-        return RedirectResponse("/", status_code=302)
+        return RedirectResponse(url="/me/dashboard", status_code=status.HTTP_302_FOUND)
 
-    payload = {
-        "full_name": full_name.strip(),
-        "phone": phone.strip(),
-        "city": city.strip() if city else None,
-    }
+    full_name = (full_name or "").strip()
+    phone = (phone or "").strip()
+    city = (city or "").strip()
 
-    # 1. Сохраняем
-    resp = await client.patch(f"/api/v1/users/{int(user_id)}", json=payload)
-    if resp.status_code != 200:
+    if not full_name or not phone:
         return templates.TemplateResponse(
             "user/register.html",
             {
                 "request": request,
-                "error": "Не удалось сохранить регистрацию. Попробуйте ещё раз.",
+                "error_message": "ФИО и телефон обязательны.",
+                "form": {"full_name": full_name, "phone": phone, "city": city},
             },
         )
 
-    # 2. ОБЯЗАТЕЛЬНО перечитываем пользователя
-    resp = await client.get(f"/api/v1/users/{int(user_id)}")
-    if resp.status_code != 200:
+    payload = {"full_name": full_name, "phone": phone, "city": city or None}
+
+    try:
+        resp = await client.patch(f"/api/v1/users/{int(user_id)}", json=payload)
+        resp.raise_for_status()
+    except Exception:
         return templates.TemplateResponse(
             "user/register.html",
             {
                 "request": request,
-                "error": "Ошибка обновления профиля. Попробуйте ещё раз.",
+                "error_message": "Не удалось сохранить регистрацию. Попробуйте ещё раз.",
+                "form": {"full_name": full_name, "phone": phone, "city": city},
             },
         )
 
-    user = resp.json()
-
-    # 3. Жёсткая проверка
-    if not user.get("full_name") or not user.get("phone"):
-        return templates.TemplateResponse(
-            "user/register.html",
-            {
-                "request": request,
-                "error": "Профиль заполнен не полностью.",
-            },
-        )
-
-    # 4. И ТОЛЬКО ТЕПЕРЬ — редирект
-    return RedirectResponse("/me/dashboard", status_code=303)
+    next_url = request.query_params.get("next") or "/me/dashboard"
+    return RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
 # --------------------------------------------------------------------

@@ -2,123 +2,122 @@
 <html lang="ru">
 
 <head>
-  <meta charset="UTF-8" />
-  <title>{% block title %}MyGarage WebApp{% endblock %}</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://cdn.tailwindcss.com"></script>
+    <meta charset="UTF-8" />
+    <title>{% block title %}MyGarage WebApp{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- ВАЖНО: Telegram Mini App API -->
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- ВАЖНО: Telegram Mini App API -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 
 <body class="min-h-screen bg-slate-950 text-slate-50">
-  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
-    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">🚗</div>
-        <div class="text-sm font-semibold">MyGarage</div>
-      </div>
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+        <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <div
+                    class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+                    🚗</div>
+                <div class="text-sm font-semibold">MyGarage</div>
+            </div>
 
-      <nav class="flex items-center gap-3 text-xs text-slate-300">
-        <a href="/me/dashboard" class="hover:text-emerald-300 transition">Клиент</a>
-        <a href="/sc/dashboard" class="hover:text-emerald-300 transition">СТО</a>
-        <a href="/admin/dashboard" class="hover:text-emerald-300 transition">Админка</a>
-      </nav>
-    </div>
-  </header>
+            <nav class="flex items-center gap-3 text-xs text-slate-300">
+                <a href="/me/dashboard" class="hover:text-emerald-300 transition">Клиент</a>
+                <a href="/sc/dashboard" class="hover:text-emerald-300 transition">СТО</a>
+                <a href="/admin/dashboard" class="hover:text-emerald-300 transition">Админка</a>
+            </nav>
+        </div>
+    </header>
 
-  <main class="max-w-5xl mx-auto px-4 py-6">
-    {% block content %}{% endblock %}
-  </main>
+    <main class="max-w-5xl mx-auto px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
 
-  <script>
-    function getCookie(name) {
-      const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
-      return m ? decodeURIComponent(m[2]) : null;
-    }
-
-    function extractInitDataFromUrl() {
-      const qs = new URLSearchParams(window.location.search);
-      const fromQuery = qs.get("tgWebAppData");
-      if (fromQuery) return decodeURIComponent(fromQuery);
-
-      const hash = window.location.hash || "";
-      if (hash.includes("tgWebAppData=")) {
-        const h = hash.startsWith("#") ? hash.slice(1) : hash;
-        const hs = new URLSearchParams(h);
-        const fromHash = hs.get("tgWebAppData");
-        if (fromHash) return decodeURIComponent(fromHash);
-      }
-      return "";
-    }
-
-    function setUserIdCookie(userId) {
-      const isHttps = window.location.protocol === "https:";
-      const host = window.location.hostname;
-
-      // у тебя открывается www.dev-cloud-ksa.ru (по логу бота)
-      // ставим Domain=.dev-cloud-ksa.ru, чтобы работало и для www, и без www
-      const parts = [
-        `user_id=${encodeURIComponent(userId)}`,
-        "Path=/",
-        "Max-Age=2592000",
-        "Domain=.dev-cloud-ksa.ru"
-      ];
-
-      if (isHttps) {
-        parts.push("SameSite=None");
-        parts.push("Secure");
-      } else {
-        parts.push("SameSite=Lax");
-      }
-
-      document.cookie = parts.join("; ");
-    }
-
-    async function authViaTelegram(initData) {
-      const resp = await fetch("/api/v1/auth/telegram-webapp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ init_data: initData })
-      });
-
-      if (!resp.ok) return null;
-
-      const data = await resp.json();
-      if (!data || !data.user_id) return null;
-
-      setUserIdCookie(data.user_id);
-      return String(data.user_id);
-    }
-
-    document.addEventListener("DOMContentLoaded", async () => {
-      const before = getCookie("user_id");
-
-      let initData = "";
-      try {
-        if (window.Telegram && window.Telegram.WebApp) {
-          window.Telegram.WebApp.ready();
-          initData = window.Telegram.WebApp.initData || "";
+    <script>
+        function getCookie(name) {
+            const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+            return m ? decodeURIComponent(m[2]) : null;
         }
-      } catch (e) { }
 
-      if (!initData) {
-        initData = extractInitDataFromUrl();
-      }
+        function extractInitDataFromUrl() {
+            const qs = new URLSearchParams(window.location.search);
+            const fromQuery = qs.get("tgWebAppData");
+            if (fromQuery) return decodeURIComponent(fromQuery);
 
-      // Важно: если initData есть — делаем auth и reload
-      if (initData) {
-        const uid = await authViaTelegram(initData);
-        const after = getCookie("user_id");
-
-        if (uid && (!before || before !== after)) {
-          const url = window.location.pathname + window.location.search;
-          window.location.replace(url);
+            const hash = window.location.hash || "";
+            if (hash.includes("tgWebAppData=")) {
+                const h = hash.startsWith("#") ? hash.slice(1) : hash;
+                const hs = new URLSearchParams(h);
+                const fromHash = hs.get("tgWebAppData");
+                if (fromHash) return decodeURIComponent(fromHash);
+            }
+            return "";
         }
-      }
-    });
-  </script>
+
+        function setUserIdCookie(userId) {
+            const isHttps = window.location.protocol === "https:";
+            const parts = [
+                `user_id=${encodeURIComponent(userId)}`,
+                "Path=/",
+                "Max-Age=2592000",
+                "Domain=.dev-cloud-ksa.ru"
+            ];
+
+            if (isHttps) {
+                parts.push("SameSite=None");
+                parts.push("Secure");
+            } else {
+                parts.push("SameSite=Lax");
+            }
+
+            document.cookie = parts.join("; ");
+        }
+
+        async function authViaTelegram(initData) {
+            const resp = await fetch("/api/v1/auth/telegram-webapp", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ init_data: initData })
+            });
+
+            if (!resp.ok) return null;
+
+            const data = await resp.json();
+            if (!data || !data.user_id) return null;
+
+            setUserIdCookie(data.user_id);
+            return String(data.user_id);
+        }
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            const before = getCookie("user_id");
+
+            let initData = "";
+            try {
+                if (window.Telegram && window.Telegram.WebApp) {
+                    window.Telegram.WebApp.ready();
+                    initData = window.Telegram.WebApp.initData || "";
+                }
+            } catch (e) { }
+
+            if (!initData) {
+                initData = extractInitDataFromUrl();
+            }
+
+            // Важно: если initData есть — делаем auth и reload
+            if (initData) {
+                const uid = await authViaTelegram(initData);
+                const after = getCookie("user_id");
+
+                if (uid && (!before || before !== after)) {
+                    const url = window.location.pathname + window.location.search;
+                    window.location.replace(url);
+                }
+            }
+        });
+    </script>
 
 </body>
+
 </html>
