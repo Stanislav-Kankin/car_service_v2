@@ -6,65 +6,68 @@ router = APIRouter(tags=["public"])
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    # если cookie уже есть — сразу в кабинет
+    """
+    ЕДИНСТВЕННАЯ точка входа Mini App.
+
+    Если cookie user_id уже есть -> в кабинет.
+    Если нет -> отдаём HTML, который делает Telegram auth и ставит cookie.
+    """
     user_id = getattr(request.state, "user_id", None)
     if user_id:
         return RedirectResponse("/me/dashboard", status_code=302)
 
-    # иначе выполняем Telegram auth ОДИН РАЗ
     return HTMLResponse(
         """
         <!DOCTYPE html>
-        <html>
+        <html lang="ru">
         <head>
-          <meta charset="utf-8"/>
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>Авторизация…</title>
-          <script src="https://telegram.org/js/telegram-web-app.js"></script>
+            <meta charset="utf-8"/>
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>MyGarage — Авторизация…</title>
+            <script src="https://telegram.org/js/telegram-web-app.js"></script>
         </head>
         <body>
-          <script>
-            function setUserIdCookie(userId) {
-              const isHttps = window.location.protocol === "https:";
-              const parts = [
-                `user_id=${encodeURIComponent(userId)}`,
-                "Path=/",
-                "Max-Age=2592000",
-                "Domain=.dev-cloud-ksa.ru"
-              ];
-              if (isHttps) {
-                parts.push("SameSite=None");
-                parts.push("Secure");
-              } else {
-                parts.push("SameSite=Lax");
+            <script>
+              function setUserIdCookie(userId) {
+                const parts = [
+                  `user_id=${encodeURIComponent(userId)}`,
+                  "Path=/",
+                  "Max-Age=2592000",
+                  "Domain=.dev-cloud-ksa.ru",
+                  "SameSite=None",
+                  "Secure"
+                ];
+                document.cookie = parts.join("; ");
               }
-              document.cookie = parts.join("; ");
-            }
 
-            (function () {
-              if (!window.Telegram || !Telegram.WebApp) return;
-              const tg = Telegram.WebApp;
-              tg.ready();
-              if (!tg.initData) return;
+              (async function () {
+                if (!window.Telegram || !Telegram.WebApp) return;
 
-              fetch("/api/v1/auth/telegram-webapp", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                credentials: "include",
-                body: JSON.stringify({init_data: tg.initData})
-              })
-              .then(r => r.json())
-              .then(data => {
+                const tg = Telegram.WebApp;
+                tg.ready();
+
+                const initData = tg.initData || "";
+                if (!initData) return;
+
+                const resp = await fetch("/api/v1/auth/telegram-webapp", {
+                  method: "POST",
+                  headers: {"Content-Type": "application/json"},
+                  credentials: "include",
+                  body: JSON.stringify({ init_data: initData }),
+                });
+
+                if (!resp.ok) return;
+
+                const data = await resp.json();
                 if (!data || !data.user_id) return;
+
                 setUserIdCookie(data.user_id);
                 window.location.replace("/me/dashboard");
-              })
-              .catch(() => {});
-            })();
-          </script>
+              })();
+            </script>
         </body>
         </html>
-        """
+        """,
     )
 
 
