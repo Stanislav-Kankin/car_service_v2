@@ -190,22 +190,30 @@ async def user_dashboard(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Dashboard должен открываться даже без авторизации — чтобы Telegram Mini App
-    мог загрузить страницу и пройти JS auth.
+    """ 
+    /me/dashboard — единственная страница, которую мы допускаем БЕЗ cookie,
+    чтобы Telegram Mini App мог загрузиться и выполнить JS auth.
 
-    Но если cookie user_id уже есть — проверяем профиль:
-    если нет пользователя/нет обязательных полей -> ведём на /me/register.
+    Важно: как только cookie есть, и профиль заполнен — показываем кабинет.
+    Если cookie есть, но профиль НЕ заполнен — middleware уже редиректит на /me/register.
     """
     user_id = getattr(request.state, "user_id", None)
-    if user_id:
+
+    # Без cookie: показываем только экран "Авторизация..." (без функциональных ссылок)
+    if not user_id:
+        return templates.TemplateResponse(
+            "user/dashboard.html",
+            {"request": request, "show_dashboard": False, "user": None},
+        )
+
+    # С cookie: user_obj мог быть загружен middleware, но на всякий случай подстрахуемся
+    user_obj = getattr(request.state, "user_obj", None)
+    if user_obj is None:
         user_obj = await _get_current_user_obj(request, client)
-        if not _is_profile_complete(user_obj):
-            return RedirectResponse(url="/me/register", status_code=status.HTTP_302_FOUND)
 
     return templates.TemplateResponse(
         "user/dashboard.html",
-        {"request": request},
+        {"request": request, "show_dashboard": True, "user": user_obj},
     )
 
 
