@@ -5,23 +5,55 @@ router = APIRouter(tags=["public"])
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(_: Request) -> HTMLResponse:
-    # Публичная заглушка. Mini App обычно открывает /me/dashboard.
-    return HTMLResponse("CarBot WebApp is running")
+async def index(request: Request) -> HTMLResponse:
+    """
+    ЕДИНСТВЕННАЯ точка входа Mini App.
 
+    Логика:
+    - если нет user_id → отрисовываем страницу с JS auth
+    - если user_id есть → редирект в /me/dashboard
+    """
+    user_id = getattr(request.state, "user_id", None)
 
-@router.get("/health", response_class=HTMLResponse)
-async def health(_: Request) -> HTMLResponse:
-    return HTMLResponse("ok")
+    if user_id:
+        return RedirectResponse("/me/dashboard", status_code=302)
 
+    # Страница ТОЛЬКО для выполнения Telegram auth
+    return HTMLResponse(
+        """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8"/>
+            <title>Авторизация…</title>
+            <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        </head>
+        <body>
+            <script>
+                (function () {
+                    if (!window.Telegram || !Telegram.WebApp) {
+                        return;
+                    }
+                    const tg = Telegram.WebApp;
+                    tg.ready();
 
-# Исторический маршрут /register — больше не используем.
-# Жёсткая регистрация только через /me/register.
-@router.get("/register")
-async def register_redirect(_: Request) -> RedirectResponse:
-    return RedirectResponse("/me/register", status_code=302)
+                    if (!tg.initData) {
+                        return;
+                    }
 
-
-@router.post("/register")
-async def register_redirect_post(_: Request) -> RedirectResponse:
-    return RedirectResponse("/me/register", status_code=302)
+                    fetch("/api/v1/auth/telegram-webapp", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ init_data: tg.initData }),
+                    })
+                    .then(resp => resp.json())
+                    .then(() => {
+                        window.location.replace("/me/dashboard");
+                    });
+                })();
+            </script>
+        </body>
+        </html>
+        """
+    )
