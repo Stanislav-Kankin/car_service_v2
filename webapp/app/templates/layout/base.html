@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="utf-8"/>
+    <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
 
-    <title>{{ title or "MyGarage" }}</title>
-
+    <!-- Tailwind CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- ВАЖНО: Telegram Mini App API -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
     <script>
@@ -17,28 +18,16 @@
                     window.Telegram.WebApp.openTelegramLink(url);
                     return;
                 }
-            } catch (e) { }
+            } catch (e) {}
             window.location.href = url;
         }
     </script>
 
-    {% block head %}{% endblock %}
+    <title>{% block title %}MyGarage{% endblock %}</title>
 </head>
-
 <body class="min-h-screen bg-slate-950 text-slate-100">
+
 {% block content %}{% endblock %}
 
-<script>
-    // ---- Telegram WebApp init (если страница открыта ВНУТРИ Telegram Mini App) ----
-    (function () {
-        const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-        if (!tg) return;
-
-        tg.ready();
-        tg.expand();
-    })();
-</script>
-
-{% block scripts %}{% endblock %}
 </body>
 </html>
