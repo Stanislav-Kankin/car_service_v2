@@ -62,13 +62,16 @@ async def get_current_admin(request: Request, client: AsyncClient) -> dict[str, 
     role = (user.get("role") or "").lower()
     telegram_id_raw = user.get("telegram_id")
 
-    # ✅ роли, которые считаем админскими
     admin_roles = {"admin", "superadmin"}
 
-    # ✅ allowlist из .env
-    admin_ids = _parse_admin_ids(os.getenv("TELEGRAM_ADMIN_IDS"))
+    # ✅ ВАЖНО: берём из settings (а не os.getenv)
+    # settings.TELEGRAM_ADMIN_IDS уже должен быть списком/строкой из env
+    raw_ids = getattr(settings, "TELEGRAM_ADMIN_IDS", None)
+    if isinstance(raw_ids, (list, tuple, set)):
+        admin_ids = {int(x) for x in raw_ids if str(x).strip().isdigit()}
+    else:
+        admin_ids = _parse_admin_ids(str(raw_ids) if raw_ids is not None else "")
 
-    # ✅ приводим telegram_id к int (backend может вернуть str)
     telegram_id_int: int | None = None
     if isinstance(telegram_id_raw, int):
         telegram_id_int = telegram_id_raw
@@ -83,12 +86,11 @@ async def get_current_admin(request: Request, client: AsyncClient) -> dict[str, 
     if not is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Недостаточно прав (нужен админ)")
 
-    # ✅ best-effort: если прошёл по TELEGRAM_ADMIN_IDS, но роли admin нет — можем поднять роль
+    # best-effort: если прошёл по allowlist, а роли нет — попробуем поднять
     if role not in admin_roles and telegram_id_int is not None and telegram_id_int in admin_ids:
         try:
             await client.patch(f"/api/v1/users/{int(user_id)}", json={"role": "admin"})
         except Exception:
-            # не валим админку, просто не смогли обновить роль
             pass
 
     return user
