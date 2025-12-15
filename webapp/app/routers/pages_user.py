@@ -1,4 +1,5 @@
 from typing import Any
+import os
 
 from fastapi import (
     APIRouter,
@@ -21,6 +22,7 @@ router = APIRouter(
 
 templates = get_templates()
 
+BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
 
 # --------------------------------------------------------------------
 # Авторизация: ВСЕ маршруты /me/* требуют user_id в cookie
@@ -829,6 +831,9 @@ async def request_detail(
 
     _ = get_current_user_id(request)
 
+    import os
+    bot_username = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
+
     try:
         resp = await client.get(f"/api/v1/requests/{request_id}")
         if resp.status_code == 404:
@@ -844,37 +849,35 @@ async def request_detail(
     code = req_data.get("status")
     req_data["status_label"] = STATUS_LABELS.get(code, code)
     cat = req_data.get("service_category")
-    req_data["service_category_label"] = SERVICE_CATEGORY_LABELS.get(cat, cat or "Услуга")
+    req_data["service_category_label"] = SERVICE_CATEGORY_LABELS.get(cat, cat)
 
-    can_distribute = req_data.get("status") == "new"
-
-    # Загружаем авто для красивого блока в шапке
-    car: dict[str, Any] | None = None
+    car = None
     car_id = req_data.get("car_id")
     if car_id:
         try:
-            car = await _load_car_for_owner(request, client, car_id)
+            car_resp = await client.get(f"/api/v1/cars/{car_id}")
+            if car_resp.status_code == 200:
+                car = car_resp.json()
         except Exception:
             car = None
 
-    # Загрузка откликов
+    can_distribute = req_data.get("status") in ("new", "sent")
+
     offers: list[dict[str, Any]] = []
+    accepted_offer_id: int | None = None
+    accepted_sc_id: int | None = None
+
     try:
-        resp2 = await client.get(f"/api/v1/offers/by-request/{request_id}")
-        if resp2.status_code == 200:
-            offers = resp2.json()
-        else:
-            offers = []
+        offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
+        if offers_resp.status_code == 200:
+            offers = offers_resp.json() or []
     except Exception:
         offers = []
 
-    # ✅ Новое: вычисляем выбранный оффер (если есть)
-    accepted_offer_id: int | None = None
-    accepted_sc_id: int | None = None
     for o in offers:
         if o.get("status") == "accepted":
-            accepted_offer_id = o.get("id")
-            accepted_sc_id = o.get("service_center_id")
+            accepted_offer_id = int(o.get("id"))
+            accepted_sc_id = int(o.get("service_center_id"))
             break
 
     return templates.TemplateResponse(
@@ -890,6 +893,7 @@ async def request_detail(
             "offers": offers,
             "accepted_offer_id": accepted_offer_id,
             "accepted_sc_id": accepted_sc_id,
+            "bot_username": bot_username,
         },
     )
 
@@ -981,24 +985,31 @@ async def request_send_all_post(
 
 
 @router.get("/requests/{request_id}/choose-service", response_class=HTMLResponse)
-async def request_choose_service_get(
+async def choose_service_get(
     request_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-
     _ = get_current_user_id(request)
+    templates = get_templates()
 
-    service_centers = []
     error_message = None
-
     try:
-        resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
-        resp.raise_for_status()
-        service_centers = resp.json()
+        r = await client.get(f"/api/v1/requests/{request_id}")
+        r.raise_for_status()
+        request_data = r.json()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+
+    # Достаём подходящие СТО (если есть ручка; если нет — остаётся пусто)
+    service_centers = []
+    try:
+        # если у тебя другая ручка — подставь её, иначе останется пустой список
+        sc_resp = await client.get(f"/api/v1/service-centers")
+        if sc_resp.status_code == 200:
+            service_centers = sc_resp.json()
     except Exception:
         error_message = "Не удалось загрузить список подходящих СТО."
-        service_centers = []
 
     return templates.TemplateResponse(
         "user/request_choose_service.html",
@@ -1007,6 +1018,7 @@ async def request_choose_service_get(
             "request_id": request_id,
             "service_centers": service_centers,
             "error_message": error_message,
+            "bot_username": BOT_USERNAME,
         },
     )
 

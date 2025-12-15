@@ -1,4 +1,5 @@
 from typing import Any
+import os
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -13,6 +14,9 @@ router = APIRouter(
 )
 
 templates = get_templates()
+
+
+BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
 
 
 def get_current_user_id(request: Request) -> int:
@@ -405,37 +409,42 @@ async def sc_request_detail(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Детальная заявка для СТО + форма отклика.
-    """
-    sc = await _load_sc_for_owner(request, client, sc_id)
+    _ = get_current_user_id(request)
+    templates = get_templates()
 
-    request_data: dict[str, Any] | None = None
-    offers: list[dict[str, Any]] = []
-    my_offer: dict[str, Any] | None = None
-    error_message: str | None = None
+    error_message = None
 
+    # service center
     try:
-        # Сама заявка
-        resp_req = await client.get(f"/api/v1/requests/{request_id}")
-        resp_req.raise_for_status()
-        request_data = resp_req.json()
-
-        # Все отклики по заявке
-        resp_offers = await client.get(f"/api/v1/offers/by-request/{request_id}")
-        if resp_offers.status_code == status.HTTP_404_NOT_FOUND:
-            offers = []
-        else:
-            resp_offers.raise_for_status()
-            offers = resp_offers.json()
-
-        # Наш отклик (если уже есть)
-        for o in offers:
-            if o.get("service_center_id") == sc_id:
-                my_offer = o
-                break
+        sc_resp = await client.get(f"/api/v1/service-centers/{sc_id}")
+        sc_resp.raise_for_status()
+        sc = sc_resp.json()
     except Exception:
-        error_message = "Не удалось загрузить данные заявки. Попробуйте позже."
+        raise HTTPException(status_code=404, detail="СТО не найдено")
+
+    # request
+    try:
+        r = await client.get(f"/api/v1/requests/{request_id}")
+        r.raise_for_status()
+        request_data = r.json()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+
+    # offers for request
+    offers = []
+    try:
+        offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
+        if offers_resp.status_code == 200:
+            offers = offers_resp.json()
+    except Exception:
+        offers = []
+
+    # my offer
+    my_offer = None
+    for o in offers:
+        if int(o.get("service_center_id", 0)) == int(sc_id):
+            my_offer = o
+            break
 
     return templates.TemplateResponse(
         "service_center/request_detail.html",
@@ -446,6 +455,7 @@ async def sc_request_detail(
             "offers": offers,
             "my_offer": my_offer,
             "error_message": error_message,
+            "bot_username": BOT_USERNAME,
         },
     )
 
