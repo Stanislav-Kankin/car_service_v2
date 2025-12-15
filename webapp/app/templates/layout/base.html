@@ -12,9 +12,9 @@
     <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
             <div class="flex items-center gap-2">
-                <div
-                    class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
-                    🚗</div>
+                <div class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+                    🚗
+                </div>
                 <div class="text-sm font-semibold">MyGarage</div>
             </div>
 
@@ -38,9 +38,9 @@
 
         function setUserIdCookie(userId) {
             const isHttps = window.location.protocol === "https:";
-            // На https обязательно SameSite=None; Secure, иначе браузер/вебвью могут выкинуть cookie.
-            // На http Secure нельзя — cookie просто не сохранится.
             const base = `user_id=${encodeURIComponent(userId)}; Path=/; Max-Age=2592000`;
+
+            // Для Telegram WebView на https — лучше SameSite=None; Secure
             if (isHttps) {
                 document.cookie = base + "; SameSite=None; Secure";
             } else {
@@ -49,13 +49,10 @@
         }
 
         function extractInitDataFromUrl() {
-            // 1) tgWebAppData в query (иногда так открывает Telegram Desktop "в браузере")
             const qs = new URLSearchParams(window.location.search);
             const fromQuery = qs.get("tgWebAppData");
             if (fromQuery) return decodeURIComponent(fromQuery);
 
-            // 2) tgWebAppData в hash (часто используется)
-            // пример: #tgWebAppData=...&tgWebAppVersion=...
             const hash = window.location.hash || "";
             if (hash.includes("tgWebAppData=")) {
                 const h = hash.startsWith("#") ? hash.slice(1) : hash;
@@ -71,6 +68,7 @@
             const resp = await fetch("/api/v1/auth/telegram-webapp", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: "include",
                 body: JSON.stringify({ init_data: initData })
             });
 
@@ -90,12 +88,7 @@
         }
 
         document.addEventListener("DOMContentLoaded", async () => {
-            // Если cookie уже есть — не обязаны переавторизовываться,
-            // но для Telegram WebView лучше иногда обновлять.
-            // Сделаем так: если есть Telegram/initData — авторизуемся и перезапишем cookie.
-            // Если нет — оставим как есть (и покажем подсказку, если cookie нет).
             const existing = getCookie("user_id");
-
             const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
 
             let initData = "";
@@ -106,56 +99,26 @@
                 initData = extractInitDataFromUrl();
             }
 
+            // Если initData есть — всегда переавторизуемся и обновим cookie
             if (initData) {
-                // есть initData — авторизуемся и гарантированно обновим cookie
-                await authViaTelegram(initData);
+                const before = existing;
+                const uid = await authViaTelegram(initData);
+
+                // Если cookie не было (или поменялось) — перезагрузим страницу без hash,
+                // чтобы все дальнейшие переходы точно шли с cookie.
+                const after = getCookie("user_id");
+                if (uid && (!before || before !== after)) {
+                    const url = window.location.pathname + window.location.search;
+                    window.location.replace(url);
+                }
                 return;
             }
 
             // initData нет
             if (!existing) {
-                // cookie нет — в обычном браузере так и будет -> 401 на защищённых страницах
-                console.warn("Нет Telegram initData и нет cookie user_id. Открой WebApp из Telegram или добавь tgWebAppData в URL.");
+                console.warn("Нет Telegram initData и нет cookie user_id. Открой WebApp из Telegram.");
             }
         });
-    </script>
-    <script>
-        (function () {
-            if (!window.Telegram || !Telegram.WebApp) {
-                return;
-            }
-
-            const tg = Telegram.WebApp;
-            tg.ready();
-
-            if (!tg.initData || tg.initData.length === 0) {
-                console.warn("Telegram initData is empty");
-                return;
-            }
-
-            fetch("/api/v1/auth/telegram-webapp", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                credentials: "include",
-                body: JSON.stringify({
-                    init_data: tg.initData,
-                }),
-            })
-                .then((resp) => {
-                    if (!resp.ok) {
-                        throw new Error("Telegram auth failed: " + resp.status);
-                    }
-                    return resp.json();
-                })
-                .then(() => {
-                    console.log("Telegram auth OK");
-                })
-                .catch((err) => {
-                    console.error(err);
-                });
-        })();
     </script>
 
 </body>
