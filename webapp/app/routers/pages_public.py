@@ -1,21 +1,14 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+import httpx
+
+from webapp.app.config import settings
 
 router = APIRouter(tags=["public"])
 
 
-@router.get("/", response_class=HTMLResponse)
-async def index(request: Request) -> HTMLResponse:
-    """
-    ЕДИНСТВЕННАЯ точка входа Mini App.
-
-    Если cookie user_id уже есть -> в кабинет.
-    Если нет -> отдаём HTML, который делает Telegram auth и ставит cookie.
-    """
-    user_id = getattr(request.state, "user_id", None)
-    if user_id:
-        return RedirectResponse("/me/dashboard", status_code=302)
-
+def _auth_html() -> HTMLResponse:
+    # ВАЖНО: / должен быть 200 OK, без редиректов, иначе цикл.
     return HTMLResponse(
         """
         <!DOCTYPE html>
@@ -71,16 +64,50 @@ async def index(request: Request) -> HTMLResponse:
     )
 
 
-@router.get("/health", response_class=HTMLResponse)
-async def health(_: Request) -> HTMLResponse:
+def _clear_cookie(resp: HTMLResponse | RedirectResponse) -> None:
+    resp.delete_cookie("user_id", path="/")
+    resp.delete_cookie("user_id", path="/", domain=".dev-cloud-ksa.ru")
+    resp.delete_cookie("userId", path="/")
+    resp.delete_cookie("userId", path="/", domain=".dev-cloud-ksa.ru")
+
+
+@router.get("/", response_class=HTMLResponse)
+async def index(request: Request) -> HTMLResponse:
+    """
+    ЕДИНСТВЕННАЯ точка входа Mini App.
+
+    Правило:
+    - если НЕТ валидной сессии -> 200 OK auth HTML
+    - если session валидна -> redirect /me/dashboard
+    """
+    user_id = getattr(request.state, "user_id", None)
+
+    # Если cookie нет — отдаём auth-страницу (200)
+    if not user_id:
+        return _auth_html()
+
+    # Если cookie есть — проверим, что пользователь реально существует в backend
+    try:
+        async with httpx.AsyncClient(base_url=str(settings.BACKEND_API_URL), timeout=10.0) as client:
+            r = await client.get(f"/api/v1/users/{int(user_id)}")
+            if r.status_code == 404:
+                resp = _auth_html()
+                _clear_cookie(resp)
+                return resp
+            r.raise_for_status()
+    except Exception:
+        # Если backend недоступен/ошибка — НЕ редиректим, иначе снова цикл
+        return _auth_html()
+
+    return RedirectResponse("/me/dashboard", status_code=302)
+
+
+# Чтобы curl -I не вводил в заблуждение
+@router.head("/", response_class=HTMLResponse)
+async def index_head(_: Request) -> HTMLResponse:
     return HTMLResponse("ok")
 
 
-@router.get("/register")
-async def register_redirect(_: Request) -> RedirectResponse:
-    return RedirectResponse("/me/register", status_code=302)
-
-
-@router.post("/register")
-async def register_redirect_post(_: Request) -> RedirectResponse:
-    return RedirectResponse("/me/register", status_code=302)
+@router.get("/health", response_class=HTMLResponse)
+async def health(_: Request) -> HTMLResponse:
+    return HTMLResponse("ok")
