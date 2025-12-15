@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import pages_public, pages_user, pages_service_center, pages_admin
+from .routers import pages_public, pages_user, pages_service_center, pages_admin, pages_auth
 from .middleware import UserIDMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(pages_user.router)
     app.include_router(pages_service_center.router)
     app.include_router(pages_admin.router)
+    app.include_router(pages_auth.router)
 
     return app
 

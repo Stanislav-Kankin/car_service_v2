@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String, func
+from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String, func, BigInteger
 from sqlalchemy.orm import relationship
 
 from ..core.db import Base
@@ -11,7 +11,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # Telegram
-    telegram_id = Column(Integer, unique=True, index=True, nullable=True)
+    telegram_id = Column(BigInteger, unique=True, index=True, nullable=True)
 
     # Профиль
     full_name = Column(String, nullable=True)
