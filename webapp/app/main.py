@@ -21,14 +21,13 @@ def create_app() -> FastAPI:
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # Middleware: user_id из cookie -> request.state.user_id
+    # ⚠️ ВАЖНО: Starlette применяет middleware в обратном порядке.
+    # Поэтому Guard добавляем ПЕРВЫМ, а UserID — ПОСЛЕДНИМ,
+    # чтобы UserID отработал раньше Guard.
+    app.add_middleware(RegistrationGuardMiddleware)
     app.add_middleware(UserIDMiddleware)
 
-    # Middleware: жёсткая регистрация (профиль должен быть заполнен)
-    # Важно: идёт ПОСЛЕ UserIDMiddleware, т.к. использует request.state.user_id.
-    app.add_middleware(RegistrationGuardMiddleware)
-
-    # Подключение роутеров
+    # Роутеры
     app.include_router(pages_public.router)
     app.include_router(pages_user.router)
     app.include_router(pages_service_center.router)
