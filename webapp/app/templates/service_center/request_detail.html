@@ -147,12 +147,12 @@
                         </p>
 
                         <button type="button"
-                                onclick="(window.openRequestChat ? openRequestChat('{{ bot_username }}', {{ req.id }}, {{ service_center.id }}) : openTelegramLink('https://t.me/{{ bot_username }}?start=chat_r{{ req.id }}_s{{ service_center.id }}'))"
+                                onclick="sendChatLinkAndClose('/sc/{{ service_center.id }}/requests/{{ req.id }}/send-chat-link', '{{ bot_username }}')"
                                 class="inline-flex items-center justify-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                            💬 Открыть чат по заявке
+                            💬 Написать клиенту (кнопка придёт в боте)
                         </button>
                         <p class="text-[11px] text-slate-400">
-                            Чат открывается в боте и привязан к этой заявке. Клиент и СТО общаются через бота — без раскрытия телефона.
+                            Мы отправим вам сообщение в боте с кнопкой для открытия чата по заявке.
                         </p>
                     </div>
                     {% endif %}

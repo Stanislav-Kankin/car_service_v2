@@ -8,8 +8,9 @@ from fastapi import (
     HTTPException,
     Request,
     status,
+    Query
 )
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from httpx import AsyncClient
 
 from ..api_client import get_backend_client
@@ -1098,3 +1099,19 @@ async def request_send_to_service_post(
     return await request_detail(
         request_id, request, client, chosen_service_id=service_center_id,
     )
+
+
+@router.post("/requests/{request_id}/send-chat-link", response_class=JSONResponse)
+async def user_send_chat_link(
+    request_id: int,
+    request: Request,
+    service_center_id: int = Query(...),
+    client: AsyncClient = Depends(get_backend_client),
+) -> JSONResponse:
+    _ = get_current_user_id(request)
+
+    await client.post(
+        f"/api/v1/requests/{request_id}/send_chat_link",
+        json={"service_center_id": service_center_id, "recipient": "client"},
+    )
+    return JSONResponse({"ok": True})

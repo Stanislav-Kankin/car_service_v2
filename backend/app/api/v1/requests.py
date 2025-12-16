@@ -19,6 +19,7 @@ from backend.app.core.catalogs.service_categories import (
     get_specializations_for_category,
     SERVICE_CATEGORY_LABELS,
 )
+from backend.app.services.user_service import UsersService
 
 
 from backend.app.models import ServiceCenter
@@ -447,3 +448,71 @@ async def reject_by_service(
         raise HTTPException(status_code=403, detail="No access to this request")
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid status transition")
+
+
+class SendChatLinkIn(BaseModel):
+    service_center_id: int
+    recipient: str  # "client" | "service_center"
+
+
+@router.post("/{request_id}/send_chat_link")
+async def send_chat_link(
+    request_id: int,
+    payload: SendChatLinkIn,
+    db: AsyncSession = Depends(get_db),
+):
+    bot_username = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
+    if not bot_username:
+        raise HTTPException(status_code=500, detail="BOT_USERNAME is not set")
+
+    notifier = BotNotifier()
+    if not notifier.is_enabled():
+        # чтобы в webapp не падало — вернем ok=false
+        return {"ok": False, "detail": "Notifier disabled (BOT_API_URL is not set)"}
+
+    req = await RequestsService.get_request_by_id(db, request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    sc = await ServiceCentersService.get_by_id(db, payload.service_center_id)
+    if not sc:
+        raise HTTPException(status_code=404, detail="Service center not found")
+
+    recipient = (payload.recipient or "").strip().lower()
+
+    if recipient == "client":
+        user = await UsersService.get_by_id(db, req.user_id)
+        tg_id = getattr(user, "telegram_id", None) if user else None
+        if not tg_id:
+            raise HTTPException(status_code=400, detail="Client has no telegram_id")
+        message = f"💬 Нажмите кнопку ниже, чтобы написать в сервис по заявке №{request_id}."
+        target_tg = int(tg_id)
+
+    elif recipient == "service_center":
+        owner = await UsersService.get_by_id(db, sc.user_id)
+        tg_id = getattr(owner, "telegram_id", None) if owner else None
+        if not tg_id:
+            raise HTTPException(status_code=400, detail="Service center owner has no telegram_id")
+        message = f"💬 Нажмите кнопку ниже, чтобы написать клиенту по заявке №{request_id}."
+        target_tg = int(tg_id)
+
+    else:
+        raise HTTPException(status_code=422, detail="recipient must be 'client' or 'service_center'")
+
+    url = f"https://t.me/{bot_username}?start=chat_r{request_id}_s{payload.service_center_id}"
+
+    await notifier.send_notification(
+        recipient_type=recipient,
+        telegram_id=target_tg,
+        message=message,
+        buttons=[
+            {"text": "💬 Открыть чат", "type": "url", "url": url},
+        ],
+        extra={
+            "request_id": request_id,
+            "service_center_id": payload.service_center_id,
+            "kind": "chat_link",
+        },
+    )
+
+    return {"ok": True, "url": url}

@@ -2,7 +2,7 @@ from typing import Any
 import os
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from httpx import AsyncClient
 
 from ..dependencies import get_templates
@@ -626,3 +626,19 @@ async def sc_reject(
         url=f"/sc/{sc_id}/requests/{request_id}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+@router.post("/{sc_id}/requests/{request_id}/send-chat-link", response_class=JSONResponse)
+async def sc_send_chat_link(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> JSONResponse:
+    _ = get_current_user_id(request)
+
+    await client.post(
+        f"/api/v1/requests/{request_id}/send_chat_link",
+        json={"service_center_id": sc_id, "recipient": "service_center"},
+    )
+    return JSONResponse({"ok": True})

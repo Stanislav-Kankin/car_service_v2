@@ -69,14 +69,44 @@
             openTelegramLink('tg://user?id=' + userId);
         }
 
-        // Открыть чат по заявке через бота (надёжный вариант для всех клиентов Telegram)
-        // Формат payload поддерживается bot/app/handlers/chat.py:
+        // Открыть чат по заявке через бота (deep link)
         // /start chat_r<request_id>_s<service_center_id>
         function openRequestChat(botUsername, requestId, serviceCenterId) {
             if (!botUsername || !requestId || !serviceCenterId) return;
             const uname = String(botUsername).replace(/^@/, "");
             const url = `https://t.me/${uname}?start=chat_r${requestId}_s${serviceCenterId}`;
             openTelegramLink(url);
+        }
+
+        // ✅ НОВОЕ: отправляем в Telegram сообщение "Нажмите кнопку ниже..." + inline-кнопку
+        // затем открываем чат бота (без start), и пытаемся закрыть Mini App
+        async function sendChatLinkAndClose(endpointUrl, botUsername) {
+            try {
+                await fetch(endpointUrl, {
+                    method: "POST",
+                    credentials: "include",
+                    headers: {"Content-Type": "application/json"},
+                });
+            } catch (e) {
+                // молча, чтобы UX не ломать
+            }
+
+            // Открываем чат с ботом, чтобы пользователь увидел сообщение с кнопкой
+            try {
+                if (botUsername) {
+                    const uname = String(botUsername).replace(/^@/, "");
+                    openTelegramLink(`https://t.me/${uname}`);
+                }
+            } catch (e) {}
+
+            // Пытаемся закрыть Mini App
+            try {
+                if (window.Telegram && Telegram.WebApp && Telegram.WebApp.close) {
+                    setTimeout(() => {
+                        try { Telegram.WebApp.close(); } catch (e) {}
+                    }, 250);
+                }
+            } catch (e) {}
         }
 
         // Legacy-имя (в проекте много шаблонов используют openBotChat)
