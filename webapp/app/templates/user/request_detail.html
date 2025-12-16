@@ -165,7 +165,7 @@
                 <div class="space-y-4">
                     <div class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 space-y-2">
                         <p class="text-xs font-semibold text-slate-300">Адрес / район</p>
-                        <p class="text-sm text-slate-100">{{ req.address_text or "Адрес не указан" }}</p>
+                        <p class="text-sm text-slate-100">{{ request_obj.address_text or "Адрес не указан" }}</p>
                         <p class="text-[11px] text-slate-500">
                             В будущем здесь можно будет выбрать точку на карте или отправить геолокацию из бота.
                         </p>
@@ -262,10 +262,10 @@
                         <button type="button"
                                 onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ chat_sc_id }}', '{{ bot_username }}')"
                                 class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                            💬 Написать в сервис (кнопка придёт в боте)
+                            💬 Написать в Telegram (кнопка придёт в боте)
                         </button>
                         <p class="mt-2 text-[11px] text-slate-400">
-                            Мы отправим вам сообщение в боте с кнопкой для открытия чата по заявке.
+                            Мы отправим вам сообщение в боте с кнопкой, которая откроет прямой чат в Telegram.
                         </p>
                         {% else %}
                         <p class="text-xs text-slate-400">Не удалось определить выбранный сервис для чата.</p>
@@ -307,7 +307,7 @@
                             <button type="button"
                                     onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ offer.service_center_id }}', '{{ bot_username }}')"
                                     class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                                💬 Написать (кнопка в боте)
+                                💬 Написать в Telegram
                             </button>
 
                             <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/accept">
@@ -329,7 +329,7 @@
                             <button type="button"
                                     onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ offer.service_center_id }}', '{{ bot_username }}')"
                                     class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                                💬 Написать (кнопка в боте)
+                                💬 Написать в Telegram
                             </button>
                             <div class="text-[11px] text-slate-500">
                                 Действия недоступны — сервис уже выбран.
@@ -376,11 +376,15 @@
         }
 
         function initMap(centerLat, centerLon) {
-            const map = L.map(mapContainer).setView([centerLat, centerLon], 14);
+            // ✅ убираем attribution-контрол (внизу карты)
+            const map = L.map(mapContainer, { attributionControl: false }).setView([centerLat, centerLon], 14);
+
+            // ✅ не задаём attribution вообще (на всякий)
             L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
                 maxZoom: 19,
-                attribution: "&copy; OpenStreetMap contributors"
+                attribution: ""
             }).addTo(map);
+
             L.marker([centerLat, centerLon]).addTo(map);
         }
 

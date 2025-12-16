@@ -461,13 +461,16 @@ async def send_chat_link(
     payload: SendChatLinkIn,
     db: AsyncSession = Depends(get_db),
 ):
-    bot_username = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
-    if not bot_username:
-        raise HTTPException(status_code=500, detail="BOT_USERNAME is not set")
+    """
+    Отправляет пользователю сообщение в Telegram (через bot notify API) с кнопкой,
+    которая открывает ПРЯМОЙ чат с другой стороной (tg://user?id=...).
 
+    recipient:
+      - "client"        -> сообщение уйдёт клиенту, кнопка откроет чат с владельцем СТО
+      - "service_center"-> сообщение уйдёт владельцу СТО, кнопка откроет чат с клиентом
+    """
     notifier = BotNotifier()
     if not notifier.is_enabled():
-        # чтобы в webapp не падало — вернем ok=false
         return {"ok": False, "detail": "Notifier disabled (BOT_API_URL is not set)"}
 
     req = await RequestsService.get_request_by_id(db, request_id)
@@ -480,39 +483,63 @@ async def send_chat_link(
 
     recipient = (payload.recipient or "").strip().lower()
 
+    # target_tg = кому отправляем сообщение
+    # peer_tg   = с кем открываем прямой чат
+    target_tg: int
+    peer_tg: int
+    message: str
+
     if recipient == "client":
+        # сообщение клиенту -> чат с владельцем СТО
         user = await UsersService.get_by_id(db, req.user_id)
-        tg_id = getattr(user, "telegram_id", None) if user else None
-        if not tg_id:
+        client_tg = getattr(user, "telegram_id", None) if user else None
+        if not client_tg:
             raise HTTPException(status_code=400, detail="Client has no telegram_id")
-        message = f"💬 Нажмите кнопку ниже, чтобы написать в сервис по заявке №{request_id}."
-        target_tg = int(tg_id)
+
+        owner = await UsersService.get_by_id(db, sc.user_id)
+        owner_tg = getattr(owner, "telegram_id", None) if owner else None
+        if not owner_tg:
+            raise HTTPException(status_code=400, detail="Service center owner has no telegram_id")
+
+        target_tg = int(client_tg)
+        peer_tg = int(owner_tg)
+        message = f"💬 Нажмите кнопку ниже, чтобы открыть прямой чат с сервисом по заявке №{request_id}."
 
     elif recipient == "service_center":
+        # сообщение владельцу СТО -> чат с клиентом
         owner = await UsersService.get_by_id(db, sc.user_id)
-        tg_id = getattr(owner, "telegram_id", None) if owner else None
-        if not tg_id:
+        owner_tg = getattr(owner, "telegram_id", None) if owner else None
+        if not owner_tg:
             raise HTTPException(status_code=400, detail="Service center owner has no telegram_id")
-        message = f"💬 Нажмите кнопку ниже, чтобы написать клиенту по заявке №{request_id}."
-        target_tg = int(tg_id)
+
+        user = await UsersService.get_by_id(db, req.user_id)
+        client_tg = getattr(user, "telegram_id", None) if user else None
+        if not client_tg:
+            raise HTTPException(status_code=400, detail="Client has no telegram_id")
+
+        target_tg = int(owner_tg)
+        peer_tg = int(client_tg)
+        message = f"💬 Нажмите кнопку ниже, чтобы открыть прямой чат с клиентом по заявке №{request_id}."
 
     else:
         raise HTTPException(status_code=422, detail="recipient must be 'client' or 'service_center'")
 
-    url = f"https://t.me/{bot_username}?start=chat_r{request_id}_s{payload.service_center_id}"
+    # ✅ прямой чат
+    url = f"tg://user?id={peer_tg}"
 
     await notifier.send_notification(
         recipient_type=recipient,
         telegram_id=target_tg,
         message=message,
         buttons=[
-            {"text": "💬 Открыть чат", "type": "url", "url": url},
+            {"text": "💬 Открыть чат в Telegram", "type": "url", "url": url},
         ],
         extra={
             "request_id": request_id,
             "service_center_id": payload.service_center_id,
-            "kind": "chat_link",
+            "kind": "direct_chat_link",
+            "peer_telegram_id": peer_tg,
         },
     )
 
-    return {"ok": True, "url": url}
+    return {"ok": True, "url": url, "peer_telegram_id": peer_tg}

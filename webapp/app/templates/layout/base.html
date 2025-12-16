@@ -13,6 +13,12 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
     {% block head %}{% endblock %}
+
+    <!-- ✅ Глобально скрываем любые attribution/подписи Leaflet (в т.ч. “флаги” внизу карты) -->
+    <style>
+        .leaflet-control-attribution { display: none !important; }
+    </style>
+
     <script>
         (function () {
             try {
@@ -78,8 +84,8 @@
             openTelegramLink(url);
         }
 
-        // ✅ НОВОЕ: отправляем в Telegram сообщение "Нажмите кнопку ниже..." + inline-кнопку
-        // затем открываем чат бота (без start), и пытаемся закрыть Mini App
+        // ✅ Отправляем в Telegram сообщение "Нажмите кнопку ниже..." + inline-кнопку
+        // затем открываем чат бота, и пытаемся закрыть Mini App
         async function sendChatLinkAndClose(endpointUrl, botUsername) {
             try {
                 await fetch(endpointUrl, {
