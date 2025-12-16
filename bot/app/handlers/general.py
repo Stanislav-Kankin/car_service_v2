@@ -10,106 +10,52 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import CommandStart
+from aiogram.filters.command import CommandObject
 
 from ..api_client import api_client
-from ..states.user_states import UserRegistration
 
 router = Router()
 
-# URL веб-приложения для Telegram WebApp (Mini App)
-# ОБЯЗАТЕЛЬНО задай в .env переменную WEBAPP_URL, например:
-# WEBAPP_URL=https://dev-cloud-ksa.ru
 WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip() or None
 
 
-# ---------------------------------------------------------------------------
-# Главное меню
-# ---------------------------------------------------------------------------
-
-
 def get_main_menu(role: str | None = None) -> InlineKeyboardMarkup:
-    """
-    Инлайн-меню главного экрана.
-
-    role:
-      - "client"        -> только клиентские пункты + кнопка регистрации СТО
-      - "service_owner" -> добавляем меню СТО
-      - "admin"         -> можно будет добавить отдельные пункты
-    """
     buttons: list[list[InlineKeyboardButton]] = [
         [
-            InlineKeyboardButton(
-                text="👤 Профиль",
-                callback_data="main:profile",
-            ),
-            InlineKeyboardButton(
-                text="🚗 Мой гараж",
-                callback_data="main:garage",
-            ),
+            InlineKeyboardButton(text="👤 Профиль", callback_data="main:profile"),
+            InlineKeyboardButton(text="🚗 Мой гараж", callback_data="main:garage"),
         ],
-        [
-            InlineKeyboardButton(
-                text="📝 Новая заявка",
-                callback_data="main:new_request",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text="📨 Мои заявки",
-                callback_data="main:my_requests",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text="🎁 Мои бонусы",
-                callback_data="main:bonus",
-            ),
-        ],
+        [InlineKeyboardButton(text="📝 Новая заявка", callback_data="main:new_request")],
+        [InlineKeyboardButton(text="📨 Мои заявки", callback_data="main:my_requests")],
+        [InlineKeyboardButton(text="🎁 Мои бонусы", callback_data="main:bonus")],
     ]
 
-    # Для владельцев СТО / админов — меню СТО
     if role in ("service_owner", "admin"):
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text="🛠 Меню СТО",
-                    callback_data="main:sto_menu",
-                ),
-            ]
-        )
+        buttons.append([InlineKeyboardButton(text="🛠 Меню СТО", callback_data="main:sto_menu")])
     else:
-        # Для обычных клиентов — кнопка регистрации сервиса
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text="🔧 Зарегистрировать СТО",
-                    callback_data="main:sto_register",
-                ),
-            ]
-        )
+        buttons.append([InlineKeyboardButton(text="🔧 Зарегистрировать СТО", callback_data="main:sto_register")])
 
-    # Кнопка открытия WebApp / Mini App (если задан WEBAPP_URL)
     if WEBAPP_URL:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text="🌐 Веб-кабинет",
-                    web_app=WebAppInfo(url=WEBAPP_URL),
-                )
-            ]
-        )
+        buttons.append([InlineKeyboardButton(text="🌐 Веб-кабинет", web_app=WebAppInfo(url=WEBAPP_URL))])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# ---------------------------------------------------------------------------
-# /start
-# ---------------------------------------------------------------------------
-
-
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext):
+async def cmd_start(message: Message, state: FSMContext, command: CommandObject):
+    """
+    Обычный /start — показывает WebApp кнопку.
+
+    ВАЖНО:
+    Если /start пришёл с payload (deep-link), мы тут НЕ отвечаем,
+    чтобы его обработал chat.py (CommandStart(deep_link=True)).
+    """
     await state.clear()
+
+    payload = (command.args or "").strip()
+    if payload:
+        # ✅ не перехватываем deep-link, иначе получится то, что ты видел на скрине
+        return
 
     if not WEBAPP_URL:
         await message.answer("WEBAPP_URL не настроен. Сообщите администратору.")
@@ -132,16 +78,8 @@ async def cmd_start(message: Message, state: FSMContext):
     )
 
 
-# ---------------------------------------------------------------------------
-# Кнопка «В меню» из любых сценариев
-# ---------------------------------------------------------------------------
-
-
 @router.callback_query(F.data == "main:menu")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
-    """
-    Универсальный возврат в главное меню из любой точки.
-    """
     await state.clear()
 
     user = await api_client.get_user_by_telegram(callback.from_user.id)
@@ -149,18 +87,9 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     if isinstance(user, dict):
         role = user.get("role")
 
-    # Чтобы не плодить сообщения — редактируем текст последнего
     try:
-        await callback.message.edit_text(
-            "Выберите действие из меню ниже 👇",
-            reply_markup=get_main_menu(role),
-        )
+        await callback.message.edit_text("Выберите действие из меню ниже 👇", reply_markup=get_main_menu(role))
     except Exception:
-        # Если сообщение уже не отредактировать (например, старое),
-        # просто отправляем новое.
-        await callback.message.answer(
-            "Выберите действие из меню ниже 👇",
-            reply_markup=get_main_menu(role),
-        )
+        await callback.message.answer("Выберите действие из меню ниже 👇", reply_markup=get_main_menu(role))
 
     await callback.answer()

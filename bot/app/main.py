@@ -19,8 +19,8 @@ except ImportError:
     HAS_REDIS = False
 
 from .config import config
-from .handlers.general import router as general_router
 from .handlers.chat import router as chat_router
+from .handlers.general import router as general_router
 from .notify_api import build_notify_app  # ✅ ВАЖНО
 
 logging.basicConfig(level=logging.INFO)
@@ -40,8 +40,10 @@ async def main():
         storage = MemoryStorage()
 
     dp = Dispatcher(storage=storage)
-    dp.include_router(general_router)
+
+    # ✅ ВАЖНО: deep-link /start chat_r.._s.. должен отрабатывать ПЕРВЫМ
     dp.include_router(chat_router)
+    dp.include_router(general_router)
 
     # ✅ Встраиваем notify API, чтобы backend мог слать /api/v1/notify
     notify_app = build_notify_app(bot)
@@ -49,12 +51,13 @@ async def main():
 
     # Telegram button -> WebApp
     try:
-        await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(
-                text="Открыть MyGarage",
-                web_app=WebAppInfo(url=config.WEBAPP_URL),
+        if config.WEBAPP_URL:
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Открыть MyGarage",
+                    web_app=WebAppInfo(url=config.WEBAPP_URL),
+                )
             )
-        )
     except Exception:
         pass
 
