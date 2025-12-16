@@ -995,14 +995,14 @@ async def choose_service_get(
 
     error_message = None
 
-    # проверяем, что заявка существует
+    # Проверяем, что заявка существует
     try:
         r = await client.get(f"/api/v1/requests/{request_id}")
         r.raise_for_status()
     except Exception:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
 
-    # ✅ берём подходящие СТО под заявку (правильная ручка backend)
+    # ✅ Берём подходящие СТО по заявке
     service_centers = []
     try:
         sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
@@ -1010,7 +1010,6 @@ async def choose_service_get(
         service_centers = sc_resp.json() or []
     except Exception:
         error_message = "Не удалось загрузить список подходящих СТО."
-        service_centers = []
 
     return templates.TemplateResponse(
         "user/request_choose_service.html",
