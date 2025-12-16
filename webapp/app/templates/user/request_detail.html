@@ -265,8 +265,7 @@
                     </p>
                 </div>
 
-                {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none)
-                %}
+                {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none) %}
 
                 {% if already_chosen %}
                 <div class="rounded-2xl border border-emerald-500/30 bg-emerald-900/10 p-4">
@@ -283,21 +282,20 @@
                     </p>
 
                     {% set chat_sc_id = accepted_sc_id if accepted_sc_id else request_obj.service_center_id %}
-                    {% set chat_tg_id = offer_sc_telegram_ids.get(chat_sc_id | int) if chat_sc_id else None %}
 
                     <div class="mt-3">
-                        {% if chat_tg_id %}
+                        {% if chat_sc_id %}
                         <button type="button"
-                                onclick="(window.openTelegramUser ? openTelegramUser('{{ chat_tg_id }}') : (window.openTelegramLink ? openTelegramLink('tg://user?id={{ chat_tg_id }}') : (window.location.href='tg://user?id={{ chat_tg_id }}')))"
+                                onclick="openRequestChat('{{ bot_username }}', {{ request_obj.id }}, {{ chat_sc_id }})"
                                 class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                            💬 Написать в Telegram
+                            💬 Открыть чат по заявке
                         </button>
                         <p class="mt-2 text-[11px] text-slate-400">
-                            Откроется профиль владельца СТО в Telegram (обычно дальше можно нажать “Сообщение”). Телефон может быть скрыт.
+                            Чат откроется в боте и будет привязан к этой заявке. Телефон может быть скрыт — общение идёт через бота.
                         </p>
                         {% else %}
                         <p class="text-xs text-slate-400">
-                            Telegram-аккаунт СТО не найден (нет telegram_id). Попросите сервис открыть бота/веб-кабинет, чтобы связка появилась.
+                            Не удалось определить выбранный сервис для чата.
                         </p>
                         {% endif %}
                     </div>
@@ -314,8 +312,7 @@
                                 Сервис #{{ offer.service_center_id }}
                             </p>
                             <p class="text-xs text-slate-300">
-                                {% if offer.price is not none %}Цена: {{ offer.price }}{% else %}Цена не указана{% endif
-                                %}
+                                {% if offer.price is not none %}Цена: {{ offer.price }}{% else %}Цена не указана{% endif %}
                                 {% if offer.eta_hours is not none %} · Срок: ~{{ offer.eta_hours }} ч.{% endif %}
                             </p>
 
@@ -341,19 +338,11 @@
 
                         {% if not already_chosen %}
                         <div class="flex flex-wrap gap-2 text-xs">
-                            {% set sc_tg_id = offer_sc_telegram_ids.get(offer.service_center_id | int) %}
-                            {% if sc_tg_id %}
                             <button type="button"
-                                    onclick="(window.openTelegramUser ? openTelegramUser('{{ sc_tg_id }}') : (window.openTelegramLink ? openTelegramLink('tg://user?id={{ sc_tg_id }}') : (window.location.href='tg://user?id={{ sc_tg_id }}')))"
+                                    onclick="openRequestChat('{{ bot_username }}', {{ request_obj.id }}, {{ offer.service_center_id }})"
                                     class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                                💬 Написать в Telegram
+                                💬 Открыть чат
                             </button>
-                            {% else %}
-                            <button type="button" disabled
-                                    class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 font-semibold text-slate-500 border border-slate-800 cursor-not-allowed">
-                                💬 Telegram недоступен
-                            </button>
-                            {% endif %}
 
                             <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/accept">
                                 <button type="submit"
@@ -371,19 +360,11 @@
                         </div>
                         {% else %}
                         <div class="flex flex-col items-end gap-2">
-                            {% set sc_tg_id = offer_sc_telegram_ids.get(offer.service_center_id | int) %}
-                            {% if sc_tg_id %}
                             <button type="button"
-                                    onclick="(window.openTelegramUser ? openTelegramUser('{{ sc_tg_id }}') : (window.openTelegramLink ? openTelegramLink('tg://user?id={{ sc_tg_id }}') : (window.location.href='tg://user?id={{ sc_tg_id }}')))"
+                                    onclick="openRequestChat('{{ bot_username }}', {{ request_obj.id }}, {{ offer.service_center_id }})"
                                     class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                                💬 Написать в Telegram
+                                💬 Открыть чат
                             </button>
-                            {% else %}
-                            <button type="button" disabled
-                                    class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-slate-500 border border-slate-800 cursor-not-allowed">
-                                💬 Telegram недоступен
-                            </button>
-                            {% endif %}
                             <div class="text-[11px] text-slate-500">
                                 Действия недоступны — сервис уже выбран.
                             </div>

@@ -24,14 +24,15 @@
         })();
 
         // Открыть ссылку внутри Telegram (Mini App)
+        // ВАЖНО:
+        // - openTelegramLink() в Telegram WebApp корректно работает в первую очередь с https://t.me/*
+        // - tg:// схемы часто блокируются/игнорируются клиентом Telegram в Mini App (молчаливо)
         function openTelegramLink(url) {
             try {
-                // ✅ tg:// схемы часто “молча” не открываются через Telegram.WebApp.openLink,
+                // tg:// схемы часто “молча” не открываются через Telegram.WebApp.openLink,
                 // поэтому сначала пробуем прямой переход.
                 if (typeof url === "string" && url.startsWith("tg://")) {
-                    try {
-                        window.location.href = url;
-                    } catch (e) {}
+                    try { window.location.href = url; } catch (e) {}
 
                     // и дублируем попытку через WebApp, если доступно
                     try {
@@ -62,10 +63,20 @@
             window.location.href = url;
         }
 
-        // Открыть профиль/чат с пользователем по telegram_id
+        // Открыть профиль/чат с пользователем по telegram_id (НЕ гарантируется в Mini App)
         function openTelegramUser(userId) {
             if (!userId) return;
             openTelegramLink('tg://user?id=' + userId);
+        }
+
+        // Открыть чат по заявке через бота (надёжный вариант для всех клиентов Telegram)
+        // Формат payload поддерживается bot/app/handlers/chat.py:
+        // /start chat_r<request_id>_s<service_center_id>
+        function openRequestChat(botUsername, requestId, serviceCenterId) {
+            if (!botUsername || !requestId || !serviceCenterId) return;
+            const uname = String(botUsername).replace(/^@/, "");
+            const url = `https://t.me/${uname}?start=chat_r${requestId}_s${serviceCenterId}`;
+            openTelegramLink(url);
         }
 
         // Legacy-имя (в проекте много шаблонов используют openBotChat)

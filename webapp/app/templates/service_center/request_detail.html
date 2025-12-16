@@ -143,23 +143,17 @@
                     {% if req and service_center %}
                     <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                            Связаться с клиентом
+                            Чат с клиентом
                         </p>
 
-                        {% if client_telegram_id %}
                         <button type="button"
-                                onclick="(window.openTelegramUser ? openTelegramUser('{{ client_telegram_id }}') : (window.openTelegramLink ? openTelegramLink('tg://user?id={{ client_telegram_id }}') : (window.location.href='tg://user?id={{ client_telegram_id }}')))"
+                                onclick="(window.openRequestChat ? openRequestChat('{{ bot_username }}', {{ req.id }}, {{ service_center.id }}) : openTelegramLink('https://t.me/{{ bot_username }}?start=chat_r{{ req.id }}_s{{ service_center.id }}'))"
                                 class="inline-flex items-center justify-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                            💬 Написать клиенту в Telegram
+                            💬 Открыть чат по заявке
                         </button>
                         <p class="text-[11px] text-slate-400">
-                            Откроется профиль/чат клиента. Если видите профиль — нажмите “Сообщение”.
+                            Чат открывается в боте и привязан к этой заявке. Клиент и СТО общаются через бота — без раскрытия телефона.
                         </p>
-                        {% else %}
-                        <p class="text-sm text-slate-400">
-                            Telegram-аккаунт клиента не найден (нет telegram_id). Обычно это появляется после первого входа клиента через WebApp/бот.
-                        </p>
-                        {% endif %}
                     </div>
                     {% endif %}
 
@@ -304,24 +298,6 @@
                         </p>
                         {% endif %}
                     </div>
-
-                    {% if offers and offers|length > 0 %}
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
-                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                            Все отклики (для информации)
-                        </p>
-                        <ul class="space-y-1.5 text-xs text-slate-300">
-                            {% for o in offers %}
-                            <li>
-                                ID {{ o.id }} — {{ o.price }} ₽, {{ o.eta_hours }} ч.
-                                {% if o.service_center_id == service_center.id %}
-                                <span class="text-emerald-300">(это вы)</span>
-                                {% endif %}
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    </div>
-                    {% endif %}
 
                 </div>
             </div>
