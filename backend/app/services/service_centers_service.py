@@ -107,7 +107,13 @@ class ServiceCentersService:
         has_tow_truck: Optional[bool] = None,
         is_mobile_service: Optional[bool] = None,
     ) -> List[ServiceCenter]:
-        stmt = select(ServiceCenter).options(selectinload(ServiceCenter.owner))  # <-- важно
+        """
+        ВАЖНО:
+        - Возвращаем ServiceCenter с подгруженным owner (selectinload),
+          потому что это используется в /requests/{id}/send_to_all для уведомлений.
+        """
+        stmt = select(ServiceCenter).options(selectinload(ServiceCenter.owner))
+
         if is_active is not None:
             stmt = stmt.where(ServiceCenter.is_active == is_active)
         if has_tow_truck is not None:
@@ -118,20 +124,7 @@ class ServiceCentersService:
         result = await db.execute(stmt)
         items: List[ServiceCenter] = list(result.scalars().all())
 
-        # 1. Базовый запрос к БД
-        stmt = select(ServiceCenter)
-        if is_active is not None:
-            stmt = stmt.where(ServiceCenter.is_active == is_active)
-        if has_tow_truck is not None:
-            stmt = stmt.where(ServiceCenter.has_tow_truck == has_tow_truck)
-        if is_mobile_service is not None:
-            stmt = stmt.where(ServiceCenter.is_mobile_service == is_mobile_service)
-
-        result = await db.execute(stmt)
-        items: List[ServiceCenter] = list(result.scalars().all())
-
-
-        # 2. Фильтрация по специализациям (на Python, т.к. поле JSON)
+        # 1) Фильтрация по специализациям (Python, т.к. поле JSON)
         if specializations:
             wanted = set(specializations)
             items = [
@@ -140,7 +133,7 @@ class ServiceCentersService:
                 if sc.specializations and wanted & set(sc.specializations)
             ]
 
-        # 3. Гео-фильтр + сортировка по расстоянию, если заданы координаты и радиус
+        # 2) Гео-фильтр + сортировка по расстоянию, если заданы координаты и радиус
         if (
             latitude is not None
             and longitude is not None
@@ -151,12 +144,7 @@ class ServiceCentersService:
             origin_lon = float(longitude)
 
             def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-                """
-                Расстояние по сфере (формула haversine), км.
-                Для наших задач (поиск ближайших СТО) точности более чем достаточно.
-                """
-                R = 6371.0  # радиус Земли в км
-
+                R = 6371.0
                 phi1 = math.radians(lat1)
                 phi2 = math.radians(lat2)
                 dphi = math.radians(lat2 - lat1)
@@ -171,7 +159,6 @@ class ServiceCentersService:
 
             filtered_with_dist = []
             for sc in items:
-                # Если у СТО нет координат — в гео-поиске его просто не показываем
                 if sc.latitude is None or sc.longitude is None:
                     continue
 
@@ -185,7 +172,6 @@ class ServiceCentersService:
                 if dist <= radius_km:
                     filtered_with_dist.append((dist, sc))
 
-            # сортируем от ближних к дальним
             filtered_with_dist.sort(key=lambda x: x[0])
             items = [sc for _, sc in filtered_with_dist]
 
