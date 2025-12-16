@@ -40,18 +40,28 @@ class OffersService:
         offer_full = await OffersService.get_offer_by_id(db, offer.id)
         if offer_full and offer_full.request and offer_full.request.user:
             client = offer_full.request.user
+
+            # ✅ Название СТО (fallback если нет имени)
+            sc_name = None
+            if offer_full.service_center:
+                sc_name = getattr(offer_full.service_center, "name", None)
+            if not sc_name:
+                sc_name = f"СТО #{offer_full.service_center_id}"
+
             if notifier.is_enabled() and getattr(client, "telegram_id", None):
                 request_id = offer_full.request.id
                 url = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
+
                 await notifier.send_notification(
                     recipient_type="client",
                     telegram_id=client.telegram_id,
                     message=(
                         f"📩 По вашей заявке №{request_id} пришёл новый отклик!\n"
+                        f"🏁 СТО: {sc_name}\n"
                         f"Откройте заявку и выберите предложение."
                     ),
                     buttons=[{"text": "Открыть заявку", "type": "web_app", "url": url}],
-                    extra={"request_id": request_id},
+                    extra={"request_id": request_id, "service_center_id": offer_full.service_center_id},
                 )
 
         return offer
