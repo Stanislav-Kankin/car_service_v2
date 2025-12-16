@@ -1002,7 +1002,7 @@ async def choose_service_get(
     except Exception:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
 
-    # ✅ Берём подходящие СТО по заявке
+    # ✅ Берём подходящие СТО по заявке (не общий список)
     service_centers = []
     try:
         sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
