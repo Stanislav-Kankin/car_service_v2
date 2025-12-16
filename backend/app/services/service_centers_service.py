@@ -108,9 +108,12 @@ class ServiceCentersService:
         is_mobile_service: Optional[bool] = None,
     ) -> List[ServiceCenter]:
         """
-        ВАЖНО:
-        - Возвращаем ServiceCenter с подгруженным owner (selectinload),
-          потому что это используется в /requests/{id}/send_to_all для уведомлений.
+        Подбор СТО:
+        1) фильтры активности / tow / mobile
+        2) фильтр по специализациям
+        3) если заданы координаты и радиус -> geo-фильтр
+        ❗ если geo-фильтр дал пусто -> fallback: вернуть "все по категории" (без гео),
+            как было раньше по твоему описанию.
         """
         stmt = select(ServiceCenter).options(selectinload(ServiceCenter.owner))
 
@@ -124,7 +127,7 @@ class ServiceCentersService:
         result = await db.execute(stmt)
         items: List[ServiceCenter] = list(result.scalars().all())
 
-        # 1) Фильтрация по специализациям (Python, т.к. поле JSON)
+        # 1) Специализации
         if specializations:
             wanted = set(specializations)
             items = [
@@ -133,7 +136,10 @@ class ServiceCentersService:
                 if sc.specializations and wanted & set(sc.specializations)
             ]
 
-        # 2) Гео-фильтр + сортировка по расстоянию, если заданы координаты и радиус
+        # сохраним "по категории" ДО гео (для fallback)
+        items_by_category = list(items)
+
+        # 2) Гео-фильтр (если есть входные координаты и радиус)
         if (
             latitude is not None
             and longitude is not None
@@ -149,7 +155,6 @@ class ServiceCentersService:
                 phi2 = math.radians(lat2)
                 dphi = math.radians(lat2 - lat1)
                 dlambda = math.radians(lon2 - lon1)
-
                 a = (
                     math.sin(dphi / 2) ** 2
                     + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
@@ -159,6 +164,7 @@ class ServiceCentersService:
 
             filtered_with_dist = []
             for sc in items:
+                # если у СТО нет координат — в geo-режиме он не может быть "рядом"
                 if sc.latitude is None or sc.longitude is None:
                     continue
 
@@ -168,12 +174,17 @@ class ServiceCentersService:
                     float(sc.latitude),
                     float(sc.longitude),
                 )
-
                 if dist <= radius_km:
                     filtered_with_dist.append((dist, sc))
 
             filtered_with_dist.sort(key=lambda x: x[0])
-            items = [sc for _, sc in filtered_with_dist]
+            items_geo = [sc for _, sc in filtered_with_dist]
+
+            # ✅ fallback: если "рядом" никого — вернём "все по категории"
+            if not items_geo:
+                return items_by_category
+
+            return items_geo
 
         return items
 
