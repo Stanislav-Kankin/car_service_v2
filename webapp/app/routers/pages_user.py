@@ -880,6 +880,50 @@ async def request_detail(
             accepted_sc_id = int(o.get("service_center_id"))
             break
 
+    # ------------------------------------------------------------
+    # Telegram: собираем telegram_id владельцев СТО для кнопок "Написать"
+    # ------------------------------------------------------------
+    offer_sc_telegram_ids: dict[int, int] = {}
+
+    try:
+        sc_ids = {int(o.get("service_center_id")) for o in offers if o.get("service_center_id")}
+        for sc_id in sc_ids:
+            sc_resp = await client.get(f"/api/v1/service-centers/{sc_id}")
+            if sc_resp.status_code != 200:
+                continue
+            sc_data = sc_resp.json() or {}
+            sc_user_id = sc_data.get("user_id")
+            if not sc_user_id:
+                continue
+
+            u_resp = await client.get(f"/api/v1/users/{int(sc_user_id)}")
+            if u_resp.status_code != 200:
+                continue
+            u_data = u_resp.json() or {}
+            tg_id = u_data.get("telegram_id")
+            if tg_id:
+                offer_sc_telegram_ids[sc_id] = int(tg_id)
+    except Exception:
+        offer_sc_telegram_ids = {}
+
+    return templates.TemplateResponse(
+        "user/request_detail.html",
+        {
+            "request": request,
+            "request_obj": req_data,
+            "req": req_data,
+            "car": car,
+            "can_distribute": can_distribute,
+            "sent_all": sent_all,
+            "chosen_service_id": chosen_service_id,
+            "offers": offers,
+            "offer_sc_telegram_ids": offer_sc_telegram_ids,
+            "accepted_offer_id": accepted_offer_id,
+            "accepted_sc_id": accepted_sc_id,
+            "bot_username": bot_username,
+        },
+    )
+
     return templates.TemplateResponse(
         "user/request_detail.html",
         {

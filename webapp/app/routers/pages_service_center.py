@@ -430,6 +430,20 @@ async def sc_request_detail(
     except Exception:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
 
+    # ✅ NEW: client telegram_id (владелец заявки)
+    client_telegram_id: int | None = None
+    try:
+        client_user_id = request_data.get("user_id")
+        if client_user_id:
+            u = await client.get(f"/api/v1/users/{int(client_user_id)}")
+            if u.status_code == 200:
+                user_data = u.json() or {}
+                tg_id = user_data.get("telegram_id")
+                if tg_id is not None:
+                    client_telegram_id = int(tg_id)
+    except Exception:
+        client_telegram_id = None
+
     # offers for request
     offers = []
     try:
@@ -456,6 +470,8 @@ async def sc_request_detail(
             "my_offer": my_offer,
             "error_message": error_message,
             "bot_username": BOT_USERNAME,
+            # ✅ NEW:
+            "client_telegram_id": client_telegram_id,
         },
     )
 

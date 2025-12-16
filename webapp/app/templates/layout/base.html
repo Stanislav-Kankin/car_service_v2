@@ -1,74 +1,100 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <title>{% block title %}MyGarage{% endblock %}</title>
 
-  <title>{% block title %}MyGarage{% endblock %}</title>
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
 
-  <script>
-    // Открыть deep-link в Telegram (внутри Mini App — через Telegram.WebApp.openTelegramLink)
-    function openBotChat(url) {
-      try {
-        if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openTelegramLink) {
-          Telegram.WebApp.openTelegramLink(url);
-          return;
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    {% block head %}{% endblock %}
+    <script>
+        (function () {
+            try {
+                if (window.Telegram && Telegram.WebApp) {
+                    Telegram.WebApp.ready();
+                    Telegram.WebApp.expand();
+                }
+            } catch (e) {}
+        })();
+
+        // Открыть ссылку внутри Telegram (Mini App)
+        function openTelegramLink(url) {
+            try {
+                if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openTelegramLink) {
+                    Telegram.WebApp.openTelegramLink(url);
+                    return;
+                }
+            } catch (e) {}
+            window.location.href = url;
         }
-      } catch (e) {}
-      window.location.href = url;
-    }
-  </script>
+
+        // Открыть профиль/чат с пользователем по telegram_id
+        // Важно: чаще открывается профиль, откуда можно написать.
+        function openTelegramUser(userId) {
+            if (!userId) return;
+            openTelegramLink('tg://user?id=' + userId);
+        }
+
+        // Legacy-имя (в проекте много шаблонов используют openBotChat)
+        function openBotChat(url) {
+            openTelegramLink(url);
+        }
+    </script>
 </head>
 
 <body class="min-h-screen bg-slate-950 text-slate-100">
-  <div class="max-w-3xl mx-auto px-4 py-4">
+    <!-- Header -->
+    <header class="sticky top-0 z-40 border-b border-slate-900 bg-slate-950/80 backdrop-blur">
+        <div class="mx-auto max-w-4xl px-4 py-3 flex items-center justify-between gap-3">
+            <a href="/me/dashboard" class="flex items-center gap-2">
+                <div class="h-9 w-9 rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/30 flex items-center justify-center">
+                    <span class="text-emerald-300 font-bold">MG</span>
+                </div>
+                <div class="leading-tight">
+                    <div class="font-semibold">MyGarage</div>
+                    <div class="text-[11px] text-slate-400">Клиент · СТО · Админ</div>
+                </div>
+            </a>
 
-    <!-- Header / Navigation -->
-    <div class="flex items-center justify-between gap-3 mb-4">
-      <a href="/me/dashboard" class="flex items-center gap-2">
-        <div class="h-9 w-9 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold">
-          MG
+            <nav class="flex items-center gap-2">
+                <a href="/me/dashboard"
+                   class="rounded-full px-3 py-1.5 text-xs font-semibold bg-slate-900/70 ring-1 ring-slate-800 hover:bg-slate-900">
+                    Клиент
+                </a>
+                <a href="/sc/dashboard"
+                   class="rounded-full px-3 py-1.5 text-xs font-semibold bg-slate-900/70 ring-1 ring-slate-800 hover:bg-slate-900">
+                    СТО
+                </a>
+
+                {% set _is_admin = (request.state.is_admin if (request is defined and request and request.state and request.state.is_admin is defined) else False) %}
+                {% if _is_admin %}
+                <a href="/admin/service-centers"
+                   class="rounded-full px-3 py-1.5 text-xs font-semibold bg-emerald-600/80 ring-1 ring-emerald-500/40 hover:bg-emerald-600">
+                    Админка
+                </a>
+                {% endif %}
+            </nav>
         </div>
-        <div class="leading-tight">
-          <div class="text-sm font-semibold">MyGarage</div>
-          <div class="text-[11px] text-slate-400">Mini App</div>
-        </div>
-      </a>
+    </header>
 
-      <div class="flex flex-wrap items-center justify-end gap-2">
-        <a href="/me/dashboard"
-           class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-semibold hover:bg-slate-800 transition">
-          Клиент
-        </a>
-        <a href="/sc/dashboard"
-           class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-semibold hover:bg-slate-800 transition">
-          СТО
-        </a>
-        <a href="/admin/service-centers"
-           class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-semibold hover:bg-slate-800 transition">
-          Админка
-        </a>
-      </div>
-    </div>
-
-    {% block content %}{% endblock %}
+    <!-- Content -->
+    <main class="mx-auto max-w-4xl px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
 
     <!-- Footer -->
-    <div class="mt-10 text-center text-[11px] text-slate-500">
-      {% if bot_username %}
-        <button type="button"
-                class="underline decoration-dotted hover:text-slate-300"
-                onclick="openBotChat('https://t.me/{{ bot_username }}')">
-          @{{ bot_username }}
-        </button>
-      {% else %}
-        MyGarage
-      {% endif %}
-    </div>
+    <footer class="mx-auto max-w-4xl px-4 pb-6">
+        <div class="text-center text-[11px] text-slate-500">
+            @{{ bot_username or "MyGarageServiceBot" }}
+        </div>
+    </footer>
 
-  </div>
+    {% block scripts %}{% endblock %}
 </body>
 </html>
