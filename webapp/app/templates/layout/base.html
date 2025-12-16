@@ -24,13 +24,28 @@
         })();
 
         // Открыть ссылку внутри Telegram (Mini App)
-        // ВАЖНО:
-        // - openTelegramLink() в Telegram WebApp корректно работает в первую очередь с https://t.me/*
-        // - для tg:// схемы (tg://user?id=...) чаще срабатывает openLink()
         function openTelegramLink(url) {
             try {
+                // ✅ tg:// схемы часто “молча” не открываются через Telegram.WebApp.openLink,
+                // поэтому сначала пробуем прямой переход.
+                if (typeof url === "string" && url.startsWith("tg://")) {
+                    try {
+                        window.location.href = url;
+                    } catch (e) {}
+
+                    // и дублируем попытку через WebApp, если доступно
+                    try {
+                        if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openLink) {
+                            Telegram.WebApp.openLink(url);
+                        }
+                    } catch (e) {}
+
+                    return;
+                }
+
                 if (window.Telegram && Telegram.WebApp) {
-                    const isTme = (typeof url === 'string') && (url.startsWith('https://t.me/') || url.startsWith('http://t.me/'));
+                    const isTme = (typeof url === 'string') &&
+                        (url.startsWith('https://t.me/') || url.startsWith('http://t.me/'));
 
                     if (isTme && Telegram.WebApp.openTelegramLink) {
                         Telegram.WebApp.openTelegramLink(url);
@@ -48,7 +63,6 @@
         }
 
         // Открыть профиль/чат с пользователем по telegram_id
-        // Важно: чаще открывается профиль, откуда можно написать.
         function openTelegramUser(userId) {
             if (!userId) return;
             openTelegramLink('tg://user?id=' + userId);

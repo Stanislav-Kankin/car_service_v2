@@ -33,6 +33,16 @@ def _auth_html() -> HTMLResponse:
                 document.cookie = parts.join("; ");
               }
 
+              function getSafeNext() {
+                try {
+                  const params = new URLSearchParams(window.location.search || "");
+                  const next = params.get("next") || "";
+                  // Разрешаем только относительные пути
+                  if (next && next.startsWith("/")) return next;
+                } catch (e) {}
+                return "/me/dashboard";
+              }
+
               (async function () {
                 if (!window.Telegram || !Telegram.WebApp) return;
 
@@ -55,7 +65,9 @@ def _auth_html() -> HTMLResponse:
                 if (!data || !data.user_id) return;
 
                 setUserIdCookie(data.user_id);
-                window.location.replace("/me/dashboard");
+
+                const target = getSafeNext();
+                window.location.replace(target);
               })();
             </script>
         </body>
@@ -71,6 +83,13 @@ def _clear_cookie(resp: HTMLResponse | RedirectResponse) -> None:
     resp.delete_cookie("userId", path="/", domain=".dev-cloud-ksa.ru")
 
 
+def _safe_next_from_request(request: Request) -> str | None:
+    nxt = (request.query_params.get("next") or "").strip()
+    if nxt and nxt.startswith("/"):
+        return nxt
+    return None
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
     """
@@ -78,9 +97,10 @@ async def index(request: Request) -> HTMLResponse:
 
     Правило:
     - если НЕТ валидной сессии -> 200 OK auth HTML
-    - если session валидна -> redirect /me/dashboard
+    - если session валидна -> redirect next (если есть) или /me/dashboard
     """
     user_id = getattr(request.state, "user_id", None)
+    next_path = _safe_next_from_request(request)
 
     # Если cookie нет — отдаём auth-страницу (200)
     if not user_id:
@@ -99,10 +119,9 @@ async def index(request: Request) -> HTMLResponse:
         # Если backend недоступен/ошибка — НЕ редиректим, иначе снова цикл
         return _auth_html()
 
-    return RedirectResponse("/me/dashboard", status_code=302)
+    return RedirectResponse(next_path or "/me/dashboard", status_code=302)
 
 
-# Чтобы curl -I не вводил в заблуждение
 @router.head("/", response_class=HTMLResponse)
 async def index_head(_: Request) -> HTMLResponse:
     return HTMLResponse("ok")

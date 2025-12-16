@@ -46,6 +46,19 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
         resp.delete_cookie("userId", path="/")
         resp.delete_cookie("userId", path="/", domain=".dev-cloud-ksa.ru")
 
+    def _build_next_path(self, request: Request) -> str:
+        # path + query (без домена)
+        path = request.url.path or "/"
+        qs = request.url.query
+        if qs:
+            return f"{path}?{qs}"
+        return path
+
+    def _redirect_to_entry_with_next(self, request: Request) -> RedirectResponse:
+        next_path = self._build_next_path(request)
+        safe_next = urllib.parse.quote(next_path, safe="/?:=&")
+        return RedirectResponse(url=f"/?next={safe_next}", status_code=302)
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path or "/"
 
@@ -62,9 +75,10 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
 
         user_id = getattr(request.state, "user_id", None)
 
-        # ✅ КЛЮЧЕВОЕ: если cookie нет — НЕ /me/register, а /
+        # ✅ КЛЮЧЕВОЕ: если cookie нет — ведём на "/" с next,
+        # чтобы там прошла Telegram WebApp auth и вернула на исходную страницу.
         if not user_id:
-            return RedirectResponse(url="/", status_code=302)
+            return self._redirect_to_entry_with_next(request)
 
         # грузим пользователя
         try:
@@ -72,14 +86,15 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
                 resp = await client.get(f"/api/v1/users/{int(user_id)}")
 
                 if resp.status_code == 404:
-                    r = RedirectResponse(url="/", status_code=302)
+                    r = self._redirect_to_entry_with_next(request)
                     self._clear_user_cookie(r)
                     return r
 
                 resp.raise_for_status()
                 user_obj = resp.json()
         except Exception:
-            return RedirectResponse(url="/", status_code=302)
+            # backend недоступен/ошибка — всё равно ведём на "/" с next (без цикла)
+            return self._redirect_to_entry_with_next(request)
 
         request.state.user_obj = user_obj
 
@@ -88,11 +103,7 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
         profile_complete = bool(full_name) and bool(phone)
 
         if not profile_complete:
-            next_url = str(request.url)
-            parsed = urllib.parse.urlsplit(next_url)
-            next_path = parsed.path
-            if parsed.query:
-                next_path = f"{next_path}?{parsed.query}"
+            next_path = self._build_next_path(request)
             safe_next = urllib.parse.quote(next_path, safe="/?:=&")
             return RedirectResponse(url=f"/me/register?next={safe_next}", status_code=302)
 
