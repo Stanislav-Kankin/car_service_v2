@@ -2,8 +2,7 @@ import asyncio
 import logging
 
 import uvicorn
-from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
@@ -20,33 +19,14 @@ except ImportError:
     HAS_REDIS = False
 
 from .config import config
-
 from .handlers.general import router as general_router
 from .handlers.chat import router as chat_router
+from .notify_api import build_notify_app  # ✅ ВАЖНО
 
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI()
-
-
-class NotifyPayload(BaseModel):
-    telegram_id: int
-    text: str
-
-
-@app.post("/notify")
-async def notify(
-    payload: NotifyPayload,
-    x_api_token: str = Header(default=""),
-):
-    if x_api_token != config.BOT_API_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    try:
-        await app.state.bot.send_message(payload.telegram_id, payload.text)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    return {"ok": True}
+# ✅ Это будет приложение notify API (/api/v1/notify, /health)
+app: FastAPI = FastAPI()
 
 
 async def main():
@@ -63,7 +43,9 @@ async def main():
     dp.include_router(general_router)
     dp.include_router(chat_router)
 
-    app.state.bot = bot
+    # ✅ Встраиваем notify API, чтобы backend мог слать /api/v1/notify
+    notify_app = build_notify_app(bot)
+    app.mount("/", notify_app)
 
     # Telegram button -> WebApp
     try:
@@ -76,7 +58,6 @@ async def main():
     except Exception:
         pass
 
-    # параллельно: бот-поллинг + FastAPI notify
     await asyncio.gather(
         dp.start_polling(bot),
         _run_api(),
