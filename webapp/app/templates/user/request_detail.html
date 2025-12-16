@@ -199,7 +199,7 @@
                     <p class="text-xs font-semibold text-slate-300">Локация на карте</p>
                     <div id="request-map" data-address="{{ request_obj.address_text or '' }}"
                          class="mt-1 rounded-2xl overflow-hidden bg-slate-900 h-56 relative">
-                        <div id="request-map-inner" class="absolute inset-0"></div>
+                        <div id="request-map-inner" class="absolute inset-0 w-full h-full"></div>
                     </div>
                     <p id="map-hint" class="text-[11px] text-slate-500 mt-1">
                         Если адрес можно определить, на карте отобразится примерное положение.
@@ -262,10 +262,10 @@
                         <button type="button"
                                 onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ chat_sc_id }}', '{{ bot_username }}')"
                                 class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                            💬 Написать в Telegram (кнопка придёт в боте)
+                            💬 Написать в Telegram
                         </button>
                         <p class="mt-2 text-[11px] text-slate-400">
-                            Мы отправим вам сообщение в боте с кнопкой, которая откроет прямой чат в Telegram.
+                            Мы отправим вам сообщение в боте с кнопкой, которая откроет прямой чат.
                         </p>
                         {% else %}
                         <p class="text-xs text-slate-400">Не удалось определить выбранный сервис для чата.</p>
@@ -302,7 +302,6 @@
                             {% endif %}
                         </div>
 
-                        {% if not already_chosen %}
                         <div class="flex flex-wrap gap-2 text-xs">
                             <button type="button"
                                     onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ offer.service_center_id }}', '{{ bot_username }}')"
@@ -310,6 +309,7 @@
                                 💬 Написать в Telegram
                             </button>
 
+                            {% if not already_chosen %}
                             <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/accept">
                                 <button type="submit"
                                         class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 font-semibold text-slate-900 shadow-md shadow-emerald-500/30 hover:bg-emerald-400 transition">
@@ -323,19 +323,8 @@
                                     Отклонить
                                 </button>
                             </form>
+                            {% endif %}
                         </div>
-                        {% else %}
-                        <div class="flex flex-col items-end gap-2">
-                            <button type="button"
-                                    onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ offer.service_center_id }}', '{{ bot_username }}')"
-                                    class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                                💬 Написать в Telegram
-                            </button>
-                            <div class="text-[11px] text-slate-500">
-                                Действия недоступны — сервис уже выбран.
-                            </div>
-                        </div>
-                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -350,11 +339,9 @@
     </div>
 </div>
 
-<!-- Leaflet + геокодинг через Nominatim -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<!-- Leaflet (без integrity/crossorigin — стабильнее в Telegram WebView) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
     (function () {
@@ -376,16 +363,23 @@
         }
 
         function initMap(centerLat, centerLon) {
-            // ✅ убираем attribution-контрол (внизу карты)
-            const map = L.map(mapContainer, { attributionControl: false }).setView([centerLat, centerLon], 14);
+            // ✅ никаких подписей/флагов/атрибуции
+            const map = L.map(mapContainer, {
+                attributionControl: false,
+                zoomControl: false
+            }).setView([centerLat, centerLon], 14);
 
-            // ✅ не задаём attribution вообще (на всякий)
             L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
                 maxZoom: 19,
                 attribution: ""
             }).addTo(map);
 
             L.marker([centerLat, centerLon]).addTo(map);
+
+            // ✅ фикс “пустой карты” из-за размеров контейнера в WebView
+            setTimeout(() => {
+                try { map.invalidateSize(); } catch(e) {}
+            }, 50);
         }
 
         if (lat !== null && lon !== null) {
