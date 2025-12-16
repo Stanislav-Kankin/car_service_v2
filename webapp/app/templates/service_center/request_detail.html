@@ -155,17 +155,10 @@
                         <p class="text-[11px] text-slate-400">
                             Откроется профиль/чат клиента. Если видите профиль — нажмите “Сообщение”.
                         </p>
-                        {% elif bot_username %}
-                        <button type="button"
-                                onclick="openBotChat('https://t.me/{{ bot_username }}?start=chat_r{{ req.id }}_s{{ service_center.id }}')"
-                                class="inline-flex items-center justify-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                            💬 Написать клиенту в Telegram
-                        </button>
-                        <p class="text-[11px] text-slate-400">
-                            (fallback) Откроется бот, если telegram_id клиента недоступен.
-                        </p>
                         {% else %}
-                        <p class="text-sm text-slate-400">Нет данных для связи.</p>
+                        <p class="text-sm text-slate-400">
+                            Telegram-аккаунт клиента не найден (нет telegram_id). Обычно это появляется после первого входа клиента через WebApp/бот.
+                        </p>
                         {% endif %}
                     </div>
                     {% endif %}

@@ -24,13 +24,26 @@
         })();
 
         // Открыть ссылку внутри Telegram (Mini App)
+        // ВАЖНО:
+        // - openTelegramLink() в Telegram WebApp корректно работает в первую очередь с https://t.me/*
+        // - для tg:// схемы (tg://user?id=...) чаще срабатывает openLink()
         function openTelegramLink(url) {
             try {
-                if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openTelegramLink) {
-                    Telegram.WebApp.openTelegramLink(url);
-                    return;
+                if (window.Telegram && Telegram.WebApp) {
+                    const isTme = (typeof url === 'string') && (url.startsWith('https://t.me/') || url.startsWith('http://t.me/'));
+
+                    if (isTme && Telegram.WebApp.openTelegramLink) {
+                        Telegram.WebApp.openTelegramLink(url);
+                        return;
+                    }
+
+                    if (Telegram.WebApp.openLink) {
+                        Telegram.WebApp.openLink(url);
+                        return;
+                    }
                 }
             } catch (e) {}
+
             window.location.href = url;
         }
 

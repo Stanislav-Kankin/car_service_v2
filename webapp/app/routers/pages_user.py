@@ -887,6 +887,25 @@ async def request_detail(
 
     try:
         sc_ids = {int(o.get("service_center_id")) for o in offers if o.get("service_center_id")}
+        # ✅ добавляем выбранный сервис, даже если оффера ещё нет
+        try:
+            if req_data.get("service_center_id"):
+                sc_ids.add(int(req_data.get("service_center_id")))
+        except Exception:
+            pass
+        # ✅ добавляем сервис из принятого оффера
+        try:
+            if accepted_sc_id:
+                sc_ids.add(int(accepted_sc_id))
+        except Exception:
+            pass
+        # ✅ добавляем сервис, который выбрал пользователь через UI (chosen_service_id)
+        try:
+            if chosen_service_id:
+                sc_ids.add(int(chosen_service_id))
+        except Exception:
+            pass
+
         for sc_id in sc_ids:
             sc_resp = await client.get(f"/api/v1/service-centers/{sc_id}")
             if sc_resp.status_code != 200:
@@ -918,23 +937,6 @@ async def request_detail(
             "chosen_service_id": chosen_service_id,
             "offers": offers,
             "offer_sc_telegram_ids": offer_sc_telegram_ids,
-            "accepted_offer_id": accepted_offer_id,
-            "accepted_sc_id": accepted_sc_id,
-            "bot_username": bot_username,
-        },
-    )
-
-    return templates.TemplateResponse(
-        "user/request_detail.html",
-        {
-            "request": request,
-            "request_obj": req_data,
-            "req": req_data,
-            "car": car,
-            "can_distribute": can_distribute,
-            "sent_all": sent_all,
-            "chosen_service_id": chosen_service_id,
-            "offers": offers,
             "accepted_offer_id": accepted_offer_id,
             "accepted_sc_id": accepted_sc_id,
             "bot_username": bot_username,
