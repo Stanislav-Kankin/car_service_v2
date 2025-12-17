@@ -7,7 +7,10 @@ from backend.app.core.db import get_db
 from backend.app.schemas.bonus import BonusAdjust, BonusTransactionRead
 from backend.app.services.bonus_service import BonusService
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/bonus",
+    tags=["bonus"],
+)
 
 
 @router.get(
@@ -17,9 +20,8 @@ router = APIRouter()
 async def get_user_balance(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-):
-    balance = await BonusService.get_user_balance(db, user_id)
-    return balance
+) -> int:
+    return await BonusService.get_user_balance(db, user_id)
 
 
 @router.get(
@@ -29,9 +31,9 @@ async def get_user_balance(
 async def list_user_transactions(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-):
+) -> List[BonusTransactionRead]:
     txs = await BonusService.list_user_transactions(db, user_id)
-    return txs
+    return list(txs)
 
 
 @router.post(
@@ -43,7 +45,7 @@ async def adjust_user_bonus(
     user_id: int,
     data_in: BonusAdjust,
     db: AsyncSession = Depends(get_db),
-):
+) -> BonusTransactionRead:
     try:
         tx = await BonusService.add_bonus(
             db=db,

@@ -92,6 +92,14 @@ class ServiceCentersService:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    @staticmethod
+    async def list_by_user_id(
+        db: AsyncSession,
+        user_id: int,
+    ) -> List[ServiceCenter]:
+        # алиас для обратной совместимости (в т.ч. при старых образах/хардкодах)
+        return await ServiceCentersService.list_by_user(db, user_id)
+
     # ------------------------------------------------------------------
     # Поиск подходящих СТО с учётом гео и специализаций
     # ------------------------------------------------------------------

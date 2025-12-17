@@ -18,13 +18,13 @@
     "agg_steering": "Рулевые рейки",
     "mech": "Слесарные работы",
     "elec": "Автоэлектрик",
-    "body": "Малярные / кузовные работы",
+    "body": "Кузовные работы",
     "diag": "Диагностика",
     "agg": "Ремонт агрегатов"
 } %}
 
 <div class="mt-8 space-y-6">
-    <div class="flex items-center justify-between gap-4">
+    <div class="flex items-start justify-between gap-4">
         <div>
             <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
                 Кабинет СТО
@@ -36,142 +36,100 @@
                 Управляйте профилем своих СТО и работайте с заявками от клиентов.
             </p>
         </div>
-        <a href="/sc/create"
-           class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-            <span class="text-lg leading-none">+</span>
-            <span>Добавить новый СТО</span>
-        </a>
+
+        <div class="flex items-center gap-2">
+            <a href="/sc/create"
+               class="inline-flex items-center justify-center rounded-xl bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-200 border border-emerald-400/30 hover:bg-emerald-500/20 transition">
+                ➕ Добавить СТО
+            </a>
+
+            {% if service_centers and service_centers|length == 1 %}
+                <a href="/sc/{{ service_centers[0].id }}/requests"
+                   class="inline-flex items-center justify-center rounded-xl bg-slate-800/70 px-4 py-2 text-sm font-medium text-slate-100 border border-slate-700/60 hover:bg-slate-800/90 transition">
+                    📋 Мои заявки
+                </a>
+            {% endif %}
+        </div>
     </div>
 
     {% if error_message %}
-    <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+    <div class="rounded-2xl bg-rose-500/10 border border-rose-400/30 px-4 py-3 text-rose-100 text-sm">
         {{ error_message }}
     </div>
     {% endif %}
 
-    <div class="relative mt-4">
-        <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
-
-        <div class="relative z-10 p-6 space-y-4">
-            {% if service_centers %}
-            <div class="flex justify-between items-center mb-2">
-                <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80">
-                    Ваши СТО ({{ service_centers|length }})
-                </p>
-            </div>
-
-            <div class="grid gap-4 md:grid-cols-2">
-                {% for sc in service_centers %}
-                <div class="group rounded-2xl border border-slate-800 bg-slate-900/80 p-5 hover:border-emerald-400/70 hover:bg-slate-900 transition transform hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(16,185,129,0.25)]">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <h2 class="text-lg font-semibold mb-1 truncate">
-                                {{ sc.name or "Без названия" }}
-                            </h2>
-
-                            {% if sc.address %}
-                            <p class="text-sm text-slate-300 mb-1 truncate">
-                                {{ sc.address }}
-                            </p>
-                            {% endif %}
-
-                            <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
-                                {% if sc.phone %}
-                                <span>📞 {{ sc.phone }}</span>
-                                {% endif %}
-                                {% if sc.website %}
-                                <a href="{{ sc.website }}" target="_blank" class="underline hover:text-emerald-300">
-                                    🌐 Сайт
-                                </a>
-                                {% endif %}
+    {% if service_centers and service_centers|length > 0 %}
+        <div class="grid gap-3">
+            {% for sc in service_centers %}
+                <div class="group rounded-2xl bg-slate-800/70 border border-slate-700/60 p-4 hover:bg-slate-800/90 transition">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <div class="text-lg font-semibold text-slate-100">
+                                {{ sc.name }}
                             </div>
+                            <div class="text-sm text-slate-300 mt-1">
+                                {% if sc.address %}{{ sc.address }}{% else %}<span class="text-slate-400">Адрес не указан</span>{% endif %}
+                            </div>
+
+                            {% if sc.specializations and sc.specializations|length > 0 %}
+                                <div class="mt-3 flex flex-wrap gap-2">
+                                    {% for code in sc.specializations %}
+                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs border border-slate-600/70 bg-slate-900/40 text-slate-200">
+                                            {{ category_labels.get(code, code) }}
+                                        </span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
                         </div>
 
-                        <div class="flex flex-col items-end gap-2 shrink-0">
+                        <div class="text-right">
                             {% if sc.is_active %}
-                            <span class="inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">
-                                ● Активный
-                            </span>
+                                <div class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs border border-emerald-400/30 bg-emerald-500/10 text-emerald-200">
+                                    ● Активна
+                                </div>
                             {% else %}
-                            <span class="inline-flex items-center rounded-full border border-slate-500/60 bg-slate-700/40 px-3 py-1 text-[11px] font-semibold text-slate-200">
-                                ● Неактивный
-                            </span>
-                            {% endif %}
-
-                            {% if sc.wallet_balance is not none %}
-                            <span class="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-200">
-                                💰 Баланс: {{ sc.wallet_balance }}
-                            </span>
-                            {% else %}
-                            <span class="inline-flex items-center rounded-full border border-slate-600/60 bg-slate-800/40 px-3 py-1 text-[11px] font-semibold text-slate-300">
-                                💰 Баланс: —
-                            </span>
-                            {% endif %}
-
-                            {% if sc.is_mobile_service %}
-                            <span class="inline-flex items-center rounded-full border border-sky-400/60 bg-sky-500/10 px-3 py-1 text-[11px] font-semibold text-sky-200">
-                                🚗 Выездной сервис
-                            </span>
-                            {% endif %}
-                            {% if sc.has_tow_truck %}
-                            <span class="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-200">
-                                🛻 Есть эвакуатор
-                            </span>
+                                <div class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs border border-amber-400/30 bg-amber-500/10 text-amber-200">
+                                    ● На модерации
+                                </div>
                             {% endif %}
                         </div>
                     </div>
 
-                    {% if sc.specializations %}
-                    <div class="mt-3 flex flex-wrap gap-1.5">
-                        {% for cat in sc.specializations %}
-                        <span class="rounded-full bg-slate-800/70 px-2.5 py-1 text-[11px] text-slate-200">
-                            {{ category_labels.get(cat, cat) }}
-                        </span>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-
-                    <div class="mt-4 flex items-center justify-between text-xs text-slate-400">
-                        <div class="flex items-center gap-2">
-                            <span>ID: {{ sc.id }}</span>
-                            {% if sc.org_type %}
-                            <span>•</span>
-                            <span>{{ sc.org_type }}</span>
-                            {% endif %}
+                    <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-700/60 pt-3">
+                        <div class="text-xs text-slate-400">
+                            ID: <span class="text-slate-300">{{ sc.id }}</span>
+                            {% if sc.phone %} · Тел: <span class="text-slate-300">{{ sc.phone }}</span>{% endif %}
                         </div>
-                    </div>
 
-                    {# ✅ ВАЖНО: возвращаем логичную навигацию #}
-                    <div class="mt-4 flex flex-wrap gap-2">
-                        <a href="/sc/{{ sc.id }}/requests"
-                           class="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-4 py-2 text-xs font-semibold text-emerald-100 border border-emerald-400/30 hover:bg-emerald-500/25 transition">
-                            📋 Мои заявки
-                            <span class="text-base leading-none">→</span>
-                        </a>
-
-                        <a href="/sc/edit/{{ sc.id }}"
-                           class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-100 hover:border-emerald-400/70 hover:text-emerald-200 transition">
-                            ✏️ Профиль
-                        </a>
+                        <div class="flex items-center gap-3">
+                            <a href="/sc/{{ sc.id }}/requests"
+                               class="inline-flex items-center gap-1 text-emerald-300 group-hover:text-emerald-200 transition">
+                                Мои заявки
+                                <span class="text-base leading-none">→</span>
+                            </a>
+                            <a href="/sc/edit/{{ sc.id }}"
+                               class="inline-flex items-center gap-1 text-slate-200 hover:text-slate-100 transition">
+                                Редактировать
+                                <span class="text-base leading-none">→</span>
+                            </a>
+                        </div>
                     </div>
                 </div>
-                {% endfor %}
-            </div>
-
-            {% else %}
-            <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
-                <p class="text-slate-200 font-semibold mb-2">У вас пока нет СТО</p>
-                <p class="text-sm text-slate-400 mb-4">
-                    Добавьте сервисный центр, чтобы получать заявки по специализациям.
-                </p>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="rounded-2xl bg-slate-800/60 border border-slate-700/50 p-6 text-slate-200">
+            <div class="text-lg font-semibold">СТО пока не создано</div>
+            <p class="text-sm text-slate-300 mt-1">
+                Создайте карточку СТО, чтобы получать заявки от клиентов и отправлять отклики.
+            </p>
+            <div class="mt-4">
                 <a href="/sc/create"
-                   class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-                    <span class="text-lg leading-none">+</span>
-                    <span>Добавить СТО</span>
+                   class="inline-flex items-center justify-center rounded-xl bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-200 border border-emerald-400/30 hover:bg-emerald-500/20 transition">
+                    ➕ Создать СТО
                 </a>
             </div>
-            {% endif %}
         </div>
-    </div>
+    {% endif %}
 </div>
 {% endblock %}
