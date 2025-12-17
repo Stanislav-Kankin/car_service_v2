@@ -64,31 +64,30 @@
                 {% for sc in service_centers %}
                 <div class="group rounded-2xl border border-slate-800 bg-slate-900/80 p-5 hover:border-emerald-400/70 hover:bg-slate-900 transition transform hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(16,185,129,0.25)]">
                     <div class="flex items-start justify-between gap-3">
-                        <div>
-                            <h2 class="text-lg font-semibold mb-1">
+                        <div class="min-w-0">
+                            <h2 class="text-lg font-semibold mb-1 truncate">
                                 {{ sc.name or "Без названия" }}
                             </h2>
+
                             {% if sc.address %}
-                            <p class="text-sm text-slate-300 mb-1">
+                            <p class="text-sm text-slate-300 mb-1 truncate">
                                 {{ sc.address }}
                             </p>
                             {% endif %}
-                            {% if sc.phone %}
-                            <p class="text-xs text-slate-400">
-                                Телефон: {{ sc.phone }}
-                            </p>
-                            {% endif %}
-                            {% if sc.website %}
-                            <p class="text-xs text-slate-400 mt-1">
-                                Сайт:
+
+                            <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+                                {% if sc.phone %}
+                                <span>📞 {{ sc.phone }}</span>
+                                {% endif %}
+                                {% if sc.website %}
                                 <a href="{{ sc.website }}" target="_blank" class="underline hover:text-emerald-300">
-                                    {{ sc.website }}
+                                    🌐 Сайт
                                 </a>
-                            </p>
-                            {% endif %}
+                                {% endif %}
+                            </div>
                         </div>
 
-                        <div class="flex flex-col items-end gap-2">
+                        <div class="flex flex-col items-end gap-2 shrink-0">
                             {% if sc.is_active %}
                             <span class="inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">
                                 ● Активный
@@ -102,6 +101,10 @@
                             {% if sc.wallet_balance is not none %}
                             <span class="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-200">
                                 💰 Баланс: {{ sc.wallet_balance }}
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center rounded-full border border-slate-600/60 bg-slate-800/40 px-3 py-1 text-[11px] font-semibold text-slate-300">
+                                💰 Баланс: —
                             </span>
                             {% endif %}
 
@@ -136,10 +139,19 @@
                             <span>{{ sc.org_type }}</span>
                             {% endif %}
                         </div>
+                    </div>
+
+                    {# ✅ ВАЖНО: возвращаем логичную навигацию #}
+                    <div class="mt-4 flex flex-wrap gap-2">
+                        <a href="/sc/{{ sc.id }}/requests"
+                           class="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-4 py-2 text-xs font-semibold text-emerald-100 border border-emerald-400/30 hover:bg-emerald-500/25 transition">
+                            📋 Мои заявки
+                            <span class="text-base leading-none">→</span>
+                        </a>
 
                         <a href="/sc/edit/{{ sc.id }}"
                            class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-100 hover:border-emerald-400/70 hover:text-emerald-200 transition">
-                            ✏️ Редактировать
+                            ✏️ Профиль
                         </a>
                     </div>
                 </div>
