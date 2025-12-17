@@ -15,7 +15,6 @@ router = APIRouter(
 
 templates = get_templates()
 
-
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
 
 
@@ -96,9 +95,6 @@ async def sc_create_get(
 ) -> HTMLResponse:
     _ = get_current_user_id(request)
 
-    # ✅ Единый список специализаций (код -> лейбл)
-    # Подогнано под твой реальный список из бота (SERVICE_SPECIALIZATION_OPTIONS).
-    # Если ты хочешь хранить это в backend — позже вынесем в /api/v1/dicts.
     specialization_options = [
         ("wash", "Автомойка"),
         ("tire", "Шиномонтаж"),
@@ -133,12 +129,10 @@ async def sc_create_post(
     org_type: str = Form("company"),
     is_mobile_service: bool = Form(False),
     has_tow_truck: bool = Form(False),
-    # ✅ НОВОЕ: специализации приходят как multi-select/checkboxes (несколько значений)
     specializations: list[str] = Form(default_factory=list),
 ) -> HTMLResponse:
     user_id = get_current_user_id(request)
 
-    # ✅ Валидация: минимум 1 специализация
     specializations = [s.strip() for s in (specializations or []) if s and s.strip()]
     if not specializations:
         specialization_options = [
@@ -251,7 +245,6 @@ async def sc_edit_get(
     """
     sc = await _load_sc_for_owner(request, client, sc_id)
 
-    # ✅ список специализаций для UI (коды должны совпадать с backend)
     specialization_options = [
         ("wash", "Автомойка"),
         ("tire", "Шиномонтаж"),
@@ -287,7 +280,6 @@ async def sc_edit_post(
     phone: str = Form(""),
     website: str = Form(""),
     org_type: str = Form("company"),
-    # ✅ НОВОЕ: список чекбоксов специализаций
     specializations: list[str] = Form([]),
     is_mobile_service: bool = Form(False),
     has_tow_truck: bool = Form(False),
@@ -298,7 +290,6 @@ async def sc_edit_post(
     """
     _ = get_current_user_id(request)
 
-    # ✅ список специализаций для UI (чтобы при ошибке форма не "обнулялась")
     specialization_options = [
         ("wash", "Автомойка"),
         ("tire", "Шиномонтаж"),
@@ -312,7 +303,6 @@ async def sc_edit_post(
         ("agg_steering", "Рулевые рейки"),
     ]
 
-    # ✅ валидация: минимум одна специализация
     specs_clean = [s for s in (specializations or []) if s]
     if not specs_clean:
         sc = await _load_sc_for_owner(request, client, sc_id)
@@ -333,7 +323,7 @@ async def sc_edit_post(
         "phone": phone or None,
         "website": website or None,
         "org_type": org_type or None,
-        "specializations": specs_clean,  # ✅ отправляем в backend
+        "specializations": specs_clean,
         "is_mobile_service": bool(is_mobile_service),
         "has_tow_truck": bool(has_tow_truck),
         "is_active": bool(is_active),
@@ -365,3 +355,291 @@ async def sc_edit_post(
             "specialization_options": specialization_options,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# СПИСОК ЗАЯВОК ДЛЯ КОНКРЕТНОГО СТО
+# ---------------------------------------------------------------------------
+
+@router.get("/{sc_id}/requests", response_class=HTMLResponse)
+async def sc_requests_list(
+    sc_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    """
+    Список заявок, которые были разосланы КОНКРЕТНОМУ СТО.
+    """
+    sc = await _load_sc_for_owner(request, client, sc_id)
+
+    requests_list: list[dict[str, Any]] = []
+    error_message: str | None = None
+
+    try:
+        resp = await client.get(f"/api/v1/requests/for-service-center/{sc_id}")
+        if resp.status_code == status.HTTP_404_NOT_FOUND:
+            requests_list = []
+        else:
+            resp.raise_for_status()
+            requests_list = resp.json()
+    except Exception:
+        error_message = "Не удалось загрузить заявки для этого сервиса. Попробуйте позже."
+        requests_list = []
+
+    return templates.TemplateResponse(
+        "service_center/requests.html",
+        {
+            "request": request,
+            "service_center": sc,
+            "requests_list": requests_list,
+            "error_message": error_message,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# ДЕТАЛЬНАЯ ЗАЯВКА + ОТКЛИК СТО
+# ---------------------------------------------------------------------------
+
+@router.get("/{sc_id}/requests/{request_id}", response_class=HTMLResponse)
+async def sc_request_detail(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    _ = get_current_user_id(request)
+    templates = get_templates()
+
+    error_message = None
+
+    # service center (и ownership)
+    sc = await _load_sc_for_owner(request, client, sc_id)
+
+    # request
+    try:
+        r = await client.get(f"/api/v1/requests/{request_id}")
+        r.raise_for_status()
+        request_data = r.json()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+
+    # car (optional)
+    try:
+        car_id = request_data.get("car_id")
+        if car_id:
+            car_resp = await client.get(f"/api/v1/cars/{int(car_id)}")
+            if car_resp.status_code == 200:
+                request_data["car"] = car_resp.json()
+            else:
+                request_data["car"] = None
+    except Exception:
+        request_data["car"] = None
+
+    # client telegram_id (owner of request) — нужно для "Написать в Telegram"
+    client_telegram_id: int | None = None
+    try:
+        client_user_id = request_data.get("user_id")
+        if client_user_id:
+            u = await client.get(f"/api/v1/users/{int(client_user_id)}")
+            if u.status_code == 200:
+                user_data = u.json() or {}
+                tg_id = user_data.get("telegram_id")
+                if tg_id is not None:
+                    client_telegram_id = int(tg_id)
+    except Exception:
+        client_telegram_id = None
+
+    # offers for request
+    offers: list[dict[str, Any]] = []
+    try:
+        offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
+        if offers_resp.status_code == 200:
+            offers = offers_resp.json() or []
+    except Exception:
+        offers = []
+
+    # my offer for this service
+    my_offer: dict[str, Any] | None = None
+    try:
+        for o in offers:
+            if o.get("service_center_id") == sc_id:
+                my_offer = o
+                break
+    except Exception:
+        my_offer = None
+
+    return templates.TemplateResponse(
+        "service_center/request_detail.html",
+        {
+            "request": request,
+            "service_center": sc,
+            "req": request_data,
+            "offers": offers,
+            "my_offer": my_offer,
+            "error_message": error_message,
+            "bot_username": BOT_USERNAME,
+            "client_telegram_id": client_telegram_id,
+        },
+    )
+
+
+@router.post("/{sc_id}/requests/{request_id}/offer", response_class=HTMLResponse)
+async def sc_offer_submit(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    price: float = Form(...),
+    eta_hours: int = Form(...),
+    comment: str = Form(""),
+) -> HTMLResponse:
+    sc = await _load_sc_for_owner(request, client, sc_id)
+
+    # ищем существующий оффер (если есть) — чтобы обновлять, а не плодить
+    my_offer: dict[str, Any] | None = None
+    try:
+        offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
+        if offers_resp.status_code == 200:
+            offers = offers_resp.json() or []
+            for o in offers:
+                if o.get("service_center_id") == sc_id:
+                    my_offer = o
+                    break
+    except Exception:
+        my_offer = None
+
+    payload: dict[str, Any] = {
+        "request_id": request_id,
+        "service_center_id": sc_id,
+        "price": price,
+        "eta_hours": eta_hours,
+        "comment": comment or None,
+    }
+
+    try:
+        if my_offer:
+            offer_id = my_offer["id"]
+            resp = await client.patch(f"/api/v1/offers/{offer_id}", json=payload)
+            resp.raise_for_status()
+        else:
+            resp = await client.post("/api/v1/offers/", json=payload)
+            resp.raise_for_status()
+    except Exception:
+        return templates.TemplateResponse(
+            "service_center/request_detail.html",
+            {
+                "request": request,
+                "service_center": sc,
+                "req": None,
+                "offers": [],
+                "my_offer": None,
+                "error_message": "Не удалось сохранить отклик. Попробуйте позже.",
+                "bot_username": BOT_USERNAME,
+                "client_telegram_id": None,
+            },
+        )
+
+    return RedirectResponse(
+        url=f"/sc/{sc_id}/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/{sc_id}/requests/{request_id}/set-in-work", response_class=HTMLResponse)
+async def sc_set_in_work(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    _ = await _load_sc_for_owner(request, client, sc_id)
+
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/set_in_work",
+            json={"service_center_id": sc_id},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return RedirectResponse(
+            url=f"/sc/{sc_id}/requests/{request_id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return RedirectResponse(
+        url=f"/sc/{sc_id}/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/{sc_id}/requests/{request_id}/set-done", response_class=HTMLResponse)
+async def sc_set_done(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    final_price: float = Form(...),
+) -> HTMLResponse:
+    _ = await _load_sc_for_owner(request, client, sc_id)
+
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/set_done",
+            json={"service_center_id": sc_id, "final_price": final_price},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return RedirectResponse(
+            url=f"/sc/{sc_id}/requests/{request_id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return RedirectResponse(
+        url=f"/sc/{sc_id}/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/{sc_id}/requests/{request_id}/reject", response_class=HTMLResponse)
+async def sc_reject(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    reason: str = Form(""),
+) -> HTMLResponse:
+    _ = await _load_sc_for_owner(request, client, sc_id)
+
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/reject_by_service",
+            json={"service_center_id": sc_id, "reason": reason or None},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return RedirectResponse(
+            url=f"/sc/{sc_id}/requests/{request_id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return RedirectResponse(
+        url=f"/sc/{sc_id}/requests/{request_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/{sc_id}/requests/{request_id}/send-chat-link", response_class=JSONResponse)
+async def sc_send_chat_link(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> JSONResponse:
+    _ = get_current_user_id(request)
+
+    await client.post(
+        f"/api/v1/requests/{request_id}/send_chat_link",
+        json={"service_center_id": sc_id, "recipient": "service_center"},
+    )
+    return JSONResponse({"ok": True})
