@@ -155,8 +155,6 @@ async def send_to_one_service(
             detail="service_center_id is required",
         )
 
-    sc_id = int(sc_id)
-
     service_center = await ServiceCentersService.get_by_id(db, sc_id)
     if not service_center or not service_center.is_active:
         raise HTTPException(
@@ -164,29 +162,20 @@ async def send_to_one_service(
             detail="Service center not found or inactive",
         )
 
-    req = await RequestsService.distribute_request_to_service_centers(
+    request = await RequestsService.distribute_request_to_service_centers(
         db,
         request_id=request_id,
         service_center_ids=[sc_id],
     )
-    if not req:
+    if not request:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Request not found",
         )
 
-    # ✅ КЛИЕНТ ВЫБРАЛ КОНКРЕТНОЕ СТО -> закрепляем заявку за ним
-    # иначе СТО не сможет взять в работу / завершить (защита в RequestsService)
-    from backend.app.models import RequestStatus  # локальный импорт, чтобы не трогать верх файла
-
-    req.service_center_id = sc_id
-    req.status = RequestStatus.ACCEPTED_BY_SERVICE
-    await db.commit()
-    await db.refresh(req)
-
     owner = service_center.owner
     if notifier.is_enabled() and WEBAPP_PUBLIC_URL and owner and getattr(owner, "telegram_id", None):
-        cat_code = req.service_category or "—"
+        cat_code = request.service_category or "—"
         cat_label = SERVICE_CATEGORY_LABELS.get(cat_code, cat_code)
 
         url = f"{WEBAPP_PUBLIC_URL}/sc/{service_center.id}/requests/{request_id}"
@@ -208,7 +197,7 @@ async def send_to_one_service(
             },
         )
 
-    return req
+    return request
 
 
 # ---------------------------------------------------------------------------
