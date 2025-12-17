@@ -173,6 +173,15 @@ async def send_to_one_service(
             detail="Request not found",
         )
 
+    # ✅ ВАЖНО: если клиент выбрал конкретное СТО, закрепляем заявку за ним
+    # и переводим в "accepted_by_service", чтобы СТО мог взять в работу/завершить
+    from backend.app.models import RequestStatus  # локальный импорт, чтобы не трогать верх файла
+
+    request.service_center_id = int(sc_id)
+    request.status = RequestStatus.ACCEPTED_BY_SERVICE
+    await db.commit()
+    await db.refresh(request)
+
     owner = service_center.owner
     if notifier.is_enabled() and WEBAPP_PUBLIC_URL and owner and getattr(owner, "telegram_id", None):
         cat_code = request.service_category or "—"
