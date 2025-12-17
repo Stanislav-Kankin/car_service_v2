@@ -99,6 +99,12 @@
                             </span>
                             {% endif %}
 
+                            {% if sc.wallet_balance is not none %}
+                            <span class="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-200">
+                                💰 Баланс: {{ sc.wallet_balance }}
+                            </span>
+                            {% endif %}
+
                             {% if sc.is_mobile_service %}
                             <span class="inline-flex items-center rounded-full border border-sky-400/60 bg-sky-500/10 px-3 py-1 text-[11px] font-semibold text-sky-200">
                                 🚗 Выездной сервис
@@ -126,34 +132,30 @@
                         <div class="flex items-center gap-2">
                             <span>ID: {{ sc.id }}</span>
                             {% if sc.org_type %}
-                            <span class="rounded-full bg-slate-800/70 px-2 py-0.5">{{ sc.org_type }}</span>
+                            <span>•</span>
+                            <span>{{ sc.org_type }}</span>
                             {% endif %}
                         </div>
-                        <div class="flex items-center gap-3">
-                            <a href="/sc/{{ sc.id }}/requests"
-                               class="inline-flex items-center gap-1 text-emerald-300 group-hover:text-emerald-200 transition">
-                                Заявки
-                                <span class="text-base leading-none">→</span>
-                            </a>
-                            <a href="/sc/edit/{{ sc.id }}"
-                               class="inline-flex items-center gap-1 text-slate-200 hover:text-white transition">
-                                Профиль
-                                <span class="text-base leading-none">✎</span>
-                            </a>
-                        </div>
+
+                        <a href="/sc/edit/{{ sc.id }}"
+                           class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-100 hover:border-emerald-400/70 hover:text-emerald-200 transition">
+                            ✏️ Редактировать
+                        </a>
                     </div>
                 </div>
                 {% endfor %}
             </div>
+
             {% else %}
-            <div class="py-10 text-center text-sm text-slate-300">
-                <p class="mb-2">У вас пока нет ни одного зарегистрированного сервисного центра.</p>
-                <p class="text-slate-500 mb-4">
-                    Создайте карточку СТО, чтобы получать заявки от клиентов и управлять откликами.
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+                <p class="text-slate-200 font-semibold mb-2">У вас пока нет СТО</p>
+                <p class="text-sm text-slate-400 mb-4">
+                    Добавьте сервисный центр, чтобы получать заявки по специализациям.
                 </p>
                 <a href="/sc/create"
-                   class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-                    + Зарегистрировать первый СТО
+                   class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                    <span class="text-lg leading-none">+</span>
+                    <span>Добавить СТО</span>
                 </a>
             </div>
             {% endif %}

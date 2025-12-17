@@ -28,6 +28,8 @@
                         <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Адрес</th>
                         <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Телефон</th>
                         <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Статус</th>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Баланс</th>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Пополнить</th>
                         <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Управление</th>
                     </tr>
                 </thead>
@@ -60,6 +62,39 @@
                             </span>
                             {% endif %}
                         </td>
+
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-100 text-xs">
+                            {% if sc.wallet_balance is not none %}
+                                {{ sc.wallet_balance }}
+                            {% else %}
+                                <span class="text-slate-500">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-xs">
+                            <form method="post" action="/admin/service-centers/{{ sc.id }}/wallet-credit" class="flex items-center gap-2">
+                                <input
+                                    type="number"
+                                    name="amount"
+                                    min="1"
+                                    placeholder="Сумма"
+                                    class="w-24 rounded-xl border border-slate-700 bg-slate-900/70 px-2 py-1 text-xs text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                                    required
+                                >
+                                <input
+                                    type="text"
+                                    name="description"
+                                    placeholder="Комментарий (опц.)"
+                                    class="w-44 rounded-xl border border-slate-700 bg-slate-900/70 px-2 py-1 text-xs text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                                >
+                                <button
+                                    type="submit"
+                                    class="px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-200 border border-emerald-400/40 hover:bg-emerald-500/25 transition"
+                                >
+                                    + Добавить
+                                </button>
+                            </form>
+                        </td>
+
                         <td class="px-3 py-2 whitespace-nowrap text-xs">
                             {% if sc.is_active %}
                             <form method="post" action="/admin/service-centers/{{ sc.id }}/toggle" class="inline">
@@ -91,15 +126,13 @@
 
         <!-- Подсказка / «ползунок» для мобильного свайпа -->
         <div class="mt-4 flex flex-col items-center gap-1">
-            <div class="h-1.5 w-16 rounded-full bg-slate-500/70"></div>
-            <p class="text-[11px] leading-tight text-slate-400 text-center">
-                Проведите таблицу влево/вправо, чтобы увидеть все колонки
-            </p>
+            <div class="h-1 w-24 rounded-full bg-slate-700"></div>
+            <p class="text-[11px] text-slate-400">Таблица прокручивается по горизонтали</p>
         </div>
     </div>
     {% else %}
-    <div class="p-4 bg-yellow-500/10 border border-yellow-400/50 rounded-xl text-sm text-yellow-100">
-        Сервисов пока нет.
+    <div class="text-slate-300 text-sm">
+        Пока нет зарегистрированных сервисов.
     </div>
     {% endif %}
 </div>

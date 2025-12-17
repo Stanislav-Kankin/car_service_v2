@@ -1,5 +1,10 @@
 from .user import User, UserRole
 from .service_center import ServiceCenter
+from .service_center_wallet import (
+    ServiceCenterWallet,
+    ServiceCenterWalletTransaction,
+    ServiceCenterWalletTxType,
+)
 from .car import Car
 from .request import Request, RequestStatus
 from .offer import Offer, OfferStatus
@@ -10,6 +15,9 @@ __all__ = [
     "User",
     "UserRole",
     "ServiceCenter",
+    "ServiceCenterWallet",
+    "ServiceCenterWalletTransaction",
+    "ServiceCenterWalletTxType",
     "Car",
     "Request",
     "RequestStatus",

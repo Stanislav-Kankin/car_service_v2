@@ -18,76 +18,50 @@ router = APIRouter(
 templates = get_templates()
 
 
-def _parse_admin_ids(raw: str | None) -> set[int]:
-    """
-    TELEGRAM_ADMIN_IDS может быть: "123" или "123,456" или "123 456"
-    """
-    if not raw:
-        return set()
-    parts = raw.replace(" ", ",").split(",")
-    out: set[int] = set()
-    for p in parts:
-        p = (p or "").strip()
-        if not p:
-            continue
-        try:
-            out.add(int(p))
-        except ValueError:
-            continue
-    return out
+def get_current_user_id(request: Request) -> int:
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Пользователь не авторизован",
+        )
+    return int(user_id)
 
 
 async def get_current_admin(request: Request, client: AsyncClient) -> dict[str, Any]:
     """
-    Пользователь должен быть авторизован (cookie user_id).
-    Дальше проверяем:
-      - роль в backend = 'admin' (или 'superadmin')
-      - ИЛИ его telegram_id входит в TELEGRAM_ADMIN_IDS (env)
+    Админ определяется по allowlist в .env (TELEGRAM_ADMIN_IDS).
     """
-    user_id = getattr(request.state, "user_id", None)
-    if not user_id:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Не авторизован")
+    user_id = get_current_user_id(request)
 
+    # Получаем user из backend
     try:
-        resp = await client.get(f"/api/v1/users/{int(user_id)}")
-        if resp.status_code == status.HTTP_404_NOT_FOUND:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Пользователь не найден")
+        resp = await client.get(f"/api/v1/users/{user_id}")
         resp.raise_for_status()
-    except HTTPException:
-        raise
     except Exception:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Ошибка при загрузке профиля пользователя")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден")
 
     user = resp.json()
-    role = (user.get("role") or "").lower()
-    telegram_id_raw = user.get("telegram_id")
 
-    admin_roles = {"admin", "superadmin"}
+    # allowlist по telegram_id (TELEGRAM_ADMIN_IDS)
+    admin_ids_raw = (os.getenv("TELEGRAM_ADMIN_IDS") or "").strip()
+    admin_ids: set[int] = set()
+    if admin_ids_raw:
+        for part in admin_ids_raw.replace(";", ",").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                admin_ids.add(int(part))
+            except ValueError:
+                continue
 
-    # ✅ ВАЖНО: берём из settings (а не os.getenv)
-    # settings.TELEGRAM_ADMIN_IDS уже должен быть списком/строкой из env
-    raw_ids = getattr(settings, "TELEGRAM_ADMIN_IDS", None)
-    if isinstance(raw_ids, (list, tuple, set)):
-        admin_ids = {int(x) for x in raw_ids if str(x).strip().isdigit()}
-    else:
-        admin_ids = _parse_admin_ids(str(raw_ids) if raw_ids is not None else "")
+    telegram_id = user.get("telegram_id")
+    if not telegram_id or int(telegram_id) not in admin_ids:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа (не админ)")
 
-    telegram_id_int: int | None = None
-    if isinstance(telegram_id_raw, int):
-        telegram_id_int = telegram_id_raw
-    elif isinstance(telegram_id_raw, str):
-        try:
-            telegram_id_int = int(telegram_id_raw.strip())
-        except ValueError:
-            telegram_id_int = None
-
-    is_admin = (role in admin_roles) or (telegram_id_int is not None and telegram_id_int in admin_ids)
-
-    if not is_admin:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Недостаточно прав (нужен админ)")
-
-    # best-effort: если прошёл по allowlist, а роли нет — попробуем поднять
-    if role not in admin_roles and telegram_id_int is not None and telegram_id_int in admin_ids:
+    # (опционально) прокидываем роль admin в backend, если вдруг не стоит
+    if user.get("role") != "admin":
         try:
             await client.patch(f"/api/v1/users/{int(user_id)}", json={"role": "admin"})
         except Exception:
@@ -166,10 +140,33 @@ async def admin_service_centers(
                 reverse=True,
             )
         except Exception:
-            # Если с датой что-то не так — просто оставляем порядок как есть.
             pass
 
         service_centers = combined
+
+        # --- Wallet balances (best-effort) ---
+        # Чтобы не ломать страницу даже если wallet-ручки временно недоступны.
+        try:
+            import asyncio
+
+            async def _load_balance(sc: dict[str, Any]) -> None:
+                sc_id = sc.get("id")
+                if not sc_id:
+                    sc["wallet_balance"] = None
+                    return
+                try:
+                    r = await client.get(f"/api/v1/service-centers/{int(sc_id)}/wallet")
+                    if r.status_code < 400:
+                        w = r.json()
+                        sc["wallet_balance"] = w.get("balance")
+                    else:
+                        sc["wallet_balance"] = None
+                except Exception:
+                    sc["wallet_balance"] = None
+
+            await asyncio.gather(*[_load_balance(sc) for sc in service_centers])
+        except Exception:
+            pass
 
     except Exception as e:
         print(
@@ -198,36 +195,11 @@ async def admin_service_center_toggle(
     sc_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
-    action: str = Form(...),  # "activate" или "deactivate"
+    action: str = Form(...),
 ) -> HTMLResponse:
-    """
-    Активировать или деактивировать СТО.
-
-    Использует PATCH /api/v1/service-centers/{id} с полем is_active.
-
-    ДОПОЛНИТЕЛЬНО (важно для модерации):
-    - при активации СТО best-effort поднимаем роль владельца до service_owner,
-      чтобы у него появилось меню/кабинет СТО.
-    """
     _ = await get_current_admin(request, client)
 
-    is_active = True if action == "activate" else False
-
-    # ✅ НОВОЕ: если активируем — поднимаем роль владельцу (best-effort)
-    if is_active:
-        try:
-            resp_sc = await client.get(f"/api/v1/service-centers/{sc_id}")
-            if resp_sc.status_code == status.HTTP_200_OK:
-                sc_obj = resp_sc.json()
-                owner_id = sc_obj.get("user_id")
-                if owner_id:
-                    await client.patch(
-                        f"/api/v1/users/{int(owner_id)}",
-                        json={"role": "service_owner"},
-                    )
-        except Exception as e:
-            # Не валим модерацию из-за роли — это best-effort.
-            print("WARN: cannot promote owner role:", sc_id, repr(e))
+    is_active = action == "activate"
 
     try:
         resp = await client.patch(
@@ -236,8 +208,41 @@ async def admin_service_center_toggle(
         )
         resp.raise_for_status()
     except Exception as e:
-        print("ERROR toggling service-center:", sc_id, repr(e))
-        # Пока просто игнорируем, UI всё равно перерисуем
+        print("ERROR toggling service center:", sc_id, repr(e))
+
+    return await admin_service_centers(request, client)
+
+
+# ---------------------------------------------------------------------------
+# Пополнение кошелька СТО (взнос/депозит)
+# ---------------------------------------------------------------------------
+
+@router.post("/service-centers/{sc_id}/wallet-credit", response_class=HTMLResponse)
+async def admin_service_center_wallet_credit(
+    sc_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    amount: int = Form(...),
+    description: str = Form(""),
+) -> HTMLResponse:
+    _ = await get_current_admin(request, client)
+
+    try:
+        payload = {
+            "amount": int(amount),
+            "description": (description or "").strip() or None,
+            "tx_type": "admin_credit",
+        }
+        resp = await client.post(
+            f"/api/v1/service-centers/{sc_id}/wallet/credit",
+            json=payload,
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        print("ERROR wallet-credit:", sc_id, repr(e))
+        # Мягко игнорируем: просто вернём пользователя обратно в список
+        # (если хочешь вывод красивого сообщения — сделаем позже "flash").
+        pass
 
     return await admin_service_centers(request, client)
 
@@ -246,108 +251,24 @@ async def admin_service_center_toggle(
 # ПОИСК ПОЛЬЗОВАТЕЛЯ ПО ID
 # ---------------------------------------------------------------------------
 
-@router.get("/user-lookup", response_class=HTMLResponse)
-async def admin_user_lookup_get(
-    request: Request,
-    client: AsyncClient = Depends(get_backend_client),
-) -> HTMLResponse:
-    """
-    Страница поиска пользователя по ID.
-    """
-    _ = await get_current_admin(request, client)
-
-    return templates.TemplateResponse(
-        "admin/user_lookup.html",
-        {
-            "request": request,
-            "user_obj": None,
-            "error_message": None,
-        },
-    )
-
-
-@router.post("/user-lookup", response_class=HTMLResponse)
-async def admin_user_lookup_post(
-    request: Request,
-    client: AsyncClient = Depends(get_backend_client),
-    user_id: int = Form(...),
-) -> HTMLResponse:
-    """
-    Обработка формы поиска пользователя по ID.
-    """
-    _ = await get_current_admin(request, client)
-
-    user_obj: dict[str, Any] | None = None
-    error_message: str | None = None
-
-    try:
-        resp = await client.get(f"/api/v1/users/{user_id}")
-        if resp.status_code == status.HTTP_404_NOT_FOUND:
-            error_message = "Пользователь с таким ID не найден."
-        else:
-            resp.raise_for_status()
-            user_obj = resp.json()
-    except Exception:
-        error_message = "Ошибка при обращении к backend."
-
-    return templates.TemplateResponse(
-        "admin/user_lookup.html",
-        {
-            "request": request,
-            "user_obj": user_obj,
-            "error_message": error_message,
-        },
-    )
-
-
 @router.get("/users", response_class=HTMLResponse)
 async def admin_users(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    """
-    Список пользователей для админа с фильтрами по дате/ID/Telegram ID.
-    """
     _ = await get_current_admin(request, client)
-
-    # Читаем фильтры из query-параметров
-    qp = request.query_params
-    date_from = qp.get("date_from") or None
-    date_to = qp.get("date_to") or None
-    user_id = qp.get("user_id") or None
-    telegram_id = qp.get("telegram_id") or None
-
-    params: dict[str, Any] = {}
-
-    if date_from:
-        params["registered_from"] = date_from
-    if date_to:
-        params["registered_to"] = date_to
-    if user_id:
-        try:
-            params["user_id"] = int(user_id)
-        except ValueError:
-            pass
-    if telegram_id:
-        try:
-            params["telegram_id"] = int(telegram_id)
-        except ValueError:
-            pass
 
     users: list[dict[str, Any]] = []
     error_message: str | None = None
 
     try:
-        resp = await client.get(
-            "/api/v1/users/",
-            params=params,
-            follow_redirects=True,
-        )
+        resp = await client.get("/api/v1/users/")
         resp.raise_for_status()
         users = resp.json()
     except Exception as e:
-        print("ERROR loading users for admin:", repr(e))
+        print("ERROR loading users:", repr(e))
         error_message = "Не удалось загрузить список пользователей."
+        users = []
 
     return templates.TemplateResponse(
         "admin/users.html",
@@ -355,11 +276,5 @@ async def admin_users(
             "request": request,
             "users": users,
             "error_message": error_message,
-            "filters": {
-                "date_from": date_from or "",
-                "date_to": date_to or "",
-                "user_id": user_id or "",
-                "telegram_id": telegram_id or "",
-            },
         },
     )

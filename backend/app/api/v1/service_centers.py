@@ -13,7 +13,13 @@ from backend.app.schemas.service_center import (
     ServiceCenterRead,
     ServiceCenterUpdate,
 )
+from backend.app.schemas.service_center_wallet import (
+    ServiceCenterWalletRead,
+    ServiceCenterWalletCreditIn,
+    ServiceCenterWalletTransactionRead,
+)
 from backend.app.services.service_centers_service import ServiceCentersService
+from backend.app.services.service_center_wallet_service import ServiceCenterWalletService
 from backend.app.services.requests_service import RequestsService
 from backend.app.core.catalogs.service_categories import get_specializations_for_category
 from backend.app.models.user import User
@@ -86,358 +92,210 @@ async def _notify_admins_new_service_center(sc: ServiceCenterRead) -> None:
         f"Тип: <b>{sc.org_type or '—'}</b>\n"
         f"Телефон: <b>{sc.phone or '—'}</b>\n"
         f"Адрес: <b>{sc.address or '—'}</b>\n"
-        f"Специализации: <b>{specs_text}</b>\n\n"
-        "Откройте админку и активируйте СТО, если всё ок."
+        f"Специализации: <b>{specs_text}</b>\n"
     )
 
     buttons = []
     if url:
-        buttons = [
-            {
-                "text": "🛂 Открыть модерацию",
-                "type": "web_app",
-                "url": url,
-            }
-        ]
+        buttons = [{"text": "Открыть модерацию", "type": "url", "url": url}]
 
-    headers = {}
-    if bot_api_token:
-        headers["Authorization"] = f"Bearer {bot_api_token}"
-
-    endpoint = f"{bot_api_url}/api/v1/notify"
-
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        for admin_id in admin_ids:
-            try:
-                r = await client.post(
-                    endpoint,
-                    json={
-                        "recipient_type": "admin",
-                        "telegram_id": int(admin_id),
-                        "message": msg,
-                        "buttons": buttons,
-                    },
-                    headers=headers,
-                )
-                if r.status_code >= 400:
-                    print(
-                        "WARN notify_admins_new_sc: notify failed",
-                        r.status_code,
-                        r.text[:300],
-                    )
-            except Exception as e:
-                print("WARN notify_admins_new_sc: exception", repr(e))
-                continue
-
-
-# ----------------------------------------------------------------------
-# Создание
-# ----------------------------------------------------------------------
-@router.post(
-    "/",
-    response_model=ServiceCenterRead,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_service_center(
-    data_in: ServiceCenterCreate,
-    db: AsyncSession = Depends(get_db),
-):
-    sc = await ServiceCentersService.create_service_center(db, data_in)
-
-    # ✅ если СТО создаётся НЕактивной — это модерация -> уведомляем админов
+    # best-effort
     try:
-        if getattr(sc, "is_active", True) is False:
-            await _notify_admins_new_service_center(sc)  # best-effort
+        headers = {}
+        if bot_api_token:
+            headers["Authorization"] = f"Bearer {bot_api_token}"
+
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            for admin_id in admin_ids:
+                payload = {
+                    "recipient_type": "user",
+                    "telegram_id": admin_id,
+                    "message": msg,
+                    "buttons": buttons,
+                }
+                resp = await c.post(f"{bot_api_url}/api/v1/notify", json=payload, headers=headers)
+                if resp.status_code >= 400:
+                    print(
+                        "WARN notify_admins_new_sc:",
+                        admin_id,
+                        resp.status_code,
+                        resp.text[:200],
+                    )
     except Exception as e:
-        print("WARN create_service_center: notify exception", repr(e))
-
-    return sc
+        print("WARN notify_admins_new_sc exception:", repr(e))
 
 
 # ----------------------------------------------------------------------
-# Получение по id
+# Wallet СТО (баланс/пополнение)
 # ----------------------------------------------------------------------
+
 @router.get(
-    "/{sc_id}",
-    response_model=ServiceCenterRead,
+    "/{sc_id}/wallet",
+    response_model=ServiceCenterWalletRead,
 )
-async def get_service_center(
+async def get_service_center_wallet(
     sc_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    sc = await ServiceCentersService.get_by_id(db, sc_id)
-    if not sc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Service center not found",
-        )
-    return sc
+    # wallet должен быть "всегда", но на всякий — создаём при первом запросе
+    wallet = await ServiceCenterWalletService.get_or_create_wallet(db, sc_id)
+    return wallet
+
+
+@router.get(
+    "/{sc_id}/wallet/transactions",
+    response_model=List[ServiceCenterWalletTransactionRead],
+)
+async def list_service_center_wallet_transactions(
+    sc_id: int,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+):
+    _ = await ServiceCenterWalletService.get_or_create_wallet(db, sc_id)
+    txs = await ServiceCenterWalletService.list_transactions(db, sc_id, limit=limit)
+    return txs
+
+
+@router.post(
+    "/{sc_id}/wallet/credit",
+    response_model=ServiceCenterWalletRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def credit_service_center_wallet(
+    sc_id: int,
+    data_in: ServiceCenterWalletCreditIn,
+    db: AsyncSession = Depends(get_db),
+):
+    # ⚠️ ВАЖНО: сейчас в backend нет полноценной авторизации (как и у других ручек),
+    # поэтому ограничение "только админ" реализуем на уровне webapp (allowlist).
+    wallet, _tx = await ServiceCenterWalletService.credit_wallet(
+        db=db,
+        service_center_id=sc_id,
+        amount=data_in.amount,
+        tx_type=data_in.tx_type,
+        description=data_in.description,
+    )
+    return wallet
 
 
 # ----------------------------------------------------------------------
 # Список / поиск СТО
 # ----------------------------------------------------------------------
-@router.get(
-    "/",
-    response_model=List[ServiceCenterRead],
-)
+
+@router.get("/", response_model=List[ServiceCenterRead])
 async def list_service_centers(
     db: AsyncSession = Depends(get_db),
-    is_active: Optional[bool] = Query(
-        True,
-        description="Показывать только активные СТО (по умолчанию True).",
-    ),
-    latitude: Optional[float] = Query(
-        None,
-        description="Широта для гео-поиска.",
-    ),
-    longitude: Optional[float] = Query(
-        None,
-        description="Долгота для гео-поиска.",
-    ),
-    radius_km: Optional[int] = Query(
-        None,
-        ge=0,
-        description="Радиус поиска в км.",
-    ),
-    specializations: Optional[str] = Query(
-        None,
-        description="Список специализаций через запятую.",
-    ),
-    has_tow_truck: Optional[bool] = Query(
-        None,
-        description="Только СТО с эвакуатором.",
-    ),
-    is_mobile_service: Optional[bool] = Query(
-        None,
-        description="Только выездные мастера / мобильный сервис.",
-    ),
-):
-    specs_list: Optional[List[str]] = None
-    if specializations:
-        specs_list = [
-            item.strip()
-            for item in specializations.split(",")
-            if item.strip()
-        ]
-
-    sc_list = await ServiceCentersService.search_service_centers(
-        db,
-        latitude=latitude,
-        longitude=longitude,
-        radius_km=radius_km,
-        specializations=specs_list,
-        is_active=is_active,
-        # has_tow_truck и is_mobile_service уже есть в сигнатуре search_service_centers,
-        # но ты их пока туда не передавал — не трогаю логику без необходимости.
-    )
-    return sc_list
+    is_active: Optional[bool] = Query(default=None),
+) -> List[ServiceCenterRead]:
+    items = await ServiceCentersService.list_all(db, is_active=is_active)
+    return [ServiceCenterRead.model_validate(x) for x in items]
 
 
-# ----------------------------------------------------------------------
-# Подходящие СТО для конкретной заявки (для экрана выбора СТО в webapp)
-# ----------------------------------------------------------------------
-@router.get(
-    "/for-request/{request_id}",
-    response_model=List[ServiceCenterRead],
-)
-async def list_service_centers_for_request(
-    request_id: int,
+@router.get("/{sc_id}", response_model=ServiceCenterRead)
+async def get_service_center(
+    sc_id: int,
     db: AsyncSession = Depends(get_db),
-):
-    req = await RequestsService.get_request_by_id(db, request_id)
-    if not req:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Request not found",
-        )
+) -> ServiceCenterRead:
+    sc = await ServiceCentersService.get_by_id(db, sc_id=sc_id)
+    if not sc:
+        raise HTTPException(status_code=404, detail="Service center not found")
+    return ServiceCenterRead.model_validate(sc)
 
-    spec_codes = get_specializations_for_category(req.service_category)
 
-    if spec_codes is None and req.service_category and req.service_category not in ("sto",):
-        spec_codes = [req.service_category]
-
-    specializations = spec_codes or None
-
-    # Если клиенту нужен эвакуатор/выезд — фильтруем СТО
-    has_tow_truck = True if getattr(req, "need_tow_truck", False) else None
-    is_mobile_service = True if getattr(req, "need_mobile_master", False) else None
-
-    sc_list = await ServiceCentersService.search_service_centers(
-        db,
-        latitude=req.latitude,
-        longitude=req.longitude,
-        radius_km=req.radius_km,
-        specializations=specializations,
-        is_active=True,
-        has_tow_truck=has_tow_truck,
-        is_mobile_service=is_mobile_service,
-    )
-    return sc_list
-
-# ----------------------------------------------------------------------
-# СТО конкретного владельца (по user_id)
-# ----------------------------------------------------------------------
-@router.get(
-    "/by-user/{user_id}",
-    response_model=List[ServiceCenterRead],
-)
+@router.get("/by-user/{user_id}", response_model=List[ServiceCenterRead])
 async def list_service_centers_by_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-):
-    sc_list = await ServiceCentersService.list_by_user(db, user_id)
-    return sc_list
+) -> List[ServiceCenterRead]:
+    items = await ServiceCentersService.list_by_user_id(db, user_id=user_id)
+    if not items:
+        raise HTTPException(status_code=404, detail="No service centers for this user")
+    return [ServiceCenterRead.model_validate(x) for x in items]
 
 
-# ----------------------------------------------------------------------
-# Список всех СТО (для админки)
-# ----------------------------------------------------------------------
-@router.get(
-    "/all",
-    response_model=List[ServiceCenterRead],
-)
-async def list_all_service_centers(
+@router.post("/", response_model=ServiceCenterRead, status_code=status.HTTP_201_CREATED)
+async def create_service_center(
+    payload: ServiceCenterCreate,
     db: AsyncSession = Depends(get_db),
-    is_active: Optional[bool] = Query(
-        None,
-        description="Фильтр по активности: true/false или"
-    ),
-):
-    sc_list = await ServiceCentersService.list_all(db, is_active=is_active)
-    return sc_list
+) -> ServiceCenterRead:
+    # создаём СТО
+    sc = await ServiceCentersService.create(db, payload)
+
+    sc_out = ServiceCenterRead.model_validate(sc)
+
+    # уведомляем админов (best-effort)
+    await _notify_admins_new_service_center(sc_out)
+
+    return sc_out
 
 
-# ----------------------------------------------------------------------
-# Обновление профиля СТО
-# ----------------------------------------------------------------------
-async def _get_owner_telegram_id(db: AsyncSession, user_id: int) -> int | None:
-    """
-    Достаём telegram_id владельца СТО по user_id.
-    """
-    try:
-        res = await db.execute(select(User.telegram_id).where(User.id == user_id))
-        tg_id = res.scalar_one_or_none()
-        if tg_id is None:
-            return None
-        return int(tg_id)
-    except Exception as e:
-        print("WARN _get_owner_telegram_id:", repr(e))
-        return None
-
-
-async def _notify_owner_sc_moderation_result(
-    *,
-    telegram_id: int,
-    sc_id: int,
-    sc_name: str,
-    approved: bool,
-) -> None:
-    """
-    Уведомление владельцу СТО об одобрении/отклонении модерации.
-    Контракт 1:1 как в bot/app/notify_api.py.
-    """
-    bot_api_url = (os.getenv("BOT_API_URL") or "").strip().rstrip("/")
-    bot_api_token = (os.getenv("BOT_API_TOKEN") or "").strip()
-    webapp_base = (os.getenv("WEBAPP_PUBLIC_URL") or "").strip().rstrip("/")
-
-    if not bot_api_url:
-        print("WARN notify_owner_sc: BOT_API_URL is empty in BACKEND env")
-        return
-
-    if approved:
-        msg = (
-            "✅ <b>Ваша СТО прошла модерацию</b>\n\n"
-            f"СТО: <b>{sc_name}</b>\n"
-            f"ID: <b>{sc_id}</b>\n\n"
-            "Теперь вы можете принимать заявки и отправлять отклики."
-        )
-    else:
-        msg = (
-            "❌ <b>Ваша СТО не прошла модерацию</b>\n\n"
-            f"СТО: <b>{sc_name}</b>\n"
-            f"ID: <b>{sc_id}</b>\n\n"
-            "СТО отключена администратором. Если это ошибка — свяжитесь с поддержкой."
-        )
-
-    buttons = []
-    # Куда вести владельца: кабинет СТО
-    # (минимально полезно: /sc/dashboard)
-    if webapp_base:
-        buttons = [
-            {
-                "text": "🛠 Открыть кабинет СТО",
-                "type": "web_app",
-                "url": f"{webapp_base}/sc/dashboard",
-            }
-        ]
-
-    headers = {}
-    if bot_api_token:
-        headers["Authorization"] = f"Bearer {bot_api_token}"
-
-    endpoint = f"{bot_api_url}/api/v1/notify"
-
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            r = await client.post(
-                endpoint,
-                json={
-                    "recipient_type": "service_center",
-                    "telegram_id": int(telegram_id),
-                    "message": msg,
-                    "buttons": buttons,
-                },
-                headers=headers,
-            )
-            if r.status_code >= 400:
-                print("WARN notify_owner_sc: failed", r.status_code, r.text[:300])
-        except Exception as e:
-            print("WARN notify_owner_sc: exception", repr(e))
-
-
-@router.patch(
-    "/{sc_id}",
-    response_model=ServiceCenterRead,
-)
+@router.patch("/{sc_id}", response_model=ServiceCenterRead)
 async def update_service_center(
     sc_id: int,
-    data_in: ServiceCenterUpdate,
+    payload: ServiceCenterUpdate,
     db: AsyncSession = Depends(get_db),
-):
-    """
-    Обновление профиля СТО.
-
-    ДОПОЛНИТЕЛЬНО:
-    - если изменили is_active (модерация) -> шлём уведомление владельцу СТО.
-    """
-    sc = await ServiceCentersService.get_by_id(db, sc_id)
+) -> ServiceCenterRead:
+    sc = await ServiceCentersService.update(db, sc_id=sc_id, payload=payload)
     if not sc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Service center not found",
-        )
+        raise HTTPException(status_code=404, detail="Service center not found")
+    return ServiceCenterRead.model_validate(sc)
 
-    old_is_active = getattr(sc, "is_active", True)
 
-    sc_updated = await ServiceCentersService.update_service_center(db, sc, data_in)
+@router.get("/{sc_id}/specializations", response_model=List[str])
+async def get_service_center_specializations(
+    sc_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> List[str]:
+    sc = await ServiceCentersService.get_by_id(db, sc_id=sc_id)
+    if not sc:
+        raise HTTPException(status_code=404, detail="Service center not found")
+    specs = sc.specializations or []
+    if not isinstance(specs, list):
+        return []
+    return [str(x) for x in specs]
 
-    new_is_active = getattr(sc_updated, "is_active", True)
 
-    # ✅ Уведомление владельцу о результате модерации
-    try:
-        if old_is_active != new_is_active:
-            owner_user_id = getattr(sc_updated, "user_id", None)
-            if owner_user_id:
-                tg_id = await _get_owner_telegram_id(db, int(owner_user_id))
-                if tg_id:
-                    await _notify_owner_sc_moderation_result(
-                        telegram_id=tg_id,
-                        sc_id=int(getattr(sc_updated, "id")),
-                        sc_name=str(getattr(sc_updated, "name", "СТО")),
-                        approved=bool(new_is_active),
-                    )
-    except Exception as e:
-        print("WARN update_service_center notify moderation:", repr(e))
+@router.get("/{sc_id}/supported-categories", response_model=List[str])
+async def get_supported_categories(
+    sc_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> List[str]:
+    sc = await ServiceCentersService.get_by_id(db, sc_id=sc_id)
+    if not sc:
+        raise HTTPException(status_code=404, detail="Service center not found")
+    specs = sc.specializations or []
+    if not specs:
+        return []
+    categories = set()
+    for spec in specs:
+        categories.update(get_specializations_for_category(str(spec)))
+    return sorted(list(categories))
 
-    return sc_updated
+
+@router.get("/{sc_id}/offers", response_model=List[dict])
+async def list_offers_for_service_center(
+    sc_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> List[dict]:
+    offers = await RequestsService.list_offers_for_service_center(db, service_center_id=sc_id)
+    return [o.to_dict() for o in offers]
+
+
+@router.get("/{sc_id}/owner", response_model=dict)
+async def get_service_center_owner(
+    sc_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    stmt = select(User).join(User.service_centers).where(User.service_centers.any(id=sc_id))
+    res = await db.execute(stmt)
+    user = res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Owner not found")
+    return {
+        "id": user.id,
+        "telegram_id": user.telegram_id,
+        "full_name": user.full_name,
+        "phone": user.phone,
+        "role": user.role,
+        "is_active": user.is_active,
+    }
