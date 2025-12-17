@@ -57,33 +57,24 @@ async def sc_dashboard(
         else:
             resp.raise_for_status()
             service_centers = resp.json()
-
-            # --- Wallet balances (best-effort) ---
-            try:
-                import asyncio
-
-                async def _load_balance(sc: dict[str, Any]) -> None:
-                    sc_id = sc.get("id")
-                    if not sc_id:
-                        sc["wallet_balance"] = None
-                        return
-                    try:
-                        r = await client.get(f"/api/v1/service-centers/{int(sc_id)}/wallet")
-                        if r.status_code < 400:
-                            w = r.json()
-                            sc["wallet_balance"] = w.get("balance")
-                        else:
-                            sc["wallet_balance"] = None
-                    except Exception:
-                        sc["wallet_balance"] = None
-
-                await asyncio.gather(*[_load_balance(sc) for sc in service_centers])
-            except Exception:
-                pass
-
     except Exception:
         error_message = "Не удалось загрузить список ваших СТО. Попробуйте позже."
         service_centers = []
+
+    # Подтягиваем баланс кошелька по каждой СТО (best-effort)
+    if service_centers:
+        for sc in service_centers:
+            try:
+                sc_id = sc.get("id")
+                if not sc_id:
+                    continue
+                w = await client.get(f"/api/v1/service-centers/{sc_id}/wallet")
+                if w.status_code == 200 and isinstance(w.json(), dict):
+                    sc["wallet_balance"] = w.json().get("balance", 0)
+                else:
+                    sc["wallet_balance"] = None
+            except Exception:
+                sc["wallet_balance"] = None
 
     return templates.TemplateResponse(
         "service_center/dashboard.html",

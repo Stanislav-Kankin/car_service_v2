@@ -320,7 +320,7 @@ async def user_garage(
         error_message = "Не удалось загрузить список автомобилей. Попробуйте позже."
         cars = []
 
-    # 2) бонусы (best-effort, не ломаем гараж если бонусы временно недоступны)
+    # 2) бонусы — best-effort (не ломаем гараж, если бонусы временно недоступны)
     try:
         resp = await client.get(f"/api/v1/bonus/{user_id}/balance")
         if resp.status_code == 200:
@@ -337,7 +337,7 @@ async def user_garage(
     except Exception:
         bonus_transactions = []
 
-    # лёгкий UI-маппинг (не бизнес-логика)
+    # UI-маппинг (не бизнес-логика)
     bonus_reason_labels = {
         "registration": "Регистрация",
         "create_request": "Создание заявки",
@@ -351,14 +351,9 @@ async def user_garage(
         if not isinstance(tx, dict):
             continue
         reason = str(tx.get("reason") or "")
-        tx_view.append(
-            {
-                **tx,
-                "reason_label": bonus_reason_labels.get(reason, reason or "—"),
-            }
-        )
+        tx_view.append({**tx, "reason_label": bonus_reason_labels.get(reason, reason or "—")})
 
-    # сортировка по created_at (ISO) — чтобы сверху были свежие
+    # свежие сверху
     try:
         tx_view.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
     except Exception:
