@@ -1,10 +1,14 @@
 from typing import Optional
 from datetime import date, datetime, time
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..models.user import User
+from ..models.bonus import BonusReason, BonusTransaction
 from ..schemas.user import UserCreate, UserUpdate, UserRole
+from ..services.bonus_service import BonusService
 
 
 class UsersService:
@@ -20,6 +24,28 @@ class UsersService:
         db.add(user)
         await db.commit()
         await db.refresh(user)
+
+        # ✅ Бонус за регистрацию: начисляем только один раз
+        # (страховка от дублей, если по какой-то причине create_user вызовется повторно)
+        reg_bonus_amount = int(getattr(settings, "REGISTRATION_BONUS", 500))
+
+        result = await db.execute(
+            select(BonusTransaction.id).where(
+                BonusTransaction.user_id == user.id,
+                BonusTransaction.reason == BonusReason.REGISTRATION,
+            )
+        )
+        already_has_registration_bonus = result.scalar_one_or_none() is not None
+
+        if not already_has_registration_bonus and reg_bonus_amount:
+            await BonusService.add_bonus(
+                db=db,
+                user_id=user.id,
+                amount=reg_bonus_amount,
+                reason=BonusReason.REGISTRATION,
+                description="Бонус за регистрацию",
+            )
+
         return user
 
     @staticmethod
