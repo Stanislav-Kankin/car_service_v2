@@ -1,9 +1,8 @@
 import os
-
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from httpx import AsyncClient
 
 from ..dependencies import get_templates
@@ -240,15 +239,13 @@ async def admin_service_center_wallet_credit(
         resp.raise_for_status()
     except Exception as e:
         print("ERROR wallet-credit:", sc_id, repr(e))
-        # Мягко игнорируем: просто вернём пользователя обратно в список
-        # (если хочешь вывод красивого сообщения — сделаем позже "flash").
         pass
 
     return await admin_service_centers(request, client)
 
 
 # ---------------------------------------------------------------------------
-# ПОИСК ПОЛЬЗОВАТЕЛЯ ПО ID
+# ПОИСК ПОЛЬЗОВАТЕЛЯ ПО ID + фильтры
 # ---------------------------------------------------------------------------
 
 @router.get("/users", response_class=HTMLResponse)
@@ -258,11 +255,42 @@ async def admin_users(
 ) -> HTMLResponse:
     _ = await get_current_admin(request, client)
 
+    qp = request.query_params
+
+    # фильтры из query (шаблон их ожидает)
+    date_from = (qp.get("date_from") or "").strip()
+    date_to = (qp.get("date_to") or "").strip()
+    user_id = (qp.get("user_id") or "").strip()
+    telegram_id = (qp.get("telegram_id") or "").strip()
+
+    filters = {
+        "date_from": date_from,
+        "date_to": date_to,
+        "user_id": user_id,
+        "telegram_id": telegram_id,
+    }
+
     users: list[dict[str, Any]] = []
     error_message: str | None = None
+    success_message: str | None = None
+
+    # опционально показываем “успех” через query param (после редиректа)
+    if (qp.get("ok") or "").strip():
+        success_message = "Операция выполнена."
+
+    # пробуем передать фильтры в backend (если backend их поддерживает — отлично; если нет — просто проигнорирует)
+    params: dict[str, Any] = {}
+    if date_from:
+        params["registered_from"] = date_from
+    if date_to:
+        params["registered_to"] = date_to
+    if user_id:
+        params["user_id"] = user_id
+    if telegram_id:
+        params["telegram_id"] = telegram_id
 
     try:
-        resp = await client.get("/api/v1/users/")
+        resp = await client.get("/api/v1/users/", params=params)
         resp.raise_for_status()
         users = resp.json()
     except Exception as e:
@@ -275,6 +303,44 @@ async def admin_users(
         {
             "request": request,
             "users": users,
+            "filters": filters,  # ✅ важно: иначе падает jinja
             "error_message": error_message,
+            "success_message": success_message,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Начисление/списание бонусов пользователю (из UI)
+# ---------------------------------------------------------------------------
+
+@router.post("/users/{target_user_id}/bonus-adjust")
+async def admin_user_bonus_adjust(
+    target_user_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    amount: int = Form(...),  # можно отрицательное (списание)
+    description: str = Form(""),
+) -> RedirectResponse:
+    _ = await get_current_admin(request, client)
+
+    desc = (description or "").strip() or "Начисление админом"
+
+    try:
+        payload = {
+            "amount": int(amount),
+            "reason": "manual_adjust",
+            "description": desc,
+        }
+        resp = await client.post(f"/api/v1/bonus/{int(target_user_id)}/adjust", json=payload)
+        resp.raise_for_status()
+    except Exception as e:
+        print("ERROR bonus-adjust:", target_user_id, repr(e))
+        # чтобы не усложнять — просто вернём обратно без ok
+        referer = request.headers.get("referer") or "/admin/users"
+        return RedirectResponse(referer, status_code=303)
+
+    # вернём на ту же страницу со всеми фильтрами (через Referer)
+    referer = request.headers.get("referer") or "/admin/users"
+    sep = "&" if "?" in referer else "?"
+    return RedirectResponse(f"{referer}{sep}ok=1", status_code=303)
