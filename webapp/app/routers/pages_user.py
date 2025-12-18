@@ -15,6 +15,7 @@ from httpx import AsyncClient
 
 from ..api_client import get_backend_client
 from ..dependencies import get_templates
+from webapp.app.config import settings
 
 router = APIRouter(
     prefix="/me",
