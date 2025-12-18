@@ -36,7 +36,6 @@ async def offers_by_request(
     request_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    # ✅ FIX: в сервисе метод называется list_offers_by_request
     return await OffersService.list_offers_by_request(db, request_id)
 
 

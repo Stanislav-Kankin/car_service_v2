@@ -7,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    String,
     Text,
 )
 from sqlalchemy.orm import relationship
@@ -17,9 +18,8 @@ from ..core.db import Base
 
 class OfferStatus(str, Enum):
     NEW = "new"              # предложение отправлено клиенту
-    ACCEPTED = "accepted"    # клиент выбрал этот отклик
+    ACCEPTED = "accepted"    # клиент выбрал это предложение
     REJECTED = "rejected"    # клиент отклонил
-    CANCELLED = "cancelled"  # СТО отозвало
 
 
 class Offer(Base):
@@ -41,11 +41,14 @@ class Offer(Base):
     )
 
     price = Column(Numeric(10, 2), nullable=True)
-    eta_hours = Column(Integer, nullable=True)
-    comment = Column(Text, nullable=True)
+    eta_hours = Column(Integer, nullable=True)  # срок в часах/днях, трактуем в сервисе
+    cashback_percent = Column(
+        Numeric(5, 2),
+        nullable=True,
+        doc="Кэшбек, % (0-100). Используется для начисления бонусов при завершении заявки.",
+    )
 
-    # ✅ процент кэшбека (например 5.0 = 5%)
-    cashback_percent = Column(Numeric(5, 2), nullable=True)
+    comment = Column(Text, nullable=True)
 
     status = Column(
         SAEnum(OfferStatus),
@@ -60,5 +63,6 @@ class Offer(Base):
         nullable=False,
     )
 
+    # relationships
     request = relationship("Request", back_populates="offers")
     service_center = relationship("ServiceCenter", back_populates="offers")
