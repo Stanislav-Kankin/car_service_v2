@@ -25,29 +25,28 @@ class UsersService:
         await db.commit()
         await db.refresh(user)
 
-        # --- BONUS HIDDEN MODE: автоначисления временно выключены ---
-        if getattr(settings, "BONUS_HIDDEN_MODE", True):
-            return user
+        # BONUS HIDDEN MODE: временно отключаем авто-начисления при регистрации
+        if not settings.BONUS_HIDDEN_MODE:
+            # ✅ Бонус за регистрацию: начисляем только один раз
+            # (страховка от дублей, если по какой-то причине create_user вызовется повторно)
+            reg_bonus_amount = int(getattr(settings, "REGISTRATION_BONUS", 500))
 
-        # ✅ Бонус за регистрацию: начисляем только один раз
-        reg_bonus_amount = int(getattr(settings, "REGISTRATION_BONUS", 500))
-
-        result = await db.execute(
-            select(BonusTransaction.id).where(
-                BonusTransaction.user_id == user.id,
-                BonusTransaction.reason == BonusReason.REGISTRATION,
+            result = await db.execute(
+                select(BonusTransaction.id).where(
+                    BonusTransaction.user_id == user.id,
+                    BonusTransaction.reason == BonusReason.REGISTRATION,
+                )
             )
-        )
-        already_has_registration_bonus = result.scalar_one_or_none() is not None
+            already_has_registration_bonus = result.scalar_one_or_none() is not None
 
-        if not already_has_registration_bonus and reg_bonus_amount:
-            await BonusService.add_bonus(
-                db=db,
-                user_id=user.id,
-                amount=reg_bonus_amount,
-                reason=BonusReason.REGISTRATION,
-                description="Бонус за регистрацию",
-            )
+            if not already_has_registration_bonus and reg_bonus_amount:
+                await BonusService.add_bonus(
+                    db=db,
+                    user_id=user.id,
+                    amount=reg_bonus_amount,
+                    reason=BonusReason.REGISTRATION,
+                    description="Бонус за регистрацию",
+                )
 
         return user
 

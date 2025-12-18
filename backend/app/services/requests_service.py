@@ -226,30 +226,46 @@ class RequestsService:
 
         Пока списание бонусов как скидки будет внедрено позже, bonus_spent по умолчанию 0.
         """
+        # BONUS HIDDEN MODE: временно полностью отключаем авто-кэшбек
+        bonus_hidden = os.getenv("BONUS_HIDDEN_MODE", "1").strip().lower() in ("1", "true", "yes", "y", "on")
+        if bonus_hidden:
+            return
+
         if req.final_price is None:
             return
 
-        # ищем выбранный (принятый) отклик
-        res = await db.execute(
+        # оффер, выбранный клиентом
+        result = await db.execute(
             select(Offer).where(
                 Offer.request_id == req.id,
-                Offer.status == OfferStatus.ACCEPTED,
+                Offer.status == OfferStatus.accepted,
             )
         )
-        offer = res.scalar_one_or_none()
+        offer: Offer | None = result.scalar_one_or_none()
         if not offer:
             return
 
         pct_raw = getattr(offer, "cashback_percent", None)
         if pct_raw is None:
             return
-
         try:
             pct = float(pct_raw)
         except Exception:
             return
-
         if pct <= 0:
+            return
+
+        # защита от дублей
+        result = await db.execute(
+            select(BonusTransaction.id).where(
+                BonusTransaction.user_id == req.user_id,
+                BonusTransaction.reason == BonusReason.COMPLETE_REQUEST,
+                BonusTransaction.request_id == req.id,
+                BonusTransaction.offer_id == offer.id,
+            )
+        )
+        already_awarded = result.scalar_one_or_none() is not None
+        if already_awarded:
             return
 
         bonus_spent_raw = getattr(req, "bonus_spent", 0) or 0
@@ -265,18 +281,6 @@ class RequestsService:
         # floor для положительных чисел
         amount = int(base * pct / 100.0)
         if amount <= 0:
-            return
-
-        # защита от повторного начисления
-        exists_res = await db.execute(
-            select(BonusTransaction.id).where(
-                BonusTransaction.user_id == req.user_id,
-                BonusTransaction.request_id == req.id,
-                BonusTransaction.offer_id == offer.id,
-                BonusTransaction.reason == BonusReason.COMPLETE_REQUEST,
-            )
-        )
-        if exists_res.scalar_one_or_none() is not None:
             return
 
         await BonusService.add_bonus(

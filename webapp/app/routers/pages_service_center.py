@@ -413,41 +413,23 @@ async def sc_request_detail(
 
     error_message = None
 
+    err = request.query_params.get("err")
+    if err == "offer_locked":
+        error_message = "Отклик по этой заявке больше недоступен: заявка в работе или закрыта."
+
     # service center (и ownership)
     sc = await _load_sc_for_owner(request, client, sc_id)
 
     # request
-    try:
-        r = await client.get(f"/api/v1/requests/{request_id}")
-        r.raise_for_status()
-        request_data = r.json()
-    except Exception:
-        raise HTTPException(status_code=404, detail="Заявка не найдена")
-
-    # car (optional)
-    try:
-        car_id = request_data.get("car_id")
-        if car_id:
-            car_resp = await client.get(f"/api/v1/cars/{int(car_id)}")
-            if car_resp.status_code == 200:
-                request_data["car"] = car_resp.json()
-            else:
-                request_data["car"] = None
-    except Exception:
-        request_data["car"] = None
-
-    # client telegram_id (owner of request) — нужно для "Написать в Telegram"
+    request_data: dict[str, Any] | None = None
     client_telegram_id: int | None = None
     try:
-        client_user_id = request_data.get("user_id")
-        if client_user_id:
-            u = await client.get(f"/api/v1/users/{int(client_user_id)}")
-            if u.status_code == 200:
-                user_data = u.json() or {}
-                tg_id = user_data.get("telegram_id")
-                if tg_id is not None:
-                    client_telegram_id = int(tg_id)
+        req_resp = await client.get(f"/api/v1/requests/{request_id}")
+        if req_resp.status_code == 200:
+            request_data = req_resp.json()
+            client_telegram_id = request_data.get("user_telegram_id")
     except Exception:
+        request_data = None
         client_telegram_id = None
 
     # offers for request
@@ -492,10 +474,23 @@ async def sc_offer_submit(
     client: AsyncClient = Depends(get_backend_client),
     price: float = Form(...),
     eta_hours: int = Form(...),
-    cashback_percent: str = Form(""),
     comment: str = Form(""),
 ) -> HTMLResponse:
     sc = await _load_sc_for_owner(request, client, sc_id)
+
+    # Запрет отклика, если заявка уже в работе/закрыта
+    try:
+        req_resp = await client.get(f"/api/v1/requests/{request_id}")
+        if req_resp.status_code == 200:
+            status_ = (req_resp.json() or {}).get("status")
+            if status_ in ("in_work", "done", "cancelled"):
+                return RedirectResponse(
+                    url=f"/sc/{sc_id}/requests/{request_id}?err=offer_locked",
+                    status_code=status.HTTP_303_SEE_OTHER,
+                )
+    except Exception:
+        # если не удалось проверить статус — не блокируем, просто пробуем сохранить как раньше
+        pass
 
     # ищем существующий оффер (если есть) — чтобы обновлять, а не плодить
     my_offer: dict[str, Any] | None = None
@@ -510,24 +505,12 @@ async def sc_offer_submit(
     except Exception:
         my_offer = None
 
-    cashback_value: float | None = None
-    raw = (cashback_percent or "").strip()
-    if raw:
-        try:
-            cashback_value = float(raw)
-        except Exception:
-            cashback_value = None
-        else:
-            if cashback_value < 0 or cashback_value > 100:
-                cashback_value = None
-
     payload: dict[str, Any] = {
         "request_id": request_id,
         "service_center_id": sc_id,
         "price": price,
         "eta_hours": eta_hours,
         "comment": comment or None,
-        "cashback_percent": cashback_value,
     }
 
     try:
