@@ -106,12 +106,15 @@
 
             </div>
 
-            <!-- Действия по заявке (если применимо) -->
+            <!-- Действия по заявке -->
             <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
                 <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
                     Действия
                 </p>
 
+                {% set assigned_to_me = (req.service_center_id is not none) and (req.service_center_id == service_center.id) %}
+
+                {% if req.status == 'accepted_by_service' and assigned_to_me %}
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-in-work">
                         <button type="submit"
@@ -119,7 +122,9 @@
                             🛠 Взять в работу
                         </button>
                     </form>
-
+                </div>
+                {% elif req.status == 'in_work' and assigned_to_me %}
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-done" class="space-y-2">
                         <div class="space-y-1.5">
                             <label class="block text-xs font-semibold text-slate-300">
@@ -136,7 +141,13 @@
                         </button>
                     </form>
                 </div>
+                {% else %}
+                <p class="text-sm text-slate-300">
+                    Действия станут доступны после того, как клиент выберет ваш отклик.
+                </p>
+                {% endif %}
 
+                {% if assigned_to_me and req.status in ['sent', 'accepted_by_service', 'in_work'] %}
                 <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/reject" class="space-y-2">
                     <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-slate-300">
@@ -151,7 +162,7 @@
                         ❌ Отказаться от заявки
                     </button>
                 </form>
-
+                {% endif %}
             </div>
 
         </div>
