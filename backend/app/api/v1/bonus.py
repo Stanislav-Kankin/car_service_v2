@@ -36,6 +36,19 @@ async def list_user_transactions(
     return list(txs)
 
 
+# ✅ Alias для совместимости с ботом: /history == /transactions
+@router.get(
+    "/{user_id}/history",
+    response_model=List[BonusTransactionRead],
+)
+async def list_user_history(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> List[BonusTransactionRead]:
+    txs = await BonusService.list_user_transactions(db, user_id)
+    return list(txs)
+
+
 @router.post(
     "/{user_id}/adjust",
     response_model=BonusTransactionRead,

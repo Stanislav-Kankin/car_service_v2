@@ -59,8 +59,10 @@ async def register_post(
 
     client = get_backend_client(request)
 
-    await client.post(
-        "/api/v1/users/complete-registration",
+    # ✅ Вместо несуществующего /users/complete-registration
+    # используем существующий PATCH /users/{user_id}
+    await client.patch(
+        f"/api/v1/users/{user_id}",
         json={
             "full_name": full_name,
             "phone": phone,
