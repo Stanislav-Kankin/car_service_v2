@@ -3,15 +3,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """
-    Настройки WebApp.
-
-    Важно:
-    - читаем общий .env из корня проекта (локально)
-    - НЕ ругаемся на лишние поля
-    - в docker читаем из ENV переменных контейнера
-    """
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -24,9 +15,10 @@ class Settings(BaseSettings):
     )
 
     DEBUG: bool = False
-
-    # ✅ НОВОЕ: allowlist админов из env
     TELEGRAM_ADMIN_IDS: str = ""
+
+    # ✅ BONUS HIDDEN MODE
+    BONUS_HIDDEN_MODE: bool = True
 
 
 settings = Settings()

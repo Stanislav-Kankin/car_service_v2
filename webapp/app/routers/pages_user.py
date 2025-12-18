@@ -305,6 +305,8 @@ async def user_garage(
     cars: list[dict[str, Any]] = []
     error_message: str | None = None
 
+    bonus_hidden_mode: bool = bool(getattr(settings, "BONUS_HIDDEN_MODE", True))
+
     bonus_balance: int = 0
     bonus_transactions: list[dict[str, Any]] = []
 
@@ -320,44 +322,44 @@ async def user_garage(
         error_message = "Не удалось загрузить список автомобилей. Попробуйте позже."
         cars = []
 
-    # 2) бонусы — best-effort (не ломаем гараж, если бонусы временно недоступны)
-    try:
-        resp = await client.get(f"/api/v1/bonus/{user_id}/balance")
-        if resp.status_code == 200:
-            bonus_balance = int(resp.json() or 0)
-    except Exception:
-        bonus_balance = 0
-
-    try:
-        resp = await client.get(f"/api/v1/bonus/{user_id}/transactions")
-        if resp.status_code == 200:
-            raw = resp.json() or []
-            if isinstance(raw, list):
-                bonus_transactions = raw
-    except Exception:
-        bonus_transactions = []
-
-    # UI-маппинг (не бизнес-логика)
-    bonus_reason_labels = {
-        "registration": "Регистрация",
-        "create_request": "Создание заявки",
-        "complete_request": "Завершение заявки",
-        "rate_service": "Оценка сервиса",
-        "manual_adjust": "Ручная корректировка",
-    }
-
+    # 2) бонусы — ВРЕМЕННО скрыты (BONUS_HIDDEN_MODE)
     tx_view: list[dict[str, Any]] = []
-    for tx in bonus_transactions:
-        if not isinstance(tx, dict):
-            continue
-        reason = str(tx.get("reason") or "")
-        tx_view.append({**tx, "reason_label": bonus_reason_labels.get(reason, reason or "—")})
 
-    # свежие сверху
-    try:
-        tx_view.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
-    except Exception:
-        pass
+    if not bonus_hidden_mode:
+        try:
+            resp = await client.get(f"/api/v1/bonus/{user_id}/balance")
+            if resp.status_code == 200:
+                bonus_balance = int(resp.json() or 0)
+        except Exception:
+            bonus_balance = 0
+
+        try:
+            resp = await client.get(f"/api/v1/bonus/{user_id}/transactions")
+            if resp.status_code == 200:
+                raw = resp.json() or []
+                if isinstance(raw, list):
+                    bonus_transactions = raw
+        except Exception:
+            bonus_transactions = []
+
+        bonus_reason_labels = {
+            "registration": "Регистрация",
+            "create_request": "Создание заявки",
+            "complete_request": "Завершение заявки",
+            "rate_service": "Оценка сервиса",
+            "manual_adjust": "Ручная корректировка",
+        }
+
+        for tx in bonus_transactions:
+            if not isinstance(tx, dict):
+                continue
+            reason = str(tx.get("reason") or "")
+            tx_view.append({**tx, "reason_label": bonus_reason_labels.get(reason, reason or "—")})
+
+        try:
+            tx_view.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+        except Exception:
+            pass
 
     return templates.TemplateResponse(
         "user/garage.html",
@@ -365,6 +367,7 @@ async def user_garage(
             "request": request,
             "cars": cars,
             "error_message": error_message,
+            "bonus_hidden_mode": bonus_hidden_mode,
             "bonus_balance": bonus_balance,
             "bonus_transactions": tx_view,
         },

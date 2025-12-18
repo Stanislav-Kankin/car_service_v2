@@ -25,8 +25,11 @@ class UsersService:
         await db.commit()
         await db.refresh(user)
 
+        # --- BONUS HIDDEN MODE: автоначисления временно выключены ---
+        if getattr(settings, "BONUS_HIDDEN_MODE", True):
+            return user
+
         # ✅ Бонус за регистрацию: начисляем только один раз
-        # (страховка от дублей, если по какой-то причине create_user вызовется повторно)
         reg_bonus_amount = int(getattr(settings, "REGISTRATION_BONUS", 500))
 
         result = await db.execute(

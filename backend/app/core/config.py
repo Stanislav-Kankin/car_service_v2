@@ -8,13 +8,9 @@ class Settings:
     PROJECT_NAME: str = "CarBot V2 Backend"
 
     # ---------------------- Telegram ----------------------
-    # ВАЖНО: тот же токен, что использует бот.
-    # Берётся из переменной окружения BOT_TOKEN.
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
 
     if not BOT_TOKEN:
-        # Явно падаем при старте, чтобы не отлавливать
-        # потом непонятные 403 Invalid hash.
         raise RuntimeError(
             "BOT_TOKEN is not set. "
             "Добавь BOT_TOKEN в .env (тот же токен, что у бота)."
@@ -40,15 +36,16 @@ class Settings:
     # ---------------------- Other ----------------------
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
 
+    # ---------------------- BONUS HIDDEN MODE ----------------------
+    BONUS_HIDDEN_MODE: bool = os.getenv("BONUS_HIDDEN_MODE", "true").lower() == "true"
+    REGISTRATION_BONUS: int = int(os.getenv("REGISTRATION_BONUS", "500"))
+
     # ---------------------- Admins ----------------------
-    # TELEGRAM_ADMIN_IDS="123456,987654"
     TELEGRAM_ADMIN_IDS: list[int] = []
 
     raw_admin_ids = os.getenv("TELEGRAM_ADMIN_IDS", "")
     if raw_admin_ids:
-        parts = (
-            raw_admin_ids.replace(";", ",").split(",")
-        )  # допускаем разделение и запятой, и точкой с запятой
+        parts = raw_admin_ids.replace(";", ",").split(",")
         for part in parts:
             part = part.strip()
             if not part:
@@ -56,7 +53,6 @@ class Settings:
             try:
                 TELEGRAM_ADMIN_IDS.append(int(part))
             except ValueError:
-                # Просто игнорируем кривой id, чтобы не падать
                 continue
 
 
