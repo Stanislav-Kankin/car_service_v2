@@ -413,26 +413,44 @@ async def sc_request_detail(
 
     error_message = None
 
-    err = request.query_params.get("err")
-    if err == "offer_locked":
-        error_message = "Отклик по этой заявке больше недоступен: заявка в работе или закрыта."
-
     # service center (и ownership)
     sc = await _load_sc_for_owner(request, client, sc_id)
 
     # request
-    request_data: dict[str, Any] | None = None
+    try:
+        r = await client.get(f"/api/v1/requests/{request_id}")
+        r.raise_for_status()
+        request_data = r.json()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+
+    # car (optional)
+    try:
+        car_id = request_data.get("car_id")
+        if car_id:
+            car_resp = await client.get(f"/api/v1/cars/{int(car_id)}")
+            if car_resp.status_code == 200:
+                request_data["car"] = car_resp.json()
+            else:
+                request_data["car"] = None
+    except Exception:
+        request_data["car"] = None
+
+    # client telegram_id (owner of request) — нужно для "Написать в Telegram"
     client_telegram_id: int | None = None
     try:
-        req_resp = await client.get(f"/api/v1/requests/{request_id}")
-        if req_resp.status_code == 200:
-            request_data = req_resp.json()
-            client_telegram_id = request_data.get("user_telegram_id")
+        client_user_id = request_data.get("user_id")
+        if client_user_id:
+            u = await client.get(f"/api/v1/users/{int(client_user_id)}")
+            if u.status_code == 200:
+                user_data = u.json() or {}
+                tg_id = user_data.get("telegram_id")
+                if tg_id is not None:
+                    client_telegram_id = int(tg_id)
     except Exception:
-        request_data = None
         client_telegram_id = None
 
-    # offers for request
+    # offers for request (backend отдаёт все офферы — мы НЕ показываем их СТО)
     offers: list[dict[str, Any]] = []
     try:
         offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
@@ -451,13 +469,16 @@ async def sc_request_detail(
     except Exception:
         my_offer = None
 
+    # ✅ Критично: СТО не должно видеть чужие отклики
+    offers_for_view: list[dict[str, Any]] = [my_offer] if my_offer else []
+
     return templates.TemplateResponse(
         "service_center/request_detail.html",
         {
             "request": request,
             "service_center": sc,
             "req": request_data,
-            "offers": offers,
+            "offers": offers_for_view,  # <-- теперь только свой
             "my_offer": my_offer,
             "error_message": error_message,
             "bot_username": BOT_USERNAME,
