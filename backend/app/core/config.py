@@ -74,6 +74,7 @@ class Settings:
             except ValueError:
                 # Просто игнорируем кривой id, чтобы не падать
                 continue
+    DEBUG: bool = os.getenv("DEBUG", "false").strip().lower() in ("1", "true", "yes", "y", "on")
 
 
 settings = Settings()
