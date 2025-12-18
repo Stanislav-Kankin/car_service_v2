@@ -7,7 +7,6 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
-    String,
     Text,
 )
 from sqlalchemy.orm import relationship
@@ -42,8 +41,11 @@ class Offer(Base):
     )
 
     price = Column(Numeric(10, 2), nullable=True)
-    eta_hours = Column(Integer, nullable=True)  # срок в часах/днях, будем трактовать в сервисе
+    eta_hours = Column(Integer, nullable=True)
     comment = Column(Text, nullable=True)
+
+    # ✅ процент кэшбека (например 5.0 = 5%)
+    cashback_percent = Column(Numeric(5, 2), nullable=True)
 
     status = Column(
         SAEnum(OfferStatus),

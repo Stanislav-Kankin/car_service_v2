@@ -6,9 +6,9 @@ from typing import List, Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from backend.app.services.user_service import UsersService
 
+from backend.app.services.user_service import UsersService
+from backend.app.services.bonus_service import BonusService
 
 from backend.app.core.notifier import BotNotifier
 from backend.app.models import (
@@ -18,6 +18,10 @@ from backend.app.models import (
     RequestStatus,
     ServiceCenter,
     User,
+    Offer,
+    OfferStatus,
+    BonusTransaction,
+    BonusReason,
 )
 from backend.app.schemas.request import RequestCreate, RequestUpdate
 
@@ -28,20 +32,14 @@ notifier = BotNotifier()
 
 
 def _btn_webapp(text: str, url: str) -> dict[str, str]:
-    # бот умеет интерпретировать type=web_app и открывать миниапп, а не браузер
     return {"text": text, "type": "web_app", "url": url}
 
 
 class RequestsService:
     """
     Сервисный слой для заявок.
-
-    ВАЖНО: сигнатуры методов сделаны совместимыми с backend/app/api/v1/requests.py
     """
 
-    # ------------------------------------------------------------------
-    # Создание
-    # ------------------------------------------------------------------
     @staticmethod
     async def create_request(db: AsyncSession, data: RequestCreate) -> Request:
         req = Request(
@@ -60,7 +58,6 @@ class RequestsService:
             photos=data.photos,
             hide_phone=data.hide_phone,
             status=RequestStatus.NEW,
-            # поля могут быть в модели:
             final_price=None,
             reject_reason=None,
         )
@@ -69,18 +66,12 @@ class RequestsService:
         await db.refresh(req)
         return req
 
-    # ------------------------------------------------------------------
-    # Получение по ID
-    # ------------------------------------------------------------------
     @staticmethod
     async def get_request_by_id(db: AsyncSession, request_id: int) -> Optional[Request]:
         stmt = select(Request).where(Request.id == request_id)
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
 
-    # ------------------------------------------------------------------
-    # Список заявок пользователя
-    # ------------------------------------------------------------------
     @staticmethod
     async def list_requests_by_user(db: AsyncSession, user_id: int) -> List[Request]:
         stmt = (
@@ -91,21 +82,14 @@ class RequestsService:
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
-    # ------------------------------------------------------------------
-    # Список всех заявок (опционально по статусу)
-    # ------------------------------------------------------------------
     @staticmethod
     async def list_requests(db: AsyncSession, status: str | None = None) -> List[Request]:
         stmt = select(Request).order_by(Request.created_at.desc())
         if status:
-            # status может приходить строкой: "new", "sent", "in_work"...
             stmt = stmt.where(Request.status == status)
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
-    # ------------------------------------------------------------------
-    # Список заявок, которые реально отправляли конкретному СТО (через distribution)
-    # ------------------------------------------------------------------
     @staticmethod
     async def list_requests_for_service_center(
         db: AsyncSession,
@@ -120,9 +104,6 @@ class RequestsService:
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
-    # ------------------------------------------------------------------
-    # Обновление заявки (совместимо с requests.py: update_request(db, request_id, data))
-    # ------------------------------------------------------------------
     @staticmethod
     async def update_request(
         db: AsyncSession,
@@ -140,9 +121,6 @@ class RequestsService:
         await db.refresh(req)
         return req
 
-    # ------------------------------------------------------------------
-    # Рассылка заявки в СТО: фиксируем distribution + ставим статус SENT
-    # ------------------------------------------------------------------
     @staticmethod
     async def distribute_request_to_service_centers(
         db: AsyncSession,
@@ -153,12 +131,10 @@ class RequestsService:
         if not req:
             return None
 
-        # очистим старые распределения (чтобы не копились)
         await db.execute(
             delete(RequestDistribution).where(RequestDistribution.request_id == request_id)
         )
 
-        # создадим новые
         for sc_id in service_center_ids:
             db.add(
                 RequestDistribution(
@@ -168,16 +144,11 @@ class RequestsService:
                 )
             )
 
-        # статус заявки
         req.status = RequestStatus.SENT
 
         await db.commit()
         await db.refresh(req)
         return req
-
-    # ------------------------------------------------------------------
-    # Статусы со стороны СТО
-    # ------------------------------------------------------------------
 
     @staticmethod
     async def set_in_work(
@@ -185,13 +156,12 @@ class RequestsService:
         request_id: int,
         service_center_id: int,
         *,
-        notify_client_telegram_id: int | None = None,  # оставляем параметр для совместимости, но он больше не обязателен
+        notify_client_telegram_id: int | None = None,
     ) -> Optional[Request]:
         req = await RequestsService.get_request_by_id(db, request_id)
         if not req:
             return None
 
-        # защита: в работу может перевести только выбранный сервис
         if req.service_center_id != service_center_id:
             logger.warning(
                 "set_in_work: sc_id mismatch (req=%s sc=%s)",
@@ -203,7 +173,6 @@ class RequestsService:
         await db.commit()
         await db.refresh(req)
 
-        # --- уведомление клиенту: берём telegram_id сами ---
         tg_id = notify_client_telegram_id
         if tg_id is None:
             client = await UsersService.get_by_id(db, req.user_id)
@@ -221,13 +190,71 @@ class RequestsService:
         return req
 
     @staticmethod
+    async def _award_cashback_if_needed(db: AsyncSession, req: Request) -> None:
+        """
+        Начисляем кэшбек клиенту, если:
+        - есть final_price
+        - есть ACCEPTED-оффер с cashback_percent > 0
+        - ещё не начисляли по (request_id, offer_id, reason=COMPLETE_REQUEST)
+        """
+        if req.final_price is None:
+            return
+
+        res = await db.execute(
+            select(Offer).where(
+                Offer.request_id == req.id,
+                Offer.status == OfferStatus.ACCEPTED,
+            )
+        )
+        offer = res.scalar_one_or_none()
+        if not offer:
+            return
+
+        if offer.cashback_percent is None:
+            return
+
+        try:
+            pct = float(offer.cashback_percent)
+        except Exception:
+            return
+
+        if pct <= 0:
+            return
+
+        amount = int(round(float(req.final_price) * pct / 100.0))
+        if amount <= 0:
+            return
+
+        # защита от повторного начисления
+        exists_res = await db.execute(
+            select(BonusTransaction.id).where(
+                BonusTransaction.user_id == req.user_id,
+                BonusTransaction.request_id == req.id,
+                BonusTransaction.offer_id == offer.id,
+                BonusTransaction.reason == BonusReason.COMPLETE_REQUEST,
+            )
+        )
+        if exists_res.scalar_one_or_none() is not None:
+            return
+
+        await BonusService.add_bonus(
+            db=db,
+            user_id=req.user_id,
+            amount=amount,
+            reason=BonusReason.COMPLETE_REQUEST,
+            request_id=req.id,
+            offer_id=offer.id,
+            description=f"Кэшбек {pct:.0f}% по заявке №{req.id}",
+        )
+
+    @staticmethod
     async def set_done(
         db: AsyncSession,
         request_id: int,
         service_center_id: int,
         *,
         final_price: float | None = None,
-        notify_client_telegram_id: int | None = None,  # оставляем параметр, но он больше не обязателен
+        notify_client_telegram_id: int | None = None,
     ) -> Optional[Request]:
         req = await RequestsService.get_request_by_id(db, request_id)
         if not req:
@@ -247,7 +274,12 @@ class RequestsService:
         await db.commit()
         await db.refresh(req)
 
-        # --- уведомление клиенту: берём telegram_id сами ---
+        # ✅ начисляем кэшбек (не зависит от Telegram)
+        try:
+            await RequestsService._award_cashback_if_needed(db, req)
+        except Exception:
+            logger.exception("cashback award failed for request_id=%s", request_id)
+
         tg_id = notify_client_telegram_id
         if tg_id is None:
             client = await UsersService.get_by_id(db, req.user_id)
@@ -272,7 +304,7 @@ class RequestsService:
         service_center_id: int,
         *,
         reason: str | None = None,
-        notify_client_telegram_id: int | None = None,  # оставляем параметр, но он больше не обязателен
+        notify_client_telegram_id: int | None = None,
     ) -> Optional[Request]:
         req = await RequestsService.get_request_by_id(db, request_id)
         if not req:
@@ -291,7 +323,6 @@ class RequestsService:
         await db.commit()
         await db.refresh(req)
 
-        # --- уведомление клиенту: берём telegram_id сами ---
         tg_id = notify_client_telegram_id
         if tg_id is None:
             client = await UsersService.get_by_id(db, req.user_id)
