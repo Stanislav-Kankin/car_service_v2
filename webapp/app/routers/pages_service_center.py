@@ -492,6 +492,7 @@ async def sc_offer_submit(
     client: AsyncClient = Depends(get_backend_client),
     price: float = Form(...),
     eta_hours: int = Form(...),
+    cashback_percent: str = Form(""),
     comment: str = Form(""),
 ) -> HTMLResponse:
     sc = await _load_sc_for_owner(request, client, sc_id)
@@ -509,12 +510,24 @@ async def sc_offer_submit(
     except Exception:
         my_offer = None
 
+    cashback_value: float | None = None
+    raw = (cashback_percent or "").strip()
+    if raw:
+        try:
+            cashback_value = float(raw)
+        except Exception:
+            cashback_value = None
+        else:
+            if cashback_value < 0 or cashback_value > 100:
+                cashback_value = None
+
     payload: dict[str, Any] = {
         "request_id": request_id,
         "service_center_id": sc_id,
         "price": price,
         "eta_hours": eta_hours,
         "comment": comment or None,
+        "cashback_percent": cashback_value,
     }
 
     try:

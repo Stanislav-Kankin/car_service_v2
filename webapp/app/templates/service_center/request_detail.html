@@ -1,312 +1,264 @@
 {% extends "layout/base.html" %}
 
-{% block title %}Заявка №{{ req.id if req else "" }} — {{ service_center.name }}{% endblock %}
+{% block title %}Заявка №{{ req.id }}{% endblock %}
 
 {% block content %}
-{# ✅ локальный mapping категорий для UI #}
-{% set category_labels = {
-    "sto": "СТО / общий ремонт",
-    "wash": "Автомойка",
-    "tire": "Шиномонтаж",
-    "electric": "Автоэлектрик",
-    "mechanic": "Слесарные работы",
-    "paint": "Малярные / кузовные работы",
-    "maint": "ТО / обслуживание",
-    "agg_turbo": "Ремонт турбин",
-    "agg_starter": "Ремонт стартеров",
-    "agg_generator": "Ремонт генераторов",
-    "agg_steering": "Рулевые рейки",
-    "mech": "Слесарные работы",
-    "elec": "Автоэлектрик",
-    "body": "Малярные / кузовные работы",
-    "diag": "Диагностика",
-    "agg": "Ремонт агрегатов"
-} %}
+<div class="max-w-6xl mx-auto px-4 py-6 space-y-6">
 
-<div class="mt-8 space-y-6">
-    <a href="/sc/{{ service_center.id }}/requests" class="text-xs text-slate-400 hover:text-emerald-400 transition">
-        ← Ко всем заявкам сервиса
-    </a>
+    <div class="flex items-start justify-between gap-4">
+        <div class="space-y-1">
+            <h1 class="text-xl font-semibold text-slate-100">
+                Заявка №{{ req.id }}
+            </h1>
+            <p class="text-xs text-slate-400">
+                Статус: <span class="font-semibold text-slate-200">{{ req.status }}</span>
+                {% if req.created_at %}
+                · Создана: <span class="text-slate-300">{{ req.created_at }}</span>
+                {% endif %}
+            </p>
+        </div>
 
-    <div class="relative">
-        <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
+        <a href="/sc/{{ service_center.id }}/requests"
+           class="inline-flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm text-slate-200 hover:bg-slate-900 transition">
+            ← К списку заявок
+        </a>
+    </div>
 
-        <div class="relative z-10 p-6 md:p-8 space-y-6">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                    <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
-                        Заявка №{{ req.id if req else "—" }}
-                    </p>
-                    <h1 class="text-2xl font-semibold">
-                        {{ category_labels.get(req.service_category, req.service_category) if req and req.service_category else "Без категории" }}
-                    </h1>
-                    {% if req and req.status %}
-                    <p class="text-sm text-slate-300 mt-1">
-                        Текущий статус: <span class="font-semibold">{{ req.status }}</span>
-                    </p>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- Левая колонка: данные заявки -->
+        <div class="lg:col-span-2 space-y-6">
+
+            <!-- Карточка заявки -->
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
+
+                <div class="flex flex-wrap items-center gap-2">
+                    {% if req.service_category %}
+                    <span class="text-xs rounded-full border border-emerald-700/60 bg-emerald-950/30 px-3 py-1 text-emerald-200">
+                        {{ req.service_category }}
+                    </span>
+                    {% endif %}
+
+                    {% if req.radius_km %}
+                    <span class="text-xs rounded-full border border-slate-700 bg-slate-900/50 px-3 py-1 text-slate-200">
+                        Радиус: {{ req.radius_km }} км
+                    </span>
+                    {% endif %}
+
+                    {% if req.is_car_movable is not none %}
+                        {% if req.is_car_movable %}
+                        <span class="text-xs rounded-full border border-slate-700 bg-slate-900/50 px-3 py-1 text-slate-200">
+                            Авто на ходу
+                        </span>
+                        {% else %}
+                        <span class="text-xs rounded-full border border-amber-700/60 bg-amber-950/30 px-3 py-1 text-amber-200">
+                            Нужна эвакуация / выезд
+                        </span>
+                        {% endif %}
                     {% endif %}
                 </div>
-                {% if service_center %}
-                <div class="text-xs text-slate-400">
-                    <p class="mb-1">Сервис:</p>
-                    <p class="font-semibold text-slate-100">{{ service_center.name }}</p>
-                    {% if service_center.address %}
-                    <p>{{ service_center.address }}</p>
-                    {% endif %}
+
+                <div class="space-y-2">
+                    <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
+                        Описание
+                    </p>
+                    <p class="text-sm text-slate-200 leading-relaxed whitespace-pre-line">
+                        {{ req.description }}
+                    </p>
                 </div>
+
+                {% if req.address_text %}
+                <div class="space-y-1">
+                    <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
+                        Локация
+                    </p>
+                    <p class="text-sm text-slate-200">
+                        {{ req.address_text }}
+                    </p>
+                </div>
+                {% endif %}
+
+                {% if req.car %}
+                <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 space-y-2">
+                    <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
+                        Автомобиль
+                    </p>
+                    <div class="text-sm text-slate-200 space-y-1">
+                        <div>
+                            <span class="text-slate-400">Марка/модель:</span>
+                            <span class="font-semibold">{{ req.car.brand }} {{ req.car.model }}</span>
+                        </div>
+                        {% if req.car.year %}
+                        <div>
+                            <span class="text-slate-400">Год:</span>
+                            <span class="font-semibold">{{ req.car.year }}</span>
+                        </div>
+                        {% endif %}
+                        {% if req.car.plate_number %}
+                        <div>
+                            <span class="text-slate-400">Номер:</span>
+                            <span class="font-semibold">{{ req.car.plate_number }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+            </div>
+
+            <!-- Действия по заявке (если применимо) -->
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
+                <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
+                    Действия
+                </p>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-in-work">
+                        <button type="submit"
+                                class="w-full rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 text-sm font-semibold transition">
+                            🛠 Взять в работу
+                        </button>
+                    </form>
+
+                    <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-done" class="space-y-2">
+                        <div class="space-y-1.5">
+                            <label class="block text-xs font-semibold text-slate-300">
+                                Итоговая цена, ₽
+                            </label>
+                            <input type="number" step="0.01" min="0" name="final_price"
+                                   value="{{ req.final_price if req.final_price else '' }}"
+                                   required
+                                   class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                        </div>
+                        <button type="submit"
+                                class="w-full rounded-2xl bg-sky-600 hover:bg-sky-500 text-white py-2.5 text-sm font-semibold transition">
+                            ✅ Завершить
+                        </button>
+                    </form>
+                </div>
+
+                <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/reject" class="space-y-2">
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Причина отказа (опционально)
+                        </label>
+                        <input type="text" name="reason" value=""
+                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                               placeholder="Например: нет мест / не наша специализация">
+                    </div>
+                    <button type="submit"
+                            class="w-full rounded-2xl bg-rose-600 hover:bg-rose-500 text-white py-2.5 text-sm font-semibold transition">
+                        ❌ Отказаться от заявки
+                    </button>
+                </form>
+
+            </div>
+
+        </div>
+
+        <!-- Правая колонка: связи/чат/отклик -->
+        <div class="space-y-6">
+
+            <!-- Написать клиенту -->
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
+                <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
+                    Связь с клиентом
+                </p>
+
+                {% if client_telegram_id %}
+                <a class="w-full inline-flex items-center justify-center rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 py-2.5 text-sm font-semibold transition"
+                   href="https://t.me/{{ bot_username }}?start=chat_{{ req.id }}">
+                    💬 Написать клиенту (Telegram)
+                </a>
+                {% else %}
+                <button type="button"
+                        class="w-full rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 py-2.5 text-sm font-semibold transition">
+                    💬 Написать клиенту (кнопка придёт в боте)
+                </button>
+                <p class="text-[11px] text-slate-400">
+                    Мы отправим вам сообщение в боте с кнопкой для открытия чата по заявке.
+                </p>
                 {% endif %}
             </div>
 
-            {% if error_message %}
-            <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                {{ error_message }}
-            </div>
-            {% endif %}
+            <!-- Ваш отклик -->
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
+                <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
+                    Ваш отклик
+                </p>
 
-            {% if req %}
-            <div class="grid md:grid-cols-2 gap-6">
-                <div class="space-y-4">
-
-                    <!-- Автомобиль -->
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
-                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                            Автомобиль
-                        </p>
-
-                        {% if req.car %}
-                            <p class="text-sm text-slate-100">
-                                {{ req.car.brand }} {{ req.car.model }}
-                                {% if req.car.year %}({{ req.car.year }} г.){% endif %}
-                            </p>
-                            {% if req.car.license_plate %}
-                            <p class="text-xs text-slate-400">
-                                Госномер: {{ req.car.license_plate }}
-                            </p>
-                            {% endif %}
-                        {% else %}
-                            <p class="text-sm text-slate-300">
-                                Данные об автомобиле недоступны.
-                                {% if req.car_id %}
-                                <span class="text-slate-400">ID авто: {{ req.car_id }}</span>
-                                {% endif %}
-                            </p>
-                        {% endif %}
-                    </div>
-
-                    <!-- Описание -->
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
-                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                            Описание проблемы
-                        </p>
-                        <p class="text-sm text-slate-100 whitespace-pre-line">
-                            {{ req.description or "Клиент не указал подробностей." }}
-                        </p>
-                    </div>
-
-                    <!-- Адрес -->
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
-                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                            Адрес / район
-                        </p>
-                        <p class="text-sm text-slate-100">
-                            {{ req.address_text or "Не указан" }}
-                        </p>
-                    </div>
-
-                    <!-- Итог / отказ -->
-                    {% if req.status == "done" %}
-                    <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-1">
-                        <p class="text-sm text-emerald-200 font-semibold">✅ Заявка завершена</p>
-                        {% if req.final_price is not none %}
-                        <p class="text-sm text-emerald-100/90">
-                            Итоговая цена: <b>{{ req.final_price }}</b>
-                        </p>
-                        {% endif %}
-                    </div>
+                {% if my_offer %}
+                <p class="text-sm text-slate-300">
+                    Вы уже отправили отклик по этой заявке. Вы можете обновить его.
+                </p>
+                <ul class="text-xs text-slate-300 space-y-1">
+                    <li>Цена: <span class="font-semibold">{{ my_offer.price }}</span></li>
+                    <li>Срок: <span class="font-semibold">{{ my_offer.eta_hours }} ч.</span></li>
+                    {% if my_offer.cashback_percent is not none %}
+                    <li>Кэшбек: <span class="font-semibold">{{ my_offer.cashback_percent }}%</span></li>
                     {% endif %}
-
-                    {% if req.status == "rejected_by_service" %}
-                    <div class="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 space-y-1">
-                        <p class="text-sm text-red-200 font-semibold">❌ Заявка отклонена сервисом</p>
-                        {% if req.reject_reason %}
-                        <p class="text-sm text-red-100/90">
-                            Причина: <b>{{ req.reject_reason }}</b>
-                        </p>
-                        {% endif %}
-                    </div>
+                    {% if my_offer.comment %}
+                    <li>Комментарий: <span class="font-semibold">{{ my_offer.comment }}</span></li>
                     {% endif %}
-                </div>
-
-                <div class="space-y-4">
-
-                    <!-- ✅ Чат с клиентом -->
-                    {% if req and service_center %}
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
-                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                            Чат с клиентом
-                        </p>
-
-                        <button type="button"
-                                onclick="sendChatLinkAndClose('/sc/{{ service_center.id }}/requests/{{ req.id }}/send-chat-link', '{{ bot_username }}')"
-                                class="inline-flex items-center justify-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-                            💬 Написать клиенту (кнопка придёт в боте)
-                        </button>
-                        <p class="text-[11px] text-slate-400">
-                            Мы отправим вам сообщение в боте с кнопкой для открытия чата по заявке.
-                        </p>
-                    </div>
+                    {% if my_offer.status %}
+                    <li>Статус: <span class="font-semibold">{{ my_offer.status }}</span></li>
                     {% endif %}
+                </ul>
+                {% endif %}
 
-                    <!-- Ваш отклик -->
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
-                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                            Ваш отклик
-                        </p>
-
-                        {% if my_offer %}
-                        <p class="text-sm text-slate-300">
-                            Вы уже отправили отклик по этой заявке. Вы можете обновить его.
-                        </p>
-                        <ul class="text-xs text-slate-300 space-y-1">
-                            <li>Цена: <span class="font-semibold">{{ my_offer.price }}</span></li>
-                            <li>Срок: <span class="font-semibold">{{ my_offer.eta_hours }} ч.</span></li>
-                            {% if my_offer.comment %}
-                            <li>Комментарий: <span class="font-semibold">{{ my_offer.comment }}</span></li>
-                            {% endif %}
-                            {% if my_offer.status %}
-                            <li>Статус: <span class="font-semibold">{{ my_offer.status }}</span></li>
-                            {% endif %}
-                        </ul>
-                        {% else %}
-                        <p class="text-sm text-slate-300">
-                            Отправьте предложение по цене и срокам. Клиент увидит его в своём кабинете и сможет выбрать ваш сервис.
-                        </p>
-                        {% endif %}
-
-                        <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/offer" class="space-y-3">
-                            <div class="grid grid-cols-1 gap-3">
-                                <div class="space-y-1.5">
-                                    <label class="block text-xs font-semibold text-slate-300">
-                                        Цена, ₽
-                                    </label>
-                                    <input type="number" step="0.01" min="0" name="price"
-                                           value="{{ my_offer.price if my_offer else '' }}"
-                                           required
-                                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                                </div>
-                                <div class="space-y-1.5">
-                                    <label class="block text-xs font-semibold text-slate-300">
-                                        Ориентировочный срок, ч.
-                                    </label>
-                                    <input type="number" min="1" name="eta_hours"
-                                           value="{{ my_offer.eta_hours if my_offer else '' }}"
-                                           required
-                                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                                </div>
-                            </div>
-
-                            <div class="space-y-1.5">
-                                <label class="block text-xs font-semibold text-slate-300">
-                                    Комментарий для клиента
-                                </label>
-                                <textarea name="comment" rows="3"
-                                          class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
-                                          placeholder="Например: «Диагностика в подарок при ремонте».">{{ my_offer.comment if my_offer else "" }}</textarea>
-                            </div>
-
-                            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
-                                <p class="text-xs text-slate-400">
-                                    После отправки отклика клиент увидит его в своём кабинете и сможет выбрать ваш сервис.
-                                </p>
-                                <button type="submit"
-                                        class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-                                    {% if my_offer %}Обновить отклик{% else %}Отправить отклик{% endif %}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-
-                    <!-- Действия по заявке (СТО) -->
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
-                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                            Действия по заявке
-                        </p>
-
-                        {% if req.status == "accepted_by_service" %}
-                        <div class="flex flex-wrap gap-2">
-                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-in-work">
-                                <button type="submit"
-                                        class="inline-flex items-center justify-center rounded-full bg-amber-400 px-5 py-2 text-sm font-semibold text-slate-900 hover:bg-amber-300 transition">
-                                    В работу
-                                </button>
-                            </form>
-
-                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/reject"
-                                  class="flex flex-wrap gap-2 items-center">
-                                <input name="reason" placeholder="Причина отказа"
-                                       class="w-64 rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-red-400">
-                                <button type="submit"
-                                        class="inline-flex items-center justify-center rounded-full border border-red-400/70 px-5 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/10 transition">
-                                    Отказать
-                                </button>
-                            </form>
+                <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/offer" class="space-y-3">
+                    <div class="grid grid-cols-1 gap-3">
+                        <div class="space-y-1.5">
+                            <label class="block text-xs font-semibold text-slate-300">
+                                Цена, ₽
+                            </label>
+                            <input type="number" step="0.01" min="0" name="price"
+                                   value="{{ my_offer.price if my_offer else '' }}"
+                                   required
+                                   class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
                         </div>
-
-                        {% elif req.status == "in_work" %}
-                        <div class="space-y-2">
-                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-done"
-                                  class="flex flex-wrap gap-2 items-center">
-                                <input type="number" step="0.01" min="0" name="final_price" required
-                                       placeholder="Итоговая цена, ₽"
-                                       class="w-64 rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-400">
-                                <button type="submit"
-                                        class="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-slate-900 hover:bg-emerald-400 transition">
-                                    Завершить
-                                </button>
-                            </form>
-
-                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/reject"
-                                  class="flex flex-wrap gap-2 items-center">
-                                <input name="reason" placeholder="Причина отказа"
-                                       class="w-64 rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none focus:border-red-400">
-                                <button type="submit"
-                                        class="inline-flex items-center justify-center rounded-full border border-red-400/70 px-5 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/10 transition">
-                                    Отказать
-                                </button>
-                            </form>
+                        <div class="space-y-1.5">
+                            <label class="block text-xs font-semibold text-slate-300">
+                                Ориентировочный срок, ч.
+                            </label>
+                            <input type="number" min="1" name="eta_hours"
+                                   value="{{ my_offer.eta_hours if my_offer else '' }}"
+                                   required
+                                   class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
                         </div>
-
-                        {% elif req.status == "done" %}
-                        <p class="text-sm text-emerald-200">
-                            ✅ Заявка завершена.
-                            {% if req.final_price is not none %}
-                            Итоговая цена: <b>{{ req.final_price }}</b>
-                            {% endif %}
-                        </p>
-
-                        {% elif req.status == "rejected_by_service" %}
-                        <p class="text-sm text-red-200">
-                            ❌ Заявка отклонена.
-                            {% if req.reject_reason %}
-                            Причина: <b>{{ req.reject_reason }}</b>
-                            {% endif %}
-                        </p>
-
-                        {% else %}
-                        <p class="text-sm text-slate-400">
-                            Для текущего статуса действий нет.
-                        </p>
-                        {% endif %}
+                        <div class="space-y-1.5">
+                            <label class="block text-xs font-semibold text-slate-300">
+                                Кэшбек, %
+                            </label>
+                            <input type="number" step="1" min="0" max="100" name="cashback_percent"
+                                   value="{{ my_offer.cashback_percent if my_offer else '' }}"
+                                   class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                                   placeholder="0–100">
+                        </div>
                     </div>
 
-                </div>
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Комментарий для клиента
+                        </label>
+                        <textarea name="comment" rows="3"
+                                  class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                                  placeholder="Например: «Приезжайте к 14:00, сделаем диагностику и сообщим по ремонте».">{{ my_offer.comment if my_offer else "" }}</textarea>
+                    </div>
+
+                    <button type="submit"
+                            class="w-full rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 text-sm font-semibold transition">
+                        {% if my_offer %}🔄 Обновить отклик{% else %}📨 Отправить отклик{% endif %}
+                    </button>
+                </form>
+
+                {% if error_message %}
+                <p class="text-xs text-rose-300">{{ error_message }}</p>
+                {% endif %}
             </div>
-            {% else %}
-            <p class="text-sm text-slate-300">
-                Не удалось загрузить данные заявки.
-            </p>
-            {% endif %}
+
         </div>
     </div>
+
 </div>
 {% endblock %}

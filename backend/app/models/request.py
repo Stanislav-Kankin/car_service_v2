@@ -82,6 +82,10 @@ class Request(Base):
     # ✅ НОВОЕ: финальная цена (когда СТО завершает)
     final_price = Column(Float, nullable=True)
 
+    # ✅ НОВОЕ: сколько бонусами было оплачено (как скидка), в валюте заявки.
+    # Пока механика списания/оплаты бонусами будет внедрена позже, по умолчанию 0.
+    bonus_spent = Column(Float, nullable=False, default=0.0)
+
     # ✅ НОВОЕ: причина отказа СТО
     reject_reason = Column(Text, nullable=True)
 
