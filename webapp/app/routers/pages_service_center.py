@@ -299,7 +299,7 @@ async def sc_create_get(
 
 
 @router.post("/create", response_class=HTMLResponse)
-a@router.post("/create", response_class=HTMLResponse)
+@router.post("/create", response_class=HTMLResponse)
 async def sc_create_post(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
