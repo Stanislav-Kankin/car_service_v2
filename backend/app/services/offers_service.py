@@ -1,10 +1,13 @@
 from typing import List, Optional
 import os
+import re
+import math
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.app.core.config import settings
 from backend.app.models.offer import Offer, OfferStatus
 from backend.app.models.request import RequestStatus, Request
 from backend.app.models.service_center import ServiceCenter
@@ -12,6 +15,60 @@ from backend.app.core.notifier import BotNotifier
 
 WEBAPP_PUBLIC_URL = os.getenv("WEBAPP_PUBLIC_URL", "").rstrip("/")
 notifier = BotNotifier()
+
+_NUM_RE = re.compile(r"(\d+(?:[.,]\d+)?)")
+
+
+def _normalize_num_text(s: str) -> str:
+    return (
+        s.replace("\u00a0", "")  # nbsp
+        .replace(" ", "")
+        .replace(",", ".")
+        .strip()
+    )
+
+
+def _parse_price_to_float(price_text: str | None) -> float | None:
+    if not price_text:
+        return None
+    t = _normalize_num_text(price_text.lower())
+    nums = _NUM_RE.findall(t)
+    if not nums:
+        return None
+    try:
+        return float(nums[0])
+    except Exception:
+        return None
+
+
+def _parse_eta_to_hours(eta_text: str | None) -> int | None:
+    if not eta_text:
+        return None
+    t = eta_text.lower()
+
+    # минут(ы)
+    m = re.search(r"(\d+)\s*(?:мин|минута|минуты|минут|m)\b", t)
+    if m:
+        minutes = int(m.group(1))
+        return max(1, int(math.ceil(minutes / 60)))
+
+    # часов
+    h = re.search(r"(\d+)\s*(?:час|часа|часов|ч|h)\b", t)
+    if h:
+        return max(1, int(h.group(1)))
+
+    # дней
+    d = re.search(r"(\d+)\s*(?:дн|день|дня|дней|day|days)\b", t)
+    if d:
+        days = int(d.group(1))
+        return max(1, days * 24)
+
+    # если просто число без единиц — трактуем как часы
+    bare = re.search(r"\b(\d+)\b", t)
+    if bare:
+        return max(1, int(bare.group(1)))
+
+    return None
 
 
 class OffersService:
@@ -34,20 +91,47 @@ class OffersService:
 
     @staticmethod
     async def create_offer(db: AsyncSession, data: dict) -> Offer:
+        """
+        BONUS_HIDDEN_MODE:
+          - cashback_percent игнорируем (не сохраняем)
+        Backward compat:
+          - если можно распарсить price_text/eta_text — заполняем старые price/eta_hours
+        """
+        price_text = data.get("price_text")
+        eta_text = data.get("eta_text")
+
+        # старые поля (fallback / совместимость)
+        price = data.get("price")
+        eta_hours = data.get("eta_hours")
+
+        if price is None and price_text:
+            parsed_price = _parse_price_to_float(price_text)
+            if parsed_price is not None:
+                price = parsed_price
+
+        if eta_hours is None and eta_text:
+            parsed_eta = _parse_eta_to_hours(eta_text)
+            if parsed_eta is not None:
+                eta_hours = parsed_eta
+
+        cashback_percent = data.get("cashback_percent")
+        if settings.BONUS_HIDDEN_MODE:
+            cashback_percent = None
+
         data_clean = {
             "request_id": data["request_id"],
             "service_center_id": data["service_center_id"],
 
             # новые поля
-            "price_text": data.get("price_text"),
-            "eta_text": data.get("eta_text"),
+            "price_text": price_text,
+            "eta_text": eta_text,
 
-            # старые поля (fallback)
-            "price": data.get("price"),
-            "eta_hours": data.get("eta_hours"),
+            # старые поля
+            "price": price,
+            "eta_hours": eta_hours,
 
             "comment": data.get("comment"),
-            "cashback_percent": data.get("cashback_percent"),
+            "cashback_percent": cashback_percent,
             "status": OfferStatus.NEW,
         }
 
@@ -80,6 +164,23 @@ class OffersService:
         offer = await OffersService.get_offer_by_id(db, offer_id)
         if not offer:
             return None
+
+        # BONUS_HIDDEN_MODE: запретить сохранять cashback_percent
+        if settings.BONUS_HIDDEN_MODE and "cashback_percent" in data:
+            data["cashback_percent"] = None
+
+        # если обновили текст — попробуем обновить и числовые поля (не ломая совместимость)
+        price_text = data.get("price_text")
+        if data.get("price") is None and price_text:
+            parsed_price = _parse_price_to_float(price_text)
+            if parsed_price is not None:
+                data["price"] = parsed_price
+
+        eta_text = data.get("eta_text")
+        if data.get("eta_hours") is None and eta_text:
+            parsed_eta = _parse_eta_to_hours(eta_text)
+            if parsed_eta is not None:
+                data["eta_hours"] = parsed_eta
 
         new_data = {}
         for field, value in data.items():
@@ -136,7 +237,7 @@ class OffersService:
         await db.commit()
         await db.refresh(offer)
 
-        # уведомление сервису + клиенту (как у тебя было)
+        # уведомление сервису + клиенту
         offer_full = await OffersService.get_offer_by_id(db, offer.id)
         if offer_full and notifier.is_enabled():
             request_id = offer_full.request.id if offer_full.request else None

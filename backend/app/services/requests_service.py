@@ -214,27 +214,17 @@ class RequestsService:
 
     @staticmethod
     async def _award_cashback_if_needed(db: AsyncSession, req: Request) -> None:
-        """
-        Начисляем кэшбек клиенту, если:
-        - есть final_price
-        - есть ACCEPTED-оффер с cashback_percent > 0
-        - ещё не начисляли по (request_id, offer_id, reason=COMPLETE_REQUEST)
-
-        Формула (по ТЗ):
-            base = final_price - bonus_spent
-            cashback = floor(base * cashback_percent / 100)
-
-        Пока списание бонусов как скидки будет внедрено позже, bonus_spent по умолчанию 0.
-        """
-        # BONUS HIDDEN MODE: временно полностью отключаем авто-кэшбек
-        bonus_hidden = os.getenv("BONUS_HIDDEN_MODE", "1").strip().lower() in ("1", "true", "yes", "y", "on")
-        if bonus_hidden:
+        # BONUS HIDDEN MODE: полностью отключаем авто-начисления
+        from backend.app.core.config import settings
+        if settings.BONUS_HIDDEN_MODE:
             return
 
+        if req.status != RequestStatus.DONE:
+            return
         if req.final_price is None:
             return
 
-        # оффер, выбранный клиентом
+        # ищем принятый оффер
         result = await db.execute(
             select(Offer).where(
                 Offer.request_id == req.id,
@@ -278,7 +268,6 @@ class RequestsService:
         if base <= 0:
             return
 
-        # floor для положительных чисел
         amount = int(base * pct / 100.0)
         if amount <= 0:
             return
@@ -304,8 +293,22 @@ class RequestsService:
         *,
         final_price: float | None = None,
         final_price_text: str | None = None,
-        notify_client_telegram_id: int | None = None,  # оставляем параметр, но он больше не обязателен
+        notify_client_telegram_id: int | None = None,
     ) -> Optional[Request]:
+        import re
+
+        def _parse_first_number(text: str | None) -> float | None:
+            if not text:
+                return None
+            t = text.replace("\u00a0", "").replace(" ", "").replace(",", ".")
+            m = re.search(r"(\d+(?:\.\d+)?)", t)
+            if not m:
+                return None
+            try:
+                return float(m.group(1))
+            except Exception:
+                return None
+
         req = await RequestsService.get_request_by_id(db, request_id)
         if not req:
             return None
@@ -322,19 +325,25 @@ class RequestsService:
         if final_price_text is not None:
             req.final_price_text = final_price_text
 
+        # backward compat: если число можно вытащить из текста — кладём в старое final_price
+        if final_price is None and final_price_text:
+            parsed = _parse_first_number(final_price_text)
+            if parsed is not None:
+                final_price = parsed
+
         if final_price is not None:
             req.final_price = float(final_price)
 
         await db.commit()
         await db.refresh(req)
 
-        # ✅ начисляем кэшбек (не зависит от Telegram)
+        # ✅ начисляем кэшбек (внутри есть BONUS_HIDDEN_MODE guard)
         try:
             await RequestsService._award_cashback_if_needed(db, req)
         except Exception:
             logger.exception("cashback award failed for request_id=%s", request_id)
 
-        # --- уведомление клиенту: берём telegram_id сами ---
+        # --- уведомление клиенту ---
         tg_id = notify_client_telegram_id
         if tg_id is None:
             client = await UsersService.get_by_id(db, req.user_id)

@@ -2,6 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 from .config import settings
+from .safe_migrations import apply_safe_migrations
+
 
 engine = create_async_engine(
     settings.DB_URL,
@@ -25,13 +27,13 @@ async def get_db():
 
 async def init_db() -> None:
     """
-    Простая инициализация БД для dev:
-    создаём таблицы по всем моделям.
-
-    В проде потом можно будет заменить на Alembic.
+    Инициализация БД:
+    1) create_all() — создаёт таблицы, если их нет
+    2) apply_safe_migrations() — добавляет недостающие колонки (безопасно, идемпотентно)
     """
     # важно импортнуть модели, чтобы Base.metadata знала про все таблицы
     from .. import models  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await apply_safe_migrations(conn)
