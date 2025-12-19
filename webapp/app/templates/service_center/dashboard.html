@@ -23,8 +23,20 @@
     "agg": "Ремонт агрегатов"
 } %}
 
+{# ✅ счётчики #}
+{% set total_sc = service_centers|length if service_centers else 0 %}
+{% set active_sc = (service_centers|selectattr("is_active")|list|length) if service_centers else 0 %}
+{% set total_balance = 0 %}
+{% if service_centers %}
+    {% for sc in service_centers %}
+        {% if sc.wallet_balance is defined and sc.wallet_balance is not none %}
+            {% set total_balance = total_balance + sc.wallet_balance %}
+        {% endif %}
+    {% endfor %}
+{% endif %}
+
 <div class="mt-8 space-y-6">
-    <div class="flex items-center justify-between gap-4">
+    <div class="flex items-start justify-between gap-4">
         <div>
             <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
                 Кабинет СТО
@@ -33,14 +45,21 @@
                 Ваши сервисные центры
             </h1>
             <p class="text-sm text-slate-300">
-                Управляйте профилем своих СТО и работайте с заявками от клиентов.
+                Управляйте профилем СТО и работайте с заявками от клиентов.
             </p>
+
+            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
+                <span class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-200">
+                    🏢 СТО: <span class="ml-1 font-semibold">{{ total_sc }}</span>
+                </span>
+                <span class="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-emerald-200">
+                    ● Активных: <span class="ml-1 font-semibold">{{ active_sc }}</span>
+                </span>
+                <span class="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-amber-200">
+                    💰 Баланс (сумма): <span class="ml-1 font-semibold">{{ total_balance }}</span>
+                </span>
+            </div>
         </div>
-        <a href="/sc/create"
-           class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-            <span class="text-lg leading-none">+</span>
-            <span>Добавить новый СТО</span>
-        </a>
     </div>
 
     {% if error_message %}
@@ -54,30 +73,32 @@
 
         <div class="relative z-10 p-6 space-y-4">
             {% if service_centers %}
-            <div class="flex justify-between items-center mb-2">
-                <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80">
-                    Ваши СТО ({{ service_centers|length }})
-                </p>
-            </div>
+            <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80">
+                Ваши СТО
+            </p>
 
             <div class="grid gap-4 md:grid-cols-2">
                 {% for sc in service_centers %}
                 <div class="group rounded-2xl border border-slate-800 bg-slate-900/80 p-5 hover:border-emerald-400/70 hover:bg-slate-900 transition transform hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(16,185,129,0.25)]">
+                    <!-- Верх карточки: название + действия -->
                     <div class="flex items-start justify-between gap-3">
-                        <div>
-                            <h2 class="text-lg font-semibold mb-1">
+                        <div class="min-w-0">
+                            <h2 class="text-lg font-semibold mb-1 truncate">
                                 {{ sc.name or "Без названия" }}
                             </h2>
+
                             {% if sc.address %}
-                            <p class="text-sm text-slate-300 mb-1">
+                            <p class="text-sm text-slate-300 mb-1 break-words">
                                 {{ sc.address }}
                             </p>
                             {% endif %}
+
                             {% if sc.phone %}
                             <p class="text-xs text-slate-400">
                                 Телефон: {{ sc.phone }}
                             </p>
                             {% endif %}
+
                             {% if sc.website %}
                             <p class="text-xs text-slate-400 mt-1">
                                 Сайт:
@@ -88,25 +109,39 @@
                             {% endif %}
                         </div>
 
-                        <div class="flex flex-col items-end gap-2">
-                            {% if sc.is_active %}
-                            <span class="inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">
-                                ● Активный
-                            </span>
-                            {% else %}
-                            <span class="inline-flex items-center rounded-full border border-slate-500/60 bg-slate-700/40 px-3 py-1 text-[11px] font-semibold text-slate-200">
-                                ● Неактивный
-                            </span>
-                            {% endif %}
-                            {% if sc.wallet_balance is defined and sc.wallet_balance is not none %}
-                            <span class="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-200">
-                                💰 Баланс: {{ sc.wallet_balance }}
-                            </span>
-                            {% else %}
-                            <span class="inline-flex items-center rounded-full border border-slate-600/60 bg-slate-800/40 px-3 py-1 text-[11px] font-semibold text-slate-300">
-                                💰 Баланс: —
-                            </span>
-                            {% endif %}
+                        <div class="flex flex-col items-end gap-2 shrink-0">
+                            <div class="flex flex-wrap justify-end gap-2">
+                                <a href="/sc/{{ sc.id }}/requests"
+                                   class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-3.5 py-2 text-xs font-semibold text-slate-900 shadow shadow-emerald-500/25 hover:bg-emerald-400 transition">
+                                    📋 Мои заявки
+                                </a>
+                                <a href="/sc/edit/{{ sc.id }}"
+                                   class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/60 px-3.5 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-800 transition">
+                                    ✏️ Редактировать
+                                </a>
+                            </div>
+
+                            <div class="flex flex-col items-end gap-2">
+                                {% if sc.is_active %}
+                                <span class="inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">
+                                    ● Активный
+                                </span>
+                                {% else %}
+                                <span class="inline-flex items-center rounded-full border border-slate-500/60 bg-slate-700/40 px-3 py-1 text-[11px] font-semibold text-slate-200">
+                                    ● Неактивный
+                                </span>
+                                {% endif %}
+
+                                {% if sc.wallet_balance is defined and sc.wallet_balance is not none %}
+                                <span class="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-200">
+                                    💰 Баланс: {{ sc.wallet_balance }}
+                                </span>
+                                {% else %}
+                                <span class="inline-flex items-center rounded-full border border-slate-600/60 bg-slate-800/40 px-3 py-1 text-[11px] font-semibold text-slate-300">
+                                    💰 Баланс: —
+                                </span>
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
 
@@ -120,26 +155,9 @@
                     </div>
                     {% endif %}
 
-                    <div class="mt-4 flex items-center justify-between text-xs text-slate-400">
-                        <div class="flex items-center gap-2">
-                            <span>ID: {{ sc.id }}</span>
-                            {% if sc.org_type %}
-                            <span>•</span>
-                            <span class="opacity-80">{{ sc.org_type }}</span>
-                            {% endif %}
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <a href="/sc/{{ sc.id }}/requests"
-                               class="inline-flex items-center gap-1 text-emerald-300 group-hover:text-emerald-200 transition">
-                                Мои заявки
-                                <span class="text-base leading-none">→</span>
-                            </a>
-                            <a href="/sc/edit/{{ sc.id }}"
-                               class="inline-flex items-center gap-1 text-slate-200 hover:text-slate-100 transition">
-                                Редактировать
-                                <span class="text-base leading-none">→</span>
-                            </a>
-                        </div>
+                    <!-- Низ карточки: убрали ID/company -->
+                    <div class="mt-4 text-[11px] text-slate-500">
+                        Управляйте сервисом: редактируйте профиль и отвечайте на заявки клиентов.
                     </div>
                 </div>
                 {% endfor %}
@@ -151,13 +169,17 @@
                 <p class="text-sm text-slate-400 mb-4">
                     Добавьте сервисный центр, чтобы получать заявки по специализациям.
                 </p>
-                <a href="/sc/create"
-                   class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-                    <span class="text-lg leading-none">+</span>
-                    <span>Добавить СТО</span>
-                </a>
             </div>
             {% endif %}
+
+            <!-- ✅ Кнопка добавления — в самом низу -->
+            <div class="pt-2 flex justify-center">
+                <a href="/sc/create"
+                   class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/60 px-5 py-2.5 text-sm font-semibold text-slate-100 hover:bg-slate-800 transition">
+                    <span class="text-lg leading-none">+</span>
+                    <span>Добавить новый СТО</span>
+                </a>
+            </div>
         </div>
     </div>
 </div>

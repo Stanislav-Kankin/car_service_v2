@@ -1,14 +1,28 @@
-<!doctype html>
-<html lang="ru">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Заявка • СТО</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="min-h-screen bg-slate-950 text-slate-100">
-<div class="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
+{% extends "layout/base.html" %}
 
+{% block title %}Заявка №{{ req.id if req else "—" }} — СТО{% endblock %}
+
+{% block content %}
+{% set category_labels = {
+    "sto": "СТО / общий ремонт",
+    "wash": "Автомойка",
+    "tire": "Шиномонтаж",
+    "electric": "Автоэлектрик",
+    "mechanic": "Слесарные работы",
+    "paint": "Малярные / кузовные работы",
+    "maint": "ТО / обслуживание",
+    "agg_turbo": "Ремонт турбин",
+    "agg_starter": "Ремонт стартеров",
+    "agg_generator": "Ремонт генераторов",
+    "agg_steering": "Рулевые рейки",
+    "mech": "Слесарные работы",
+    "elec": "Автоэлектрик",
+    "body": "Малярные / кузовные работы",
+    "diag": "Диагностика",
+    "agg": "Ремонт агрегатов"
+} %}
+
+<div class="mt-8 space-y-6">
     <div class="flex items-start justify-between gap-4">
         <div>
             <p class="text-xs uppercase tracking-[0.25em] text-slate-400">КарБот • СТО</p>
@@ -27,6 +41,10 @@
         </div>
     {% else %}
 
+    {% set category_code = req.service_category or req.category %}
+    {% set address_text = req.address_text or req.address %}
+    {% set car_obj = req.car if req.car is defined else None %}
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Левая колонка: заявка -->
         <div class="lg:col-span-2 space-y-6">
@@ -35,7 +53,7 @@
                 <div class="flex flex-wrap items-center gap-3 justify-between">
                     <div class="flex items-center gap-2">
                         <span class="text-xs uppercase tracking-[0.25em] text-slate-400">Статус</span>
-                        <span class="inline-flex items-center rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs font-semibold">
+                        <span class="inline-flex items-center rounded-full border border-slate-800 bg-slate-950/40 px-3 py-1 text-xs font-semibold">
                             {{ req.status }}
                         </span>
                     </div>
@@ -67,12 +85,24 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Категория</p>
-                        <p class="text-sm text-slate-200 mt-1">{{ req.category or "—" }}</p>
+                        <p class="text-sm text-slate-200 mt-1">
+                            {% if category_code %}
+                                {{ category_labels.get(category_code, category_code) }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </p>
                     </div>
+
                     <div>
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Авто</p>
                         <p class="text-sm text-slate-200 mt-1">
-                            {{ req.car_brand or "" }} {{ req.car_model or "" }} {{ req.car_year or "" }}
+                            {% if car_obj %}
+                                {{ car_obj.brand or "" }} {{ car_obj.model or "" }} {{ car_obj.year or "" }}
+                                {% if car_obj.license_plate %} · № {{ car_obj.license_plate }}{% endif %}
+                            {% else %}
+                                {{ req.car_brand or "" }} {{ req.car_model or "" }} {{ req.car_year or "" }}
+                            {% endif %}
                         </p>
                     </div>
                 </div>
@@ -86,57 +116,31 @@
                     <div>
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Локация</p>
                         <p class="text-sm text-slate-200 mt-1">
-                            {{ req.address or "—" }}
+                            {{ address_text or "—" }}
                         </p>
                     </div>
                     <div>
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Эвакуация / Выезд</p>
                         <p class="text-sm text-slate-200 mt-1">
-                            {% if req.need_tow %}Да{% else %}Нет{% endif %}
+                            {% if req.is_car_movable is not none %}
+                                {% if req.is_car_movable %}Нет{% else %}Да{% endif %}
+                            {% else %}
+                                {% if req.need_tow %}Да{% else %}Нет{% endif %}
+                            {% endif %}
                         </p>
                     </div>
                 </div>
-            </div>
 
-            <!-- Отклики по заявке -->
-            <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
-                <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                    Отклики (все СТО)
-                </p>
-
-                {% if offers and offers|length > 0 %}
-                    <div class="space-y-3">
-                        {% for o in offers %}
-                        <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                            <div class="flex items-start justify-between gap-3">
-                                <div class="min-w-0">
-                                    <div class="text-sm font-semibold">
-                                        СТО #{{ o.service_center_id }}
-                                    </div>
-                                    <div class="text-xs text-slate-400 mt-1">
-                                        {{ o.status or "—" }}
-                                    </div>
-                                </div>
-                                <div class="text-right text-sm text-slate-200">
-                                    <div class="font-semibold">{{ o.price or "—" }}</div>
-                                    <div class="text-xs text-slate-400 mt-1">{{ o.eta_hours or "—" }} ч.</div>
-                                </div>
-                            </div>
-
-                            {% if o.comment %}
-                            <div class="text-sm text-slate-300 mt-3 whitespace-pre-line">{{ o.comment }}</div>
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <p class="text-sm text-slate-300">Откликов пока нет.</p>
+                {% if req.hide_phone %}
+                <div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+                    ⚠️ Клиент скрывает номер телефона до выбора сервиса / согласия.
+                </div>
                 {% endif %}
             </div>
 
         </div>
 
-        <!-- Правая колонка: связи/чат/отклик -->
+        <!-- Правая колонка: связь/чат/отклик -->
         <div class="space-y-6">
 
             <!-- Написать клиенту -->
@@ -150,6 +154,9 @@
                    href="https://t.me/{{ bot_username }}?start=chat_{{ req.id }}">
                     💬 Написать клиенту (Telegram)
                 </a>
+                <p class="text-[11px] text-slate-400">
+                    Мы откроем чат по этой заявке через бота.
+                </p>
                 {% else %}
                 <button type="button"
                         class="w-full rounded-2xl bg-slate-800/60 text-slate-300 py-2.5 text-sm font-semibold cursor-not-allowed"
@@ -166,19 +173,19 @@
                 </p>
 
                 {% if my_offer %}
-                <p class="text-sm text-slate-300">
-                    Вы уже отправили отклик по этой заявке. Вы можете обновить его.
-                </p>
-                <ul class="text-xs text-slate-300 space-y-1">
-                    <li>Цена: <span class="font-semibold">{{ my_offer.price }}</span></li>
-                    <li>Срок: <span class="font-semibold">{{ my_offer.eta_hours }} ч.</span></li>
-                    {% if my_offer.comment %}
-                    <li>Комментарий: <span class="font-semibold">{{ my_offer.comment }}</span></li>
-                    {% endif %}
-                    {% if my_offer.status %}
-                    <li>Статус: <span class="font-semibold">{{ my_offer.status }}</span></li>
-                    {% endif %}
-                </ul>
+                <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                    <p class="text-sm text-slate-200 font-semibold">Текущий отклик</p>
+                    <ul class="text-xs text-slate-300 space-y-1 mt-2">
+                        <li>Цена: <span class="font-semibold">{{ my_offer.price }}</span></li>
+                        <li>Срок: <span class="font-semibold">{{ my_offer.eta_hours }} ч.</span></li>
+                        {% if my_offer.comment %}
+                        <li>Комментарий: <span class="font-semibold">{{ my_offer.comment }}</span></li>
+                        {% endif %}
+                        {% if my_offer.status %}
+                        <li>Статус: <span class="font-semibold">{{ my_offer.status }}</span></li>
+                        {% endif %}
+                    </ul>
+                </div>
                 {% endif %}
 
                 {% set offer_locked = req.status in ["in_work", "done", "cancelled"] %}
@@ -237,5 +244,4 @@
 
     {% endif %}
 </div>
-</body>
-</html>
+{% endblock %}
