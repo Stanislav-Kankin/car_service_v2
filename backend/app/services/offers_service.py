@@ -37,8 +37,15 @@ class OffersService:
         data_clean = {
             "request_id": data["request_id"],
             "service_center_id": data["service_center_id"],
+
+            # новые поля
+            "price_text": data.get("price_text"),
+            "eta_text": data.get("eta_text"),
+
+            # старые поля (fallback)
             "price": data.get("price"),
             "eta_hours": data.get("eta_hours"),
+
             "comment": data.get("comment"),
             "cashback_percent": data.get("cashback_percent"),
             "status": OfferStatus.NEW,

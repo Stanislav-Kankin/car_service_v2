@@ -737,8 +737,8 @@ async def sc_offer_submit(
     request_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
-    price: float = Form(...),
-    eta_hours: int = Form(...),
+    price_text: str = Form(...),
+    eta_text: str = Form(...),
     comment: str = Form(""),
 ) -> HTMLResponse:
     sc = await _load_sc_for_owner(request, client, sc_id)
@@ -754,7 +754,6 @@ async def sc_offer_submit(
                     status_code=status.HTTP_303_SEE_OTHER,
                 )
     except Exception:
-        # если не удалось проверить статус — не блокируем, просто пробуем сохранить как раньше
         pass
 
     # ищем существующий оффер (если есть) — чтобы обновлять, а не плодить
@@ -770,14 +769,44 @@ async def sc_offer_submit(
     except Exception:
         my_offer = None
 
+    def _try_parse_float(s: str) -> float | None:
+        s = (s or "").strip().replace(",", ".")
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+    def _try_parse_int(s: str) -> int | None:
+        s = (s or "").strip()
+        digits = "".join(ch for ch in s if ch.isdigit())
+        if not digits:
+            return None
+        try:
+            return int(digits)
+        except Exception:
+            return None
+
+    price_text_clean = (price_text or "").strip()
+    eta_text_clean = (eta_text or "").strip()
+
     payload: dict[str, Any] = {
         "request_id": request_id,
         "service_center_id": sc_id,
-        "price": price,
-        "eta_hours": eta_hours,
-        "comment": comment or None,
+        "price_text": price_text_clean or None,
+        "eta_text": eta_text_clean or None,
+        "comment": (comment or "").strip() or None,
     }
 
+    # backward/fallback: если строка случайно числовая — пробуем заполнить старые поля тоже
+    p_num = _try_parse_float(price_text_clean)
+    if p_num is not None:
+        payload["price"] = p_num
+
+    eta_num = _try_parse_int(eta_text_clean)
+    if eta_num is not None:
+        payload["eta_hours"] = eta_num
+
+    templates = get_templates()
     try:
         if my_offer:
             offer_id = my_offer["id"]
@@ -840,14 +869,31 @@ async def sc_set_done(
     request_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
-    final_price: float = Form(...),
+    final_price_text: str = Form(...),
 ) -> HTMLResponse:
     _ = await _load_sc_for_owner(request, client, sc_id)
+
+    def _try_parse_float(s: str) -> float | None:
+        s = (s or "").strip().replace(",", ".")
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+    final_price_text_clean = (final_price_text or "").strip()
+    payload: dict[str, Any] = {
+        "service_center_id": sc_id,
+        "final_price_text": final_price_text_clean or None,
+    }
+
+    p_num = _try_parse_float(final_price_text_clean)
+    if p_num is not None:
+        payload["final_price"] = p_num
 
     try:
         resp = await client.post(
             f"/api/v1/requests/{request_id}/set_done",
-            json={"service_center_id": sc_id, "final_price": final_price},
+            json=payload,
         )
         resp.raise_for_status()
     except Exception:

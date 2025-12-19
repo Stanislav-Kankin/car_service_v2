@@ -381,6 +381,7 @@ class ScActionIn(BaseModel):
 
 class ScDoneIn(BaseModel):
     service_center_id: int
+    final_price_text: str | None = None
     final_price: float | None = None
 
 

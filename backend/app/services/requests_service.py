@@ -303,6 +303,7 @@ class RequestsService:
         service_center_id: int,
         *,
         final_price: float | None = None,
+        final_price_text: str | None = None,
         notify_client_telegram_id: int | None = None,  # оставляем параметр, но он больше не обязателен
     ) -> Optional[Request]:
         req = await RequestsService.get_request_by_id(db, request_id)
@@ -317,6 +318,10 @@ class RequestsService:
             return req
 
         req.status = RequestStatus.DONE
+
+        if final_price_text is not None:
+            req.final_price_text = final_price_text
+
         if final_price is not None:
             req.final_price = float(final_price)
 
@@ -336,7 +341,12 @@ class RequestsService:
             tg_id = getattr(client, "telegram_id", None) if client else None
 
         if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
-            text_price = f"\n💰 Итоговая цена: {req.final_price:.0f}" if req.final_price is not None else ""
+            text_price = ""
+            if getattr(req, "final_price_text", None):
+                text_price = f"\n💰 Итоговая цена: {req.final_price_text}"
+            elif req.final_price is not None:
+                text_price = f"\n💰 Итоговая цена: {req.final_price:.0f}"
+
             await notifier.send_notification(
                 recipient_type="client",
                 telegram_id=int(tg_id),
