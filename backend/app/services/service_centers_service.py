@@ -114,85 +114,61 @@ class ServiceCentersService:
         is_active: Optional[bool] = True,
         has_tow_truck: Optional[bool] = None,
         is_mobile_service: Optional[bool] = None,
+        fallback_to_category: bool = True,
     ) -> List[ServiceCenter]:
         """
-        Подбор СТО:
-        1) фильтры активности / tow / mobile
-        2) фильтр по специализациям
-        3) если заданы координаты и радиус -> geo-фильтр
-        ❗ если geo-фильтр дал пусто -> fallback: вернуть "все по категории" (без гео),
-            как было раньше по твоему описанию.
+        Ищем СТО по:
+          - категории/специализациям
+          - флагам (активен, эвакуатор, выездной)
+          - гео (если пришли latitude/longitude + radius_km)
+
+        Возвращаем список СТО, отсортированный по расстоянию (если geo включено).
+
+        ⚠️ ВАЖНО:
+          - если geo-фильтр дал пусто -> можно сделать fallback "все по категории" (без гео)
+            (для сохранения старого поведения). Для рассылки "Отправить всем" мы будем отключать fallback.
         """
-        stmt = select(ServiceCenter).options(selectinload(ServiceCenter.owner))
+
+        # 1) Базовый запрос "по категории/флагам" (без гео)
+        stmt = select(ServiceCenter)
+
+        if specializations:
+            stmt = stmt.where(ServiceCenter.specializations.overlap(specializations))
 
         if is_active is not None:
             stmt = stmt.where(ServiceCenter.is_active == is_active)
+
         if has_tow_truck is not None:
             stmt = stmt.where(ServiceCenter.has_tow_truck == has_tow_truck)
+
         if is_mobile_service is not None:
             stmt = stmt.where(ServiceCenter.is_mobile_service == is_mobile_service)
 
-        result = await db.execute(stmt)
-        items: List[ServiceCenter] = list(result.scalars().all())
+        res = await db.execute(stmt)
+        items_by_category = list(res.scalars().all())
 
-        # 1) Специализации
-        if specializations:
-            wanted = set(specializations)
-            items = [
-                sc
-                for sc in items
-                if sc.specializations and wanted & set(sc.specializations)
-            ]
+        # 2) Если geo не задано — возвращаем как раньше
+        if latitude is None or longitude is None or not radius_km:
+            return items_by_category
 
-        # сохраним "по категории" ДО гео (для fallback)
-        items_by_category = list(items)
+        # 3) Geo-фильтрация по радиусу
+        items_geo: list[tuple[ServiceCenter, float]] = []
+        for sc in items_by_category:
+            if sc.latitude is None or sc.longitude is None:
+                continue
 
-        # 2) Гео-фильтр (если есть входные координаты и радиус)
-        if (
-            latitude is not None
-            and longitude is not None
-            and radius_km is not None
-            and radius_km > 0
-        ):
-            origin_lat = float(latitude)
-            origin_lon = float(longitude)
+            dist = ServiceCentersService._haversine_km(
+                latitude, longitude, sc.latitude, sc.longitude
+            )
+            if dist <= radius_km:
+                items_geo.append((sc, dist))
 
-            def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-                R = 6371.0
-                phi1 = math.radians(lat1)
-                phi2 = math.radians(lat2)
-                dphi = math.radians(lat2 - lat1)
-                dlambda = math.radians(lon2 - lon1)
-                a = (
-                    math.sin(dphi / 2) ** 2
-                    + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-                )
-                c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-                return R * c
+        items_geo.sort(key=lambda x: x[1])
+        items = [sc for sc, _dist in items_geo]
 
-            filtered_with_dist = []
-            for sc in items:
-                # если у СТО нет координат — в geo-режиме он не может быть "рядом"
-                if sc.latitude is None or sc.longitude is None:
-                    continue
-
-                dist = haversine_km(
-                    origin_lat,
-                    origin_lon,
-                    float(sc.latitude),
-                    float(sc.longitude),
-                )
-                if dist <= radius_km:
-                    filtered_with_dist.append((dist, sc))
-
-            filtered_with_dist.sort(key=lambda x: x[0])
-            items_geo = [sc for _, sc in filtered_with_dist]
-
-            # ✅ fallback: если "рядом" никого — вернём "все по категории"
-            if not items_geo:
-                return items_by_category
-
-            return items_geo
+        # ✅ fallback: если "рядом" никого — по желанию вернём "все по категории"
+        if not items_geo:
+            return items_by_category if fallback_to_category else []
 
         return items
 

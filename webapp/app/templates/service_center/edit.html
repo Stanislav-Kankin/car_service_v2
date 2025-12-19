@@ -3,6 +3,7 @@
 {% block title %}Редактирование СТО — CarBot{% endblock %}
 
 {% block content %}
+{% set sc = service_center or {} %}
 <div class="mt-8 space-y-6">
     <a href="/sc/dashboard" class="text-xs text-slate-400 hover:text-emerald-400 transition">
         ← Назад в кабинет СТО
@@ -14,160 +15,197 @@
         <div class="relative z-10 p-6 md:p-8 space-y-6">
             <div>
                 <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
-                    Профиль сервисного центра
+                    СТО
                 </p>
-                <h1 class="text-2xl font-semibold">
-                    {{ service_center.name }}
+                <h1 class="text-2xl md:text-3xl font-black text-slate-50 leading-tight">
+                    Редактирование профиля
                 </h1>
-                <p class="text-sm text-slate-300">
-                    Обновите контактные данные, формат работы и статус активности сервиса.
+                <p class="text-sm text-slate-400 mt-2 max-w-xl">
+                    Обновите данные сервиса.
                 </p>
-                <p class="text-xs text-slate-400 mt-2">
-                    ID: {{ service_center.id }}
-                </p>
-                <div class="mt-2">
-                    {% if service_center.is_active %}
-                    <span class="inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">
-                        ● Активный
-                    </span>
-                    {% else %}
-                    <span class="inline-flex items-center rounded-full border border-slate-500/60 bg-slate-700/40 px-3 py-1 text-[11px] font-semibold text-slate-200">
-                        ● Неактивный
-                    </span>
-                    {% endif %}
-                </div>
             </div>
-
-            {% if success %}
-            <div class="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                Изменения сохранены ✅
-            </div>
-            {% endif %}
 
             {% if error_message %}
-            <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            <div class="rounded-2xl bg-red-500/10 border border-red-500/30 p-4 text-sm text-red-200">
                 {{ error_message }}
             </div>
             {% endif %}
 
+            {% if success %}
+            <div class="rounded-2xl bg-emerald-500/10 border border-emerald-500/30 p-4 text-sm text-emerald-200">
+                ✅ Изменения сохранены.
+            </div>
+            {% endif %}
+
             <form method="post" class="space-y-6">
-                <div class="grid md:grid-cols-2 gap-4">
-                    <div class="space-y-2">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-slate-300">
-                            Название сервиса*
+                            Название
                         </label>
-                        <input name="name" value="{{ service_center.name }}"
-                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                        <input type="text" name="name" value="{{ sc.name or '' }}"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                           placeholder="Например: АвтоСервис №1" required>
                     </div>
 
-                    <div class="space-y-2">
+                    <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-slate-300">
                             Телефон
                         </label>
-                        <input name="phone" value="{{ service_center.phone or '' }}"
-                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                    </div>
-
-                    <div class="space-y-2 md:col-span-2">
-                        <label class="block text-xs font-semibold text-slate-300">
-                            Адрес
-                        </label>
-                        <input name="address" value="{{ service_center.address or '' }}"
-                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                    </div>
-
-                    <div class="space-y-2 md:col-span-2">
-                        <label class="block text-xs font-semibold text-slate-300">
-                            Сайт или страница в соцсетях
-                        </label>
-                        <input name="website" value="{{ service_center.website or '' }}"
-                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                    </div>
-
-                    <div class="space-y-2">
-                        <label class="block text-xs font-semibold text-slate-300">
-                            Тип организации
-                        </label>
-                        <select name="org_type"
-                                class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                            <option value="company"
-                                    {% if service_center.org_type == "company" %}selected{% endif %}>
-                                Юрлицо / ИП
-                            </option>
-                            <option value="individual"
-                                    {% if service_center.org_type == "individual" %}selected{% endif %}>
-                                Частный мастер
-                            </option>
-                        </select>
-                    </div>
-
-                    {# ✅ НОВОЕ: специализации #}
-                    <div class="space-y-2 md:col-span-2">
-                        <label class="block text-xs font-semibold text-slate-300">
-                            Специализации (обязательно)
-                        </label>
-
-                        {% if specialization_options %}
-                        <div class="flex flex-wrap gap-2">
-                            {% set current_specs = service_center.specializations or [] %}
-                            {% for code, label in specialization_options %}
-                            <label class="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-200 cursor-pointer hover:border-emerald-400/60 hover:bg-slate-900 transition">
-                                <input type="checkbox" name="specializations" value="{{ code }}"
-                                       {% if code in current_specs %}checked{% endif %}
-                                       class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
-                                <span>{{ label }}</span>
-                            </label>
-                            {% endfor %}
-                        </div>
-                        <p class="text-xs text-slate-400 mt-2">
-                            Выберите минимум одну специализацию — по ним система будет рассылать заявки.
-                        </p>
-                        {% else %}
-                        <p class="text-xs text-slate-400">
-                            Список специализаций недоступен.
-                        </p>
-                        {% endif %}
-                    </div>
-
-                    <div class="space-y-2">
-                        <label class="block text-xs font-semibold text-slate-300">
-                            Формат работы и статус
-                        </label>
-                        <div class="flex flex-col gap-2 text-sm text-slate-200">
-                            <label class="inline-flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" name="is_mobile_service" value="true"
-                                       {% if service_center.is_mobile_service %}checked{% endif %}
-                                       class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
-                                <span>Выездной сервис (мастер приезжает к клиенту)</span>
-                            </label>
-                            <label class="inline-flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" name="has_tow_truck" value="true"
-                                       {% if service_center.has_tow_truck %}checked{% endif %}
-                                       class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
-                                <span>Есть эвакуатор</span>
-                            </label>
-                            <label class="inline-flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" name="is_active" value="true"
-                                       {% if service_center.is_active %}checked{% endif %}
-                                       class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
-                                <span>Сервис активен и готов получать заявки</span>
-                            </label>
-                        </div>
+                        <input type="text" name="phone" value="{{ sc.phone or '' }}"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                           placeholder="+7 900 000-00-00">
                     </div>
                 </div>
 
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
-                    <p class="text-xs text-slate-400 max-w-md">
-                        Изменения вступают в силу сразу.
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-slate-300">
+                        Адрес
+                    </label>
+                    <input type="text" name="address" required value="{{ sc.address or '' }}"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                           placeholder="Город, улица, дом">
+                    <input type="hidden" id="sc-lat" name="latitude" value="{{ sc.latitude or '' }}"/>
+                    <input type="hidden" id="sc-lon" name="longitude" value="{{ sc.longitude or '' }}"/>
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <button type="button" id="btn-sc-geo"
+                                class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-800 transition">
+                            📍 Обновить геолокацию
+                        </button>
+                        <span id="sc-geo-status" class="text-[11px] text-slate-500">
+                            {% if sc.latitude and sc.longitude %}Геолокация сохранена ✅{% else %}Геолокация не указана{% endif %}
+                        </span>
+                    </div>
+                    <p id="sc-geo-coords" class="text-[11px] text-slate-500 mt-2">
+                        {% if sc.latitude and sc.longitude %}Координаты: {{ sc.latitude }}, {{ sc.longitude }}{% endif %}
                     </p>
+                </div>
 
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Сайт / соцсети
+                        </label>
+                        <input type="text" name="website" value="{{ sc.website or '' }}"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                           placeholder="https://...">
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-300">
+                            Тип
+                        </label>
+                        <select name="org_type"
+                                class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                            <option value="company" {% if (sc.org_type or 'company') == 'company' %}selected{% endif %}>Компания</option>
+                            <option value="private" {% if (sc.org_type or 'company') == 'private' %}selected{% endif %}>Частник</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label class="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 cursor-pointer hover:bg-slate-900/60 transition">
+                        <input type="checkbox" name="is_mobile_service" {% if sc.is_mobile_service %}checked{% endif %} class="accent-emerald-500">
+                        <span class="text-sm text-slate-100 font-semibold">Выездной мастер</span>
+                    </label>
+
+                    <label class="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 cursor-pointer hover:bg-slate-900/60 transition">
+                        <input type="checkbox" name="has_tow_truck" {% if sc.has_tow_truck %}checked{% endif %} class="accent-emerald-500">
+                        <span class="text-sm text-slate-100 font-semibold">Есть эвакуатор</span>
+                    </label>
+                </div>
+
+                <label class="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 cursor-pointer hover:bg-slate-900/60 transition">
+                    <input type="checkbox" name="is_active" {% if sc.is_active %}checked{% endif %} class="accent-emerald-500">
+                    <div>
+                        <div class="text-sm text-slate-100 font-semibold">
+                            Активно (показывать в подборе)
+                        </div>
+                        <div class="text-[11px] text-slate-500">
+                            Если выключено — СТО не будет получать заявки.
+                        </div>
+                    </div>
+                </label>
+
+                <div class="space-y-2">
+                    <div class="text-xs font-semibold text-slate-300">
+                        Специализации (минимум одна)
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {% for code, label in specialization_options %}
+                        <label class="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 cursor-pointer hover:bg-slate-900/60 transition">
+                            <input type="checkbox" name="specializations" value="{{ code }}" {% if code in (sc.specializations or []) %}checked{% endif %} class="accent-emerald-500">
+                            <span class="text-sm text-slate-100">{{ label }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-3">
                     <button type="submit"
-                            class="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-                        Сохранить изменения
+                            class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 text-sm font-bold shadow-md shadow-emerald-600/20 transition">
+                        Сохранить
                     </button>
+
+                    <a href="/sc/dashboard"
+                       class="inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-100 px-6 py-3 text-sm font-bold border border-slate-700 transition">
+                        Отмена
+                    </a>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+<script>
+(function () {
+    const btn = document.getElementById("btn-sc-geo");
+    const status = document.getElementById("sc-geo-status");
+    const coords = document.getElementById("sc-geo-coords");
+    const latInput = document.getElementById("sc-lat");
+    const lonInput = document.getElementById("sc-lon");
+    const addressInput = document.querySelector('input[name="address"]');
+
+    const setStatus = (text, ok = false) => {
+        if (!status) return;
+        status.textContent = text;
+        status.className = "text-[11px] " + (ok ? "text-emerald-300" : "text-slate-500");
+    };
+
+    const setCoords = (lat, lon) => {
+        if (latInput) latInput.value = String(lat);
+        if (lonInput) lonInput.value = String(lon);
+        if (coords) coords.textContent = `Координаты: ${lat}, ${lon}`;
+    };
+
+    if (btn) {
+        btn.addEventListener("click", () => {
+            if (!navigator.geolocation) {
+                setStatus("Геолокация недоступна в браузере", false);
+                return;
+            }
+
+            setStatus("Определяем местоположение…", false);
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude.toFixed(6);
+                    const lon = pos.coords.longitude.toFixed(6);
+                    setCoords(lat, lon);
+                    setStatus("Геолокация сохранена ✅", true);
+
+                    if (addressInput && !addressInput.value.trim()) {
+                        addressInput.value = "Текущее местоположение";
+                    }
+                },
+                (err) => {
+                    setStatus("Не удалось получить геолокацию: " + (err && err.message ? err.message : "ошибка"), false);
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+            );
+        });
+    }
+})();
+</script>
+
 {% endblock %}

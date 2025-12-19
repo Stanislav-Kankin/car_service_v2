@@ -1,55 +1,60 @@
 {% extends "layout/base.html" %}
 
-{% block title %}Новый СТО — CarBot{% endblock %}
+{% block title %}Регистрация СТО — CarBot{% endblock %}
 
 {% block content %}
+{% set fd = form_data or {} %}
 <div class="mt-8 space-y-6">
-    <a href="/sc/dashboard" class="text-xs text-slate-400 hover:text-emerald-400 transition">
-        ← Назад в кабинет СТО
+    <a href="/me/dashboard" class="text-xs text-slate-400 hover:text-emerald-400 transition">
+        ← Назад
     </a>
 
     <div class="relative">
         <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
 
         <div class="relative z-10 p-6 md:p-8 space-y-6">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                    <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
-                        Регистрация сервисного центра
-                    </p>
-                    <h1 class="text-2xl font-semibold">
-                        Добавить новый СТО
-                    </h1>
-                    <p class="text-sm text-slate-300 mt-1">
-                        Укажите базовую информацию — адрес, телефон и сайт. Теперь специализации указываем сразу (обязательно).
-                    </p>
-                </div>
+            <div>
+                <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80 mb-1">
+                    СТО
+                </p>
+                <h1 class="text-2xl md:text-3xl font-black text-slate-50 leading-tight">
+                    Регистрация сервиса
+                </h1>
+                <p class="text-sm text-slate-400 mt-2 max-w-xl">
+                    Заполните данные — мы отправим заявку на модерацию.
+                </p>
             </div>
 
             {% if error_message %}
-            <div class="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            <div class="rounded-2xl bg-red-500/10 border border-red-500/30 p-4 text-sm text-red-200">
                 {{ error_message }}
             </div>
             {% endif %}
 
-            <form method="post" class="space-y-5">
-                <div class="grid md:grid-cols-2 gap-4">
+            {% if success %}
+            <div class="rounded-2xl bg-emerald-500/10 border border-emerald-500/30 p-4 text-sm text-emerald-200">
+                ✅ Заявка на модерацию отправлена. Мы уведомим вас после проверки.
+            </div>
+            {% endif %}
+
+            <form method="post" class="space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-slate-300">
-                            Название сервиса<span class="text-red-400">*</span>
+                            Название
                         </label>
-                        <input type="text" name="name" required
-                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
-                               placeholder="Например, CarFix Service или 'СТО на Пушкина'">
+                        <input type="text" name="name" value="{{ fd.name or '' }}"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                           placeholder="Например: АвтоСервис №1" required>
                     </div>
 
                     <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-slate-300">
                             Телефон
                         </label>
-                        <input type="text" name="phone"
-                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
-                               placeholder="+7 900 000-00-00">
+                        <input type="text" name="phone" value="{{ fd.phone or '' }}"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                           placeholder="+7 900 000-00-00">
                     </div>
                 </div>
 
@@ -57,93 +62,138 @@
                     <label class="block text-xs font-semibold text-slate-300">
                         Адрес
                     </label>
-                    <input type="text" name="address"
-                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                    <input type="text" name="address" required value="{{ fd.address or '' }}"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
                            placeholder="Город, улица, дом">
+                    <input type="hidden" id="sc-lat" name="latitude" value="{{ fd.latitude or '' }}"/>
+                    <input type="hidden" id="sc-lon" name="longitude" value="{{ fd.longitude or '' }}"/>
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <button type="button" id="btn-sc-geo"
+                                class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-800 transition">
+                            📍 Указать точку на карте
+                        </button>
+                        <span id="sc-geo-status" class="text-[11px] text-slate-500">
+                            {% if fd.latitude and fd.longitude %}Геолокация сохранена ✅{% else %}Геолокация не указана{% endif %}
+                        </span>
+                    </div>
+                    <p id="sc-geo-coords" class="text-[11px] text-slate-500 mt-2">
+                        {% if fd.latitude and fd.longitude %}Координаты: {{ fd.latitude }}, {{ fd.longitude }}{% endif %}
+                    </p>
                 </div>
 
-                <div class="space-y-1.5">
-                    <label class="block text-xs font-semibold text-slate-300">
-                        Сайт или страница в соцсетях
-                    </label>
-                    <input type="text" name="website"
-                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
-                           placeholder="https://...">
-                </div>
-
-                <div class="grid md:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-slate-300">
-                            Тип организации
+                            Сайт / соцсети
                         </label>
-                        <select name="org_type"
-                                class="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-50 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                            <option value="company">Юрлицо / ИП</option>
-                            <option value="individual">Частный мастер</option>
-                        </select>
+                        <input type="text" name="website" value="{{ fd.website or '' }}"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                           placeholder="https://...">
                     </div>
 
-                    <div class="space-y-2">
+                    <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-slate-300">
-                            Формат работы
+                            Тип
                         </label>
-                        <div class="flex flex-col gap-2 text-sm text-slate-200">
-                            <label class="inline-flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" name="is_mobile_service" value="true"
-                                       class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
-                                <span>Выездной сервис (мастер приезжает к клиенту)</span>
-                            </label>
-                            <label class="inline-flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" name="has_tow_truck" value="true"
-                                       class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
-                                <span>Есть эвакуатор</span>
-                            </label>
-                        </div>
+                        <select name="org_type"
+                                class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                            <option value="company" {% if (fd.org_type or 'company') == 'company' %}selected{% endif %}>Компания</option>
+                            <option value="private" {% if (fd.org_type or 'company') == 'private' %}selected{% endif %}>Частник</option>
+                        </select>
                     </div>
                 </div>
 
-                <!-- ✅ НОВОЕ: Специализации (обязательно) -->
-                <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
-                    <div class="flex items-start justify-between gap-3">
-                        <div>
-                            <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
-                                Специализации<span class="text-red-400">*</span>
-                            </p>
-                            <p class="text-sm text-slate-300 mt-1">
-                                Выберите минимум одну — по ним будут приходить заявки.
-                            </p>
-                        </div>
-                    </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label class="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 cursor-pointer hover:bg-slate-900/60 transition">
+                        <input type="checkbox" name="is_mobile_service" {% if fd.is_mobile_service %}checked{% endif %} class="accent-emerald-500">
+                        <span class="text-sm text-slate-100 font-semibold">Выездной мастер</span>
+                    </label>
 
-                    {% if specialization_options %}
-                    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 text-sm text-slate-200">
+                    <label class="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 cursor-pointer hover:bg-slate-900/60 transition">
+                        <input type="checkbox" name="has_tow_truck" {% if fd.has_tow_truck %}checked{% endif %} class="accent-emerald-500">
+                        <span class="text-sm text-slate-100 font-semibold">Есть эвакуатор</span>
+                    </label>
+                </div>
+
+                <div class="space-y-2">
+                    <div class="text-xs font-semibold text-slate-300">
+                        Специализации (минимум одна)
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {% for code, label in specialization_options %}
-                        <label class="inline-flex items-center gap-2 cursor-pointer rounded-xl border border-slate-800 bg-slate-950/30 px-3 py-2 hover:border-emerald-500/40 transition">
-                            <input type="checkbox" name="specializations" value="{{ code }}"
-                                   class="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500/60">
-                            <span class="leading-tight">{{ label }}</span>
+                        <label class="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 cursor-pointer hover:bg-slate-900/60 transition">
+                            <input type="checkbox" name="specializations" value="{{ code }}" {% if code in (fd.specializations or []) %}checked{% endif %} class="accent-emerald-500">
+                            <span class="text-sm text-slate-100">{{ label }}</span>
                         </label>
                         {% endfor %}
                     </div>
-                    {% else %}
-                    <p class="text-sm text-slate-300">
-                        Список специализаций не загружен. Сообщите администратору.
-                    </p>
-                    {% endif %}
                 </div>
 
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
-                    <p class="text-xs text-slate-400 max-w-md">
-                        После создания СТО попадёт на модерацию и станет активной только после подтверждения админом.
-                    </p>
-
+                <div class="flex flex-col sm:flex-row gap-3">
                     <button type="submit"
-                            class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 transition">
-                        Сохранить и отправить на модерацию
+                            class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 text-sm font-bold shadow-md shadow-emerald-600/20 transition">
+                        Отправить на модерацию
                     </button>
+
+                    <a href="/me/dashboard"
+                       class="inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-100 px-6 py-3 text-sm font-bold border border-slate-700 transition">
+                        Отмена
+                    </a>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+<script>
+(function () {
+    const btn = document.getElementById("btn-sc-geo");
+    const status = document.getElementById("sc-geo-status");
+    const coords = document.getElementById("sc-geo-coords");
+    const latInput = document.getElementById("sc-lat");
+    const lonInput = document.getElementById("sc-lon");
+    const addressInput = document.querySelector('input[name="address"]');
+
+    const setStatus = (text, ok = false) => {
+        if (!status) return;
+        status.textContent = text;
+        status.className = "text-[11px] " + (ok ? "text-emerald-300" : "text-slate-500");
+    };
+
+    const setCoords = (lat, lon) => {
+        if (latInput) latInput.value = String(lat);
+        if (lonInput) lonInput.value = String(lon);
+        if (coords) coords.textContent = `Координаты: ${lat}, ${lon}`;
+    };
+
+    if (btn) {
+        btn.addEventListener("click", () => {
+            if (!navigator.geolocation) {
+                setStatus("Геолокация недоступна в браузере", false);
+                return;
+            }
+
+            setStatus("Определяем местоположение…", false);
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude.toFixed(6);
+                    const lon = pos.coords.longitude.toFixed(6);
+                    setCoords(lat, lon);
+                    setStatus("Геолокация сохранена ✅", true);
+
+                    if (addressInput && !addressInput.value.trim()) {
+                        addressInput.value = "Текущее местоположение";
+                    }
+                },
+                (err) => {
+                    setStatus("Не удалось получить геолокацию: " + (err && err.message ? err.message : "ошибка"), false);
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+            );
+        });
+    }
+})();
+</script>
+
 {% endblock %}

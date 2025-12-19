@@ -736,11 +736,6 @@ async def request_create_get(
 # Создание заявки — POST
 # --------------------------------------------------------------------
 
-
-# ------------------------------------------------------------------------------
-# Создание заявки — POST (ИСПРАВЛЕННАЯ ВЕРСИЯ)
-# ------------------------------------------------------------------------------
-
 @router.post("/requests/create", response_class=HTMLResponse)
 async def request_create_post(
     request: Request,
@@ -750,20 +745,20 @@ async def request_create_post(
     car_id_raw: str = Form("", alias="car_id"),
 
     address_text: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
+
     is_car_movable: str = Form("movable"),
     radius_km: int = Form(5),
-    service_category: str = Form("sto"),
-    description: str = Form(...),
+    service_category: str = Form("mechanic"),
+    description: str = Form(""),
     hide_phone: bool = Form(False),
 ) -> HTMLResponse:
-
     user_id = get_current_user_id(request)
 
-    # -----------------------------------
-    #  car_id: корректная валидация
-    # -----------------------------------
-    car_id_raw = (car_id_raw or "").strip()
-    if not car_id_raw:
+    # car_id обязателен
+    if not car_id_raw.strip():
+        primary_categories, extra_categories = _build_service_categories()
         return templates.TemplateResponse(
             "user/request_create.html",
             {
@@ -771,11 +766,13 @@ async def request_create_post(
                 "car_id": None,
                 "car": None,
                 "created_request": None,
-                "error_message": "Сначала выберите автомобиль в гараже, а потом создавайте заявку.",
-                "primary_categories": _build_service_categories()[0],
-                "extra_categories": _build_service_categories()[1],
+                "error_message": "Сначала выберите автомобиль.",
+                "primary_categories": primary_categories,
+                "extra_categories": extra_categories,
                 "form_data": {
                     "address_text": address_text,
+                    "latitude": latitude,
+                    "longitude": longitude,
                     "is_car_movable": is_car_movable,
                     "radius_km": radius_km,
                     "service_category": service_category,
@@ -796,63 +793,91 @@ async def request_create_post(
                 "car": None,
                 "created_request": None,
                 "error_message": "Некорректный идентификатор автомобиля.",
-                "primary_categories": _build_service_categories()[0],
-                "extra_categories": _build_service_categories()[1],
+                "primary_categories": [],
+                "extra_categories": [],
                 "form_data": {},
             },
         )
 
-    # -----------------------------------
-    #   Подгружаем авто
-    # -----------------------------------
+    # подтянем авто для отображения
+    car = None
     try:
-        car_resp = await client.get(f"/api/v1/cars/{car_id}")
-        car_resp.raise_for_status()
-        car = car_resp.json()
+        r = await client.get(f"/api/v1/cars/{car_id}")
+        if r.status_code == 200:
+            car = r.json()
     except Exception:
         car = None
 
     movable = is_car_movable == "movable"
 
-    payload = {
-        "user_id": user_id,
-        "car_id": car_id,
-        "latitude": None,
-        "longitude": None,
-        "address_text": address_text or None,
-        "is_car_movable": movable,
-        "need_tow_truck": not movable,
-        "need_mobile_master": not movable,
-        "radius_km": radius_km,
-        "service_category": service_category,
-        "description": description,
-        "photos": [],
-        "hide_phone": hide_phone,
-    }
+    # -----------------------------------
+    #   Валидация: адрес обязателен
+    # -----------------------------------
+    if not address_text or not address_text.strip():
+        primary_categories, extra_categories = _build_service_categories()
+        return templates.TemplateResponse(
+            "user/request_create.html",
+            {
+                "request": request,
+                "car_id": car_id,
+                "car": car,
+                "created_request": None,
+                "error_message": "Укажите адрес или ориентир (это обязательное поле).",
+                "primary_categories": primary_categories,
+                "extra_categories": extra_categories,
+                "form_data": {
+                    "address_text": "",
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "is_car_movable": is_car_movable,
+                    "radius_km": radius_km,
+                    "service_category": service_category,
+                    "description": description,
+                    "hide_phone": hide_phone,
+                },
+            },
+        )
 
     # -----------------------------------
-    #   Создание заявки
+    #   Геолокация (опционально для создания, обязательна для рассылки всем)
     # -----------------------------------
-    form_data = {
-        "address_text": address_text,
-        "is_car_movable": is_car_movable,
+    lat_value: float | None = None
+    lon_value: float | None = None
+
+    if (latitude or "").strip() and (longitude or "").strip():
+        try:
+            lat_value = float(latitude)
+            lon_value = float(longitude)
+        except ValueError:
+            lat_value = None
+            lon_value = None
+
+    payload = {
+        "client_id": user_id,
+        "car_id": car_id,
+        "address_text": (address_text.strip() if address_text and address_text.strip() else None),
+        "latitude": lat_value,
+        "longitude": lon_value,
+        "is_car_movable": movable,
+        "need_tow_truck": (not movable),
+        "need_mobile_master": (not movable),
         "radius_km": radius_km,
         "service_category": service_category,
         "description": description,
-        "hide_phone": hide_phone,
+        "hide_phone": bool(hide_phone),
     }
+
+    created_request = None
+    error_message = None
 
     try:
         resp = await client.post("/api/v1/requests/", json=payload)
         resp.raise_for_status()
         created_request = resp.json()
-        error_message = None
     except Exception:
-        created_request = None
         error_message = "Не удалось создать заявку. Попробуйте позже."
 
     primary_categories, extra_categories = _build_service_categories()
-
     return templates.TemplateResponse(
         "user/request_create.html",
         {
@@ -863,7 +888,16 @@ async def request_create_post(
             "error_message": error_message,
             "primary_categories": primary_categories,
             "extra_categories": extra_categories,
-            "form_data": form_data,
+            "form_data": {
+                "address_text": address_text,
+                "latitude": latitude,
+                "longitude": longitude,
+                "is_car_movable": is_car_movable,
+                "radius_km": radius_km,
+                "service_category": service_category,
+                "description": description,
+                "hide_phone": hide_phone,
+            },
         },
     )
 

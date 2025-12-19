@@ -299,22 +299,108 @@ async def sc_create_get(
 
 
 @router.post("/create", response_class=HTMLResponse)
+a@router.post("/create", response_class=HTMLResponse)
 async def sc_create_post(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
     name: str = Form(...),
     address: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     phone: str = Form(""),
     website: str = Form(""),
     org_type: str = Form("company"),
+    specializations: list[str] = Form([]),
     is_mobile_service: bool = Form(False),
     has_tow_truck: bool = Form(False),
-    specializations: list[str] = Form(default_factory=list),
 ) -> HTMLResponse:
     user_id = get_current_user_id(request)
+    address = (address or "").strip()
 
-    specializations = [s.strip() for s in (specializations or []) if s and s.strip()]
-    if not specializations:
+    # -----------------------------------
+    #   Валидация: адрес + координаты обязательны для СТО
+    # -----------------------------------
+    if not address:
+        specialization_options = [
+            ("wash", "Автомойка"),
+            ("tire", "Шиномонтаж"),
+            ("electric", "Автоэлектрик"),
+            ("mechanic", "Слесарные работы"),
+            ("paint", "Кузовные/покраска"),
+            ("maint", "ТО/обслуживание"),
+            ("agg_turbo", "Турбины"),
+            ("agg_starter", "Стартеры"),
+            ("agg_generator", "Генераторы"),
+            ("agg_steering", "Рулевые рейки"),
+        ]
+        return templates.TemplateResponse(
+            "service_center/create.html",
+            {
+                "request": request,
+                "error_message": "Укажите адрес СТО (обязательное поле).",
+                "specialization_options": specialization_options,
+                "form_data": {
+                    "name": name,
+                    "address": "",
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "phone": phone,
+                    "website": website,
+                    "org_type": org_type,
+                    "is_mobile_service": bool(is_mobile_service),
+                    "has_tow_truck": bool(has_tow_truck),
+                    "specializations": specializations,
+                },
+            },
+        )
+
+    lat_value: float | None = None
+    lon_value: float | None = None
+
+    if (latitude or "").strip() and (longitude or "").strip():
+        try:
+            lat_value = float(latitude)
+            lon_value = float(longitude)
+        except ValueError:
+            lat_value = None
+            lon_value = None
+
+    if lat_value is None or lon_value is None:
+        specialization_options = [
+            ("wash", "Автомойка"),
+            ("tire", "Шиномонтаж"),
+            ("electric", "Автоэлектрик"),
+            ("mechanic", "Слесарные работы"),
+            ("paint", "Кузовные/покраска"),
+            ("maint", "ТО/обслуживание"),
+            ("agg_turbo", "Турбины"),
+            ("agg_starter", "Стартеры"),
+            ("agg_generator", "Генераторы"),
+            ("agg_steering", "Рулевые рейки"),
+        ]
+        return templates.TemplateResponse(
+            "service_center/create.html",
+            {
+                "request": request,
+                "error_message": "Укажите геолокацию СТО (кнопка 📍) — без неё СТО не сможет участвовать в подборе.",
+                "specialization_options": specialization_options,
+                "form_data": {
+                    "name": name,
+                    "address": address,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "phone": phone,
+                    "website": website,
+                    "org_type": org_type,
+                    "is_mobile_service": bool(is_mobile_service),
+                    "has_tow_truck": bool(has_tow_truck),
+                    "specializations": specializations,
+                },
+            },
+        )
+
+    specs_clean = [s for s in (specializations or []) if s]
+    if not specs_clean:
         specialization_options = [
             ("wash", "Автомойка"),
             ("tire", "Шиномонтаж"),
@@ -333,49 +419,79 @@ async def sc_create_post(
                 "request": request,
                 "error_message": "Выберите минимум одну специализацию.",
                 "specialization_options": specialization_options,
+                "form_data": {
+                    "name": name,
+                    "address": address,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "phone": phone,
+                    "website": website,
+                    "org_type": org_type,
+                    "is_mobile_service": bool(is_mobile_service),
+                    "has_tow_truck": bool(has_tow_truck),
+                    "specializations": specializations,
+                },
             },
         )
 
-    payload = {
-        "user_id": user_id,
+    payload: dict[str, Any] = {
+        "owner_user_id": user_id,
         "name": name,
         "address": address or None,
+        "latitude": lat_value,
+        "longitude": lon_value,
         "phone": phone or None,
         "website": website or None,
         "org_type": org_type or None,
+        "specializations": specs_clean,
         "is_mobile_service": bool(is_mobile_service),
         "has_tow_truck": bool(has_tow_truck),
-        "specializations": specializations,
+        "is_active": False,  # новая СТО должна пройти модерацию
     }
 
-    try:
-        resp = await client.post("/api/v1/service-centers/", json=payload, follow_redirects=True)
-        resp.raise_for_status()
-    except Exception:
-        specialization_options = [
-            ("wash", "Автомойка"),
-            ("tire", "Шиномонтаж"),
-            ("electric", "Автоэлектрик"),
-            ("mechanic", "Слесарные работы"),
-            ("paint", "Кузовные/покраска"),
-            ("maint", "ТО/обслуживание"),
-            ("agg_turbo", "Турбины"),
-            ("agg_starter", "Стартеры"),
-            ("agg_generator", "Генераторы"),
-            ("agg_steering", "Рулевые рейки"),
-        ]
-        return templates.TemplateResponse(
-            "service_center/create.html",
-            {
-                "request": request,
-                "error_message": "Не удалось создать СТО. Проверьте данные и попробуйте ещё раз.",
-                "specialization_options": specialization_options,
-            },
-        )
+    error_message: str | None = None
+    success = False
 
-    return RedirectResponse(
-        url="/sc/dashboard",
-        status_code=status.HTTP_303_SEE_OTHER,
+    try:
+        resp = await client.post("/api/v1/service-centers/", json=payload)
+        resp.raise_for_status()
+        success = True
+    except Exception:
+        error_message = "Не удалось отправить заявку на модерацию. Попробуйте позже."
+
+    specialization_options = [
+        ("wash", "Автомойка"),
+        ("tire", "Шиномонтаж"),
+        ("electric", "Автоэлектрик"),
+        ("mechanic", "Слесарные работы"),
+        ("paint", "Кузовные/покраска"),
+        ("maint", "ТО/обслуживание"),
+        ("agg_turbo", "Турбины"),
+        ("agg_starter", "Стартеры"),
+        ("agg_generator", "Генераторы"),
+        ("agg_steering", "Рулевые рейки"),
+    ]
+
+    return templates.TemplateResponse(
+        "service_center/create.html",
+        {
+            "request": request,
+            "success": success,
+            "error_message": error_message,
+            "specialization_options": specialization_options,
+            "form_data": {
+                "name": name,
+                "address": address,
+                "latitude": latitude,
+                "longitude": longitude,
+                "phone": phone,
+                "website": website,
+                "org_type": org_type,
+                "is_mobile_service": bool(is_mobile_service),
+                "has_tow_truck": bool(has_tow_truck),
+                "specializations": specializations,
+            },
+        },
     )
 
 
@@ -457,6 +573,8 @@ async def sc_edit_post(
     client: AsyncClient = Depends(get_backend_client),
     name: str = Form(...),
     address: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     phone: str = Form(""),
     website: str = Form(""),
     org_type: str = Form("company"),
@@ -465,23 +583,60 @@ async def sc_edit_post(
     has_tow_truck: bool = Form(False),
     is_active: bool = Form(True),
 ) -> HTMLResponse:
-    """
-    Обработка формы редактирования СТО.
-    """
-    _ = get_current_user_id(request)
-
     specialization_options = [
         ("wash", "Автомойка"),
         ("tire", "Шиномонтаж"),
         ("electric", "Автоэлектрик"),
         ("mechanic", "Слесарные работы"),
-        ("paint", "Малярные / кузовные работы"),
-        ("maint", "ТО / обслуживание"),
-        ("agg_turbo", "Ремонт турбин"),
-        ("agg_starter", "Ремонт стартеров"),
-        ("agg_generator", "Ремонт генераторов"),
+        ("paint", "Кузовные/покраска"),
+        ("maint", "ТО/обслуживание"),
+        ("agg_turbo", "Турбины"),
+        ("agg_starter", "Стартеры"),
+        ("agg_generator", "Генераторы"),
         ("agg_steering", "Рулевые рейки"),
     ]
+
+    address = (address or "").strip()
+
+    # -----------------------------------
+    #   Валидация: адрес + координаты обязательны для СТО
+    # -----------------------------------
+    if not address:
+        sc = await _load_sc_for_owner(request, client, sc_id)
+        return templates.TemplateResponse(
+            "service_center/edit.html",
+            {
+                "request": request,
+                "service_center": sc,
+                "error_message": "Укажите адрес СТО (обязательное поле).",
+                "success": False,
+                "specialization_options": specialization_options,
+            },
+        )
+
+    lat_value: float | None = None
+    lon_value: float | None = None
+
+    if (latitude or "").strip() and (longitude or "").strip():
+        try:
+            lat_value = float(latitude)
+            lon_value = float(longitude)
+        except ValueError:
+            lat_value = None
+            lon_value = None
+
+    if lat_value is None or lon_value is None:
+        sc = await _load_sc_for_owner(request, client, sc_id)
+        return templates.TemplateResponse(
+            "service_center/edit.html",
+            {
+                "request": request,
+                "service_center": sc,
+                "error_message": "Укажите геолокацию СТО (кнопка 📍) — без неё СТО не сможет участвовать в подборе.",
+                "success": False,
+                "specialization_options": specialization_options,
+            },
+        )
 
     specs_clean = [s for s in (specializations or []) if s]
     if not specs_clean:
@@ -500,6 +655,8 @@ async def sc_edit_post(
     payload: dict[str, Any] = {
         "name": name,
         "address": address or None,
+        "latitude": lat_value,
+        "longitude": lon_value,
         "phone": phone or None,
         "website": website or None,
         "org_type": org_type or None,
@@ -520,6 +677,8 @@ async def sc_edit_post(
         success = True
     except Exception:
         error_message = "Не удалось сохранить изменения. Попробуйте позже."
+
+    if sc is None:
         try:
             sc = await _load_sc_for_owner(request, client, sc_id)
         except HTTPException:

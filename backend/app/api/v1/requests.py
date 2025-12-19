@@ -73,66 +73,33 @@ async def send_request_to_all_service_centers(
             detail="Request not found",
         )
 
-    spec_codes = get_specializations_for_category(request.service_category)
+    # ⚠️ ВАЖНО: "Отправить всем" разрешаем только при наличии геолокации и радиуса
+    if request.latitude is None or request.longitude is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Нужно указать геолокацию (точку) заявки, чтобы разослать всем СТО.",
+        )
+    if request.radius_km is None or request.radius_km <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Нужно выбрать радиус поиска, чтобы разослать всем СТО.",
+        )
 
-    if spec_codes is None and request.service_category and request.service_category not in ("sto",):
-        spec_codes = [request.service_category]
-
-    specializations = spec_codes or None
-
-    service_centers: List[ServiceCenter] = await ServiceCentersService.search_service_centers(
+    service_centers = await ServiceCentersService.search_service_centers(
         db,
         latitude=request.latitude,
         longitude=request.longitude,
         radius_km=request.radius_km,
-        specializations=specializations,
+        specializations=[request.service_category] if request.service_category else None,
         is_active=True,
+        fallback_to_category=False,
     )
 
-    service_center_ids = [sc.id for sc in service_centers]
-
-    if not service_center_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No service centers found for this request",
-        )
-
-    distributed_request = await RequestsService.distribute_request_to_service_centers(
-        db,
-        request_id=request_id,
-        service_center_ids=service_center_ids,
+    await RequestsService.send_request_to_all_service_centers(
+        db, request_id=request_id, service_centers=service_centers
     )
 
-    if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
-        cat_code = request.service_category or "—"
-        cat_label = SERVICE_CATEGORY_LABELS.get(cat_code, cat_code)
-
-        for sc in service_centers:
-            owner = sc.owner
-            if not owner or not getattr(owner, "telegram_id", None):
-                continue
-
-            url = f"{WEBAPP_PUBLIC_URL}/sc/{sc.id}/requests/{request_id}"
-
-            message = (
-                f"🆕 У вас новая заявка №{request_id}\n"
-                f"Категория: {cat_label}"
-            )
-
-            await notifier.send_notification(
-                recipient_type="service_center",
-                telegram_id=owner.telegram_id,
-                message=message,
-                buttons=[
-                    {"text": "Открыть заявку", "type": "web_app", "url": url},
-                ],
-                extra={
-                    "request_id": request_id,
-                    "service_center_id": sc.id,
-                },
-            )
-
-    return distributed_request
+    return await RequestsService.get_request_by_id(db, request_id)
 
 
 # ---------------------------------------------------------------------------
