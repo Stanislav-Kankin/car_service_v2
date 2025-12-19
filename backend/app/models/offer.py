@@ -47,6 +47,10 @@ class Offer(Base):
         nullable=True,
         doc="Кэшбек, % (0-100). Используется для начисления бонусов при завершении заявки.",
     )
+    # ✅ новые текстовые поля (свободный ввод)
+    price_text = Column(String(100), nullable=True)
+    eta_text = Column(String(100), nullable=True)
+
 
     comment = Column(Text, nullable=True)
 
