@@ -33,6 +33,7 @@ class Offer(Base):
         nullable=False,
         index=True,
     )
+
     service_center_id = Column(
         Integer,
         ForeignKey("service_centers.id", ondelete="CASCADE"),
@@ -40,17 +41,19 @@ class Offer(Base):
         index=True,
     )
 
+    # старые поля (совместимость)
     price = Column(Numeric(10, 2), nullable=True)
     eta_hours = Column(Integer, nullable=True)  # срок в часах/днях, трактуем в сервисе
+
+    # ✅ новые текстовые поля (свободный ввод)
+    price_text = Column(String(100), nullable=True)
+    eta_text = Column(String(100), nullable=True)
+
     cashback_percent = Column(
         Numeric(5, 2),
         nullable=True,
         doc="Кэшбек, % (0-100). Используется для начисления бонусов при завершении заявки.",
     )
-    # ✅ новые текстовые поля (свободный ввод)
-    price_text = Column(String(100), nullable=True)
-    eta_text = Column(String(100), nullable=True)
-
 
     comment = Column(Text, nullable=True)
 
@@ -64,6 +67,14 @@ class Offer(Base):
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
+        nullable=False,
+    )
+
+    # ✅ нужно для response_model (OfferRead)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )
 
