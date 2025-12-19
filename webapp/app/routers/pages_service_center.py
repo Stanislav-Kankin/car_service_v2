@@ -43,59 +43,134 @@ async def sc_dashboard(
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
     """
-    Кабинет СТО: список сервисов, привязанных к пользователю.
-    """
-    user_id = get_current_user_id(request)
-
-    service_centers: list[dict[str, Any]] = []
-    error_message: str | None = None
-
-    try:
-        resp = await client.get(f"/api/v1/service-centers/by-user/{user_id}")
-        if resp.status_code == status.HTTP_404_NOT_FOUND:
-            service_centers = []
-        else:@router.get("/dashboard", response_class=HTMLResponse)
-async def sc_dashboard(
-    request: Request,
-    client: AsyncClient = Depends(get_backend_client),
-) -> HTMLResponse:
-    """
     Кабинет СТО: список сервисов, привязанных к пользователю
     + best-effort: баланс кошелька по каждой СТО
     + best-effort: статистика заявок по каждой СТО (для UI-плашек)
     """
-    import asyncio  # локально, чтобы не трогать импорты файла
+    import asyncio
+    from typing import Any
 
     user_id = get_current_user_id(request)
 
     service_centers: list[dict[str, Any]] = []
     error_message: str | None = None
 
+    # 1) Список СТО пользователя
     try:
         resp = await client.get(f"/api/v1/service-centers/by-user/{user_id}")
         if resp.status_code == status.HTTP_404_NOT_FOUND:
             service_centers = []
         else:
             resp.raise_for_status()
-            service_centers = resp.json()
+            data = resp.json()
+            service_centers = data if isinstance(data, list) else []
     except Exception:
         error_message = "Не удалось загрузить список ваших СТО. Попробуйте позже."
         service_centers = []
 
-    # Подтягиваем баланс кошелька по каждой СТО (best-effort)
+    # 2) Баланс кошелька (best-effort)
     if service_centers:
         for sc in service_centers:
+            sc["wallet_balance"] = None
             try:
                 sc_id = sc.get("id")
-                if not sc_id:
+                if not isinstance(sc_id, int):
                     continue
+
                 w = await client.get(f"/api/v1/service-centers/{sc_id}/wallet")
-                if w.status_code == 200 and isinstance(w.json(), dict):
-                    sc["wallet_balance"] = w.json().get("balance", 0)
-                else:
-                    sc["wallet_balance"] = None
+                if w.status_code == 200:
+                    w_data = w.json()
+                    if isinstance(w_data, dict):
+                        sc["wallet_balance"] = w_data.get("balance")
             except Exception:
                 sc["wallet_balance"] = None
+
+    # 3) Статистика заявок по каждой СТО (best-effort)
+    sc_counters: dict[int, dict[str, int]] = {}
+
+    async def _fetch_requests_for_sc(sc_id: int) -> list[dict[str, Any]]:
+        try:
+            r = await client.get(f"/api/v1/requests/for-service-center/{sc_id}")
+            if r.status_code == status.HTTP_404_NOT_FOUND:
+                return []
+            if r.status_code != 200:
+                return []
+            data = r.json() or []
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    async def _has_my_offer(sc_id: int, request_id: int) -> bool:
+        """
+        True если по request_id есть оффер от данного sc_id.
+        """
+        try:
+            r = await client.get(f"/api/v1/offers/by-request/{request_id}")
+            if r.status_code != 200:
+                return False
+            offers = r.json() or []
+            if not isinstance(offers, list):
+                return False
+            for o in offers:
+                if isinstance(o, dict) and o.get("service_center_id") == sc_id:
+                    return True
+            return False
+        except Exception:
+            return False
+
+    async def _build_counters(sc_id: int) -> dict[str, int]:
+        reqs = await _fetch_requests_for_sc(sc_id)
+
+        total = len(reqs)
+        in_work = sum(1 for x in reqs if x.get("status") == "in_work")
+        done = sum(1 for x in reqs if x.get("status") == "done")
+
+        # "Без отклика": нет оффера от этого sc_id
+        # Ограничим проверку первыми 50 заявками, чтобы не устроить N*requests нагрузку
+        ids: list[int] = []
+        for x in reqs:
+            rid = x.get("id")
+            if isinstance(rid, int):
+                ids.append(rid)
+            if len(ids) >= 50:
+                break
+
+        no_offer = 0
+        if ids:
+            tasks = [_has_my_offer(sc_id, rid) for rid in ids]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for ok in results:
+                if isinstance(ok, Exception):
+                    continue
+                if ok is False:
+                    no_offer += 1
+
+        return {
+            "total": int(total),
+            "no_offer": int(no_offer),
+            "in_work": int(in_work),
+            "done": int(done),
+        }
+
+    if service_centers:
+        sc_ids = [sc.get("id") for sc in service_centers if isinstance(sc.get("id"), int)]
+        if sc_ids:
+            results = await asyncio.gather(*[_build_counters(int(sc_id)) for sc_id in sc_ids], return_exceptions=True)
+            for sc_id, res in zip(sc_ids, results):
+                if isinstance(res, Exception):
+                    sc_counters[int(sc_id)] = {"total": 0, "no_offer": 0, "in_work": 0, "done": 0}
+                else:
+                    sc_counters[int(sc_id)] = res
+
+    return templates.TemplateResponse(
+        "service_center/dashboard.html",
+        {
+            "request": request,
+            "service_centers": service_centers,
+            "error_message": error_message,
+            "sc_counters": sc_counters,
+        },
+    )
 
     # --------------------------
     # Статистика заявок (best-effort)
