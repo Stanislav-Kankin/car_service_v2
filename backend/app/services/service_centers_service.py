@@ -17,18 +17,11 @@ class ServiceCentersService:
     Сервисный слой для работы с автосервисами (СТО).
     """
 
-    # ------------------------------------------------------------------
-    # Создание
-    # ------------------------------------------------------------------
     @staticmethod
     async def create_service_center(
         db: AsyncSession,
         data_in: ServiceCenterCreate,
     ) -> ServiceCenter:
-        """
-        Создаём СТО. ВАЖНО:
-        - is_active всегда False при создании (требуется модерация админом).
-        """
         sc = ServiceCenter(
             user_id=data_in.user_id,
             name=data_in.name,
@@ -42,17 +35,13 @@ class ServiceCentersService:
             org_type=data_in.org_type,
             is_mobile_service=data_in.is_mobile_service,
             has_tow_truck=data_in.has_tow_truck,
-            # Модерация: новые СТО всегда неактивны
-            is_active=False,
+            is_active=False,  # модерация
         )
         db.add(sc)
         await db.commit()
         await db.refresh(sc)
         return sc
 
-    # ------------------------------------------------------------------
-    # Получение
-    # ------------------------------------------------------------------
     @staticmethod
     async def get_by_id(
         db: AsyncSession,
@@ -97,12 +86,8 @@ class ServiceCentersService:
         db: AsyncSession,
         user_id: int,
     ) -> List[ServiceCenter]:
-        # алиас для обратной совместимости (в т.ч. при старых образах/хардкодах)
         return await ServiceCentersService.list_by_user(db, user_id)
 
-    # ------------------------------------------------------------------
-    # Поиск подходящих СТО с учётом гео и специализаций
-    # ------------------------------------------------------------------
     @staticmethod
     async def search_service_centers(
         db: AsyncSession,
@@ -114,17 +99,13 @@ class ServiceCentersService:
         is_active: Optional[bool] = True,
         has_tow_truck: Optional[bool] = None,
         is_mobile_service: Optional[bool] = None,
-        fallback_to_category: bool = True,
     ) -> List[ServiceCenter]:
         """
-        Подбор СТО без .overlap (specializations у нас JSON).
-        1) SQL-фильтры (active/tow/mobile)
-        2) специализации в Python (пересечение)
-        3) geo-фильтр с сортировкой по расстоянию
-        4) fallback (опционально): если geo пусто — вернуть по категории
+        Безопасный поиск:
+        - фильтры активности/tow/mobile в SQL
+        - фильтр специализаций и гео — в Python (работает и с JSON, и с SQLite, и с Postgres)
+        - fallback: если по гео пусто, вернём список "по категории"
         """
-        import math  # чтобы не зависеть от верхних импортов файла
-
         stmt = select(ServiceCenter).options(selectinload(ServiceCenter.owner))
 
         if is_active is not None:
@@ -137,21 +118,15 @@ class ServiceCentersService:
         result = await db.execute(stmt)
         items: List[ServiceCenter] = list(result.scalars().all())
 
-        # 1) Специализации: пересечение множеств (JSON)
         if specializations:
-            wanted = {s.strip() for s in specializations if s and s.strip()}
-            if wanted:
-                filtered: List[ServiceCenter] = []
-                for sc in items:
-                    sc_specs = sc.specializations or []
-                    sc_set = {s.strip() for s in sc_specs if isinstance(s, str) and s.strip()}
-                    if wanted & sc_set:
-                        filtered.append(sc)
-                items = filtered
+            wanted = set(specializations)
+            items = [
+                sc for sc in items
+                if sc.specializations and wanted & set(sc.specializations)
+            ]
 
         items_by_category = list(items)
 
-        # 2) Geo-фильтр
         if (
             latitude is not None
             and longitude is not None
@@ -174,15 +149,13 @@ class ServiceCentersService:
                 c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
                 return R * c
 
-            filtered_with_dist: list[tuple[float, ServiceCenter]] = []
+            filtered_with_dist = []
             for sc in items:
                 if sc.latitude is None or sc.longitude is None:
                     continue
                 dist = haversine_km(
-                    origin_lat,
-                    origin_lon,
-                    float(sc.latitude),
-                    float(sc.longitude),
+                    origin_lat, origin_lon,
+                    float(sc.latitude), float(sc.longitude),
                 )
                 if dist <= radius_km:
                     filtered_with_dist.append((dist, sc))
@@ -191,15 +164,12 @@ class ServiceCentersService:
             items_geo = [sc for _, sc in filtered_with_dist]
 
             if not items_geo:
-                return items_by_category if fallback_to_category else []
+                return items_by_category
 
             return items_geo
 
-        return items_by_category
+        return items
 
-    # ------------------------------------------------------------------
-    # Обновление
-    # ------------------------------------------------------------------
     @staticmethod
     async def update_service_center(
         db: AsyncSession,

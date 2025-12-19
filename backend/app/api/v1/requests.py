@@ -520,3 +520,88 @@ async def send_chat_link(
     )
 
     return {"ok": True, "url": url, "peer_telegram_id": peer_tg}
+
+
+@router.post(
+    "/{request_id}/send_to_selected",
+    response_model=RequestRead,
+    status_code=status.HTTP_200_OK,
+)
+async def send_request_to_selected_service_centers(
+    request_id: int,
+    data_in: RequestDistributeIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Отправка заявки выбранным СТО (списком).
+    Важно: распределение делаем ОДИН раз (иначе distribute будет затирать прошлые записи).
+    Уведомления отправляем каждому выбранному СТО.
+    """
+    request = await RequestsService.get_request_by_id(db, request_id)
+    if not request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Request not found",
+        )
+
+    raw_ids = (data_in.service_center_ids or [])
+    service_center_ids = sorted({int(x) for x in raw_ids if x})
+
+    if not service_center_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="service_center_ids is required",
+        )
+
+    # грузим СТО и отсекаем неактивные/не существующие
+    service_centers: List[ServiceCenter] = []
+    for sc_id in service_center_ids:
+        sc = await ServiceCentersService.get_by_id(db, sc_id)
+        if not sc or not sc.is_active:
+            continue
+        service_centers.append(sc)
+
+    if not service_centers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active service centers found in selection",
+        )
+
+    final_ids = [sc.id for sc in service_centers]
+
+    distributed_request = await RequestsService.distribute_request_to_service_centers(
+        db,
+        request_id=request_id,
+        service_center_ids=final_ids,
+    )
+
+    # уведомления
+    if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
+        cat_code = request.service_category or "—"
+        cat_label = SERVICE_CATEGORY_LABELS.get(cat_code, cat_code)
+
+        for sc in service_centers:
+            owner = sc.owner
+            if not owner or not getattr(owner, "telegram_id", None):
+                continue
+
+            url = f"{WEBAPP_PUBLIC_URL}/sc/{sc.id}/requests/{request_id}"
+            message = (
+                f"📩 Вам отправлена заявка №{request_id}\n"
+                f"Категория: {cat_label}"
+            )
+
+            await notifier.send_notification(
+                recipient_type="service_center",
+                telegram_id=owner.telegram_id,
+                message=message,
+                buttons=[
+                    {"text": "Открыть заявку", "type": "web_app", "url": url},
+                ],
+                extra={
+                    "request_id": request_id,
+                    "service_center_id": sc.id,
+                },
+            )
+
+    return distributed_request

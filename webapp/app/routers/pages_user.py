@@ -743,37 +743,22 @@ async def request_create_post(
 
     car_id_raw: str = Form("", alias="car_id"),
 
-    latitude_raw: str = Form("", alias="latitude"),
-    longitude_raw: str = Form("", alias="longitude"),
-
     address_text: str = Form(""),
     is_car_movable: str = Form("movable"),
     radius_km: int = Form(5),
     service_category: str = Form("sto"),
     description: str = Form(...),
     hide_phone: bool = Form(False),
-) -> HTMLResponse:
-    from starlette.responses import RedirectResponse
-    from starlette import status as st_status
 
+    # ✅ на будущее (если в форме появятся скрытые поля координат)
+    latitude: float | None = Form(None),
+    longitude: float | None = Form(None),
+) -> HTMLResponse:
     user_id = get_current_user_id(request)
 
-    def _to_float(v: str) -> float | None:
-        v = (v or "").strip().replace(",", ".")
-        if not v:
-            return None
-        try:
-            return float(v)
-        except ValueError:
-            return None
-
     car_id_raw = (car_id_raw or "").strip()
-    address_text = (address_text or "").strip()
-    description = (description or "").strip()
-
-    primary_categories, extra_categories = _build_service_categories()
-
     if not car_id_raw:
+        primary_categories, extra_categories = _build_service_categories()
         return templates.TemplateResponse(
             "user/request_create.html",
             {
@@ -786,8 +771,6 @@ async def request_create_post(
                 "extra_categories": extra_categories,
                 "form_data": {
                     "address_text": address_text,
-                    "latitude": latitude_raw,
-                    "longitude": longitude_raw,
                     "is_car_movable": is_car_movable,
                     "radius_km": radius_km,
                     "service_category": service_category,
@@ -800,6 +783,7 @@ async def request_create_post(
     try:
         car_id = int(car_id_raw)
     except ValueError:
+        primary_categories, extra_categories = _build_service_categories()
         return templates.TemplateResponse(
             "user/request_create.html",
             {
@@ -814,50 +798,21 @@ async def request_create_post(
             },
         )
 
-    # Описание минимум 3 символа (иначе backend 422)
-    if len(description) < 3:
+    # подгружаем авто (не критично если упадёт)
+    try:
+        car_resp = await client.get(f"/api/v1/cars/{car_id}")
+        car_resp.raise_for_status()
+        car = car_resp.json()
+    except Exception:
         car = None
-        try:
-            r = await client.get(f"/api/v1/cars/{car_id}")
-            if r.status_code == 200:
-                car = r.json()
-        except Exception:
-            car = None
-
-        return templates.TemplateResponse(
-            "user/request_create.html",
-            {
-                "request": request,
-                "car_id": car_id,
-                "car": car,
-                "created_request": None,
-                "error_message": "Опишите проблему (минимум 3 символа).",
-                "primary_categories": primary_categories,
-                "extra_categories": extra_categories,
-                "form_data": {
-                    "address_text": address_text,
-                    "latitude": latitude_raw,
-                    "longitude": longitude_raw,
-                    "is_car_movable": is_car_movable,
-                    "radius_km": radius_km,
-                    "service_category": service_category,
-                    "description": description,
-                    "hide_phone": hide_phone,
-                },
-            },
-        )
-
-    # Гео (если есть)
-    lat = _to_float(latitude_raw)
-    lon = _to_float(longitude_raw)
 
     movable = is_car_movable == "movable"
 
     payload = {
         "user_id": user_id,
         "car_id": car_id,
-        "latitude": lat,
-        "longitude": lon,
+        "latitude": latitude,
+        "longitude": longitude,
         "address_text": address_text or None,
         "is_car_movable": movable,
         "need_tow_truck": not movable,
@@ -871,57 +826,23 @@ async def request_create_post(
 
     try:
         resp = await client.post("/api/v1/requests/", json=payload)
-
-        if resp.status_code == 422:
-            # показываем понятную ошибку
-            return templates.TemplateResponse(
-                "user/request_create.html",
-                {
-                    "request": request,
-                    "car_id": car_id,
-                    "car": None,
-                    "created_request": None,
-                    "error_message": "Проверьте данные формы (описание/адрес/гео) и попробуйте ещё раз.",
-                    "primary_categories": primary_categories,
-                    "extra_categories": extra_categories,
-                    "form_data": {
-                        "address_text": address_text,
-                        "latitude": latitude_raw,
-                        "longitude": longitude_raw,
-                        "is_car_movable": is_car_movable,
-                        "radius_km": radius_km,
-                        "service_category": service_category,
-                        "description": description,
-                        "hide_phone": hide_phone,
-                    },
-                },
-            )
-
         resp.raise_for_status()
         created_request = resp.json()
-
-        # ✅ КЛЮЧЕВОЕ: сразу прыгаем на следующий шаг
-        rid = created_request.get("id")
-        return RedirectResponse(
-            url=f"/me/requests/{rid}/choose-service",
-            status_code=st_status.HTTP_303_SEE_OTHER,
-        )
-
+        created_id = int(created_request.get("id"))
     except Exception:
+        primary_categories, extra_categories = _build_service_categories()
         return templates.TemplateResponse(
             "user/request_create.html",
             {
                 "request": request,
                 "car_id": car_id,
-                "car": None,
+                "car": car,
                 "created_request": None,
                 "error_message": "Не удалось создать заявку. Попробуйте позже.",
                 "primary_categories": primary_categories,
                 "extra_categories": extra_categories,
                 "form_data": {
                     "address_text": address_text,
-                    "latitude": latitude_raw,
-                    "longitude": longitude_raw,
                     "is_car_movable": is_car_movable,
                     "radius_km": radius_km,
                     "service_category": service_category,
@@ -930,6 +851,59 @@ async def request_create_post(
                 },
             },
         )
+
+    # ✅ ключевое: сразу прыгаем на выбор СТО
+    return RedirectResponse(
+        url=f"/me/requests/{created_id}/choose-service",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/requests/{request_id}/send-to-selected", response_class=HTMLResponse)
+async def request_send_selected_post(
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    service_center_ids: list[int] = Form([]),
+) -> HTMLResponse:
+    _ = get_current_user_id(request)
+    templates = get_templates()
+
+    selected = [int(x) for x in (service_center_ids or []) if x]
+    selected = sorted(set(selected))
+
+    if not selected:
+        # перерисуем страницу выбора с ошибкой
+        error_message = "Выберите хотя бы один сервис."
+        service_centers = []
+        try:
+            sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
+            sc_resp.raise_for_status()
+            service_centers = sc_resp.json() or []
+        except Exception:
+            error_message = "Не удалось загрузить список подходящих СТО."
+
+        return templates.TemplateResponse(
+            "user/request_choose_service.html",
+            {
+                "request": request,
+                "request_id": request_id,
+                "service_centers": service_centers,
+                "error_message": error_message,
+                "bot_username": BOT_USERNAME,
+            },
+        )
+
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/send_to_selected",
+            json={"service_center_ids": selected},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return await request_detail(request_id, request, client, sent_all=False)
+
+    return await request_detail(request_id, request, client, sent_all=True)
 
 
 # --------------------------------------------------------------------
