@@ -19,8 +19,8 @@ from backend.app.core.db import Base
 
 
 class RequestStatus(str, Enum):
-    NEW = "new"                      # создана, но не разослана
-    SENT = "sent"                    # разослана подходящим СТО, ждём отклики
+    NEW = "new"
+    SENT = "sent"
     ACCEPTED_BY_SERVICE = "accepted_by_service"
     IN_WORK = "in_work"
     DONE = "done"

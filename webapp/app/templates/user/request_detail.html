@@ -1,228 +1,481 @@
 {% extends "layout/base.html" %}
 
-{% block title %}Заявка №{{ request_obj.id if request_obj else "—" }}{% endblock %}
+{% block title %}Заявка №{{ request_obj.id }} — CarBot{% endblock %}
 
 {% block content %}
-{% set status_labels = {
-    "new": "новая",
-    "sent": "разослана",
-    "accepted_by_service": "принята СТО",
-    "in_work": "в работе",
-    "done": "выполнена",
-    "cancelled": "отменена",
-    "rejected_by_service": "отклонена СТО",
-} %}
+<div class="mt-8 space-y-6">
+    <a href="/me/requests" class="text-xs text-slate-400 hover:text-emerald-400 transition">
+        ← Ко всем заявкам
+    </a>
 
-{% set category_labels = {
-    "sto": "СТО / общий ремонт",
-    "wash": "Автомойка",
-    "tire": "Шиномонтаж",
-    "electric": "Автоэлектрик",
-    "mechanic": "Слесарные работы",
-    "paint": "Малярные / кузовные работы",
-    "maint": "ТО / обслуживание",
-    "agg_turbo": "Ремонт турбин",
-    "agg_starter": "Ремонт стартеров",
-    "agg_generator": "Ремонт генераторов",
-    "agg_steering": "Рулевые рейки",
-    "mech": "Слесарные работы",
-    "elec": "Автоэлектрик",
-} %}
+    <!-- Основной блок -->
+    <div class="relative">
+        <div class="absolute inset-0 rounded-3xl bg-slate-900/70 backdrop-blur-2xl border border-slate-800"></div>
 
-<div class="max-w-3xl mx-auto space-y-4">
+        <div class="relative z-10 p-6 md:p-8 space-y-6">
+            <!-- Шапка: авто + статус -->
+            <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                <div class="space-y-2">
+                    <p class="text-xs uppercase tracking-[0.25em] text-emerald-400/80">
+                        Заявка №{{ request_obj.id }}
+                    </p>
 
-    <div class="rounded-3xl border border-slate-800/70 bg-slate-950/40 p-4 sm:p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-        <div class="flex items-start justify-between gap-3">
-            <div>
-                <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Заявка</p>
-                <h1 class="text-xl sm:text-2xl font-semibold text-slate-100 mt-1">
-                    №{{ request_obj.id if request_obj else "—" }}
-                </h1>
-                {% if request_obj and request_obj.status %}
-                    <div class="mt-1 text-xs text-slate-300">
-                        Статус:
-                        <span class="font-semibold text-slate-100">
-                            {{ status_labels.get(request_obj.status, request_obj.status) }}
-                        </span>
+                    <div class="flex items-center gap-2 text-sm font-semibold text-slate-100">
+                        {% set cat = request_obj.service_category %}
+                        {% if cat == "sto" %}
+                        <span class="text-lg">🛠</span>
+                        {% elif cat == "maint" %}
+                        <span class="text-lg">🧰</span>
+                        {% elif cat == "mechanic" or cat == "mech" %}
+                        <span class="text-lg">⚙️</span>
+                        {% elif cat == "electric" or cat == "elec" %}
+                        <span class="text-lg">🔌</span>
+                        {% elif cat == "body" or cat == "paint" %}
+                        <span class="text-lg">🎨</span>
+                        {% elif cat == "tire" %}
+                        <span class="text-lg">🛞</span>
+                        {% elif cat == "wash" %}
+                        <span class="text-lg">🚿</span>
+                        {% elif cat == "agg" %}
+                        <span class="text-lg">⚡</span>
+                        {% else %}
+                        <span class="text-lg">📍</span>
+                        {% endif %}
+                        <span>{{ request_obj.service_category_label or "Услуга" }}</span>
                     </div>
-                {% endif %}
-            </div>
 
-            <div class="flex items-center gap-2">
-                <a href="/me/requests"
-                   class="rounded-full border border-slate-700/70 bg-slate-900/30 px-4 py-2 text-sm text-slate-200 hover:bg-slate-900/50 transition">
-                    ← К списку
-                </a>
-            </div>
-        </div>
-
-        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-                <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Категория</p>
-                <p class="text-sm text-slate-200 mt-1">
-                    {{ category_labels.get(request_obj.category, request_obj.category) if request_obj else "—" }}
-                </p>
-            </div>
-
-            <div>
-                <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Авто</p>
-                <p class="text-sm text-slate-200 mt-1">
-                    {% if car_text %}{{ car_text }}{% else %}—{% endif %}
-                </p>
-            </div>
-        </div>
-
-        <div class="mt-4">
-            <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Описание</p>
-            <p class="text-sm text-slate-200 mt-1 whitespace-pre-line">
-                {{ request_obj.description or "—" }}
-            </p>
-        </div>
-
-        {% if request_obj and request_obj.final_price_text %}
-        <div class="mt-4">
-            <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Итоговая цена</p>
-            <p class="text-sm text-slate-200 mt-1">
-                {{ request_obj.final_price_text }}
-            </p>
-        </div>
-        {% elif request_obj and request_obj.final_price is not none %}
-        <div class="mt-4">
-            <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Итоговая цена</p>
-            <p class="text-sm text-slate-200 mt-1">
-                {{ request_obj.final_price }}
-            </p>
-        </div>
-        {% endif %}
-    </div>
-
-    <div class="rounded-3xl border border-slate-800/70 bg-slate-950/40 p-4 sm:p-6">
-        <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-3">
-                {% if request_obj and request_obj.status in ["sent", "accepted_by_service", "in_work", "done"] %}
-                    <a href="#offers"
-                       class="rounded-full border border-slate-700/70 bg-slate-900/30 px-4 py-2 text-sm text-slate-200 hover:bg-slate-900/50 transition">
-                        Отклики
-                    </a>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Отклики сервисов -->
-        <div id="offers" class="pt-4 space-y-3">
-            <div class="flex items-center justify-between gap-3">
-                <p class="text-xs uppercase tracking-[0.22em] text-slate-400">Отклики сервисов</p>
-            </div>
-
-            {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none) %}
-
-            {% if already_chosen %}
-            {% set chat_sc_id = accepted_sc_id if accepted_sc_id else request_obj.service_center_id %}
-
-            <div class="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-                <div class="text-sm text-slate-100 font-semibold">
-                    {% if chosen_sc %}
-                        {{ chosen_sc.get("name") or ("Сервис #" ~ (chat_sc_id|string)) }}
-                    {% else %}
-                        Выбран сервис #{{ chat_sc_id }}.
-                    {% endif %}
-                </div>
-                {% if chosen_sc and chosen_sc.get("address") %}
-                    <div class="text-xs text-slate-300 mt-0.5">{{ chosen_sc.get("address") }}</div>
-                {% endif %}
-                {% if chosen_sc and chosen_sc.get("phone") %}
-                    <div class="text-xs text-slate-400 mt-0.5">Телефон: {{ chosen_sc.get("phone") }}</div>
-                {% endif %}
-
-                <div class="mt-1 text-[11px] text-emerald-200/70">
-                    Кнопки принятия скрыты, чтобы не было повторного выбора.
-                </div>
-
-                {% if chat_url %}
-                <div class="mt-3">
-                    <a href="{{ chat_url }}"
-                       class="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/15 transition">
-                        <span>💬</span>
-                        <span>Написать в Telegram</span>
-                    </a>
-                </div>
-                {% endif %}
-            </div>
-            {% endif %}
-
-            {% if offers and offers|length > 0 %}
-                <div class="grid grid-cols-1 gap-3">
-                    {% for offer in offers %}
-                        {% set sc = service_centers_map.get(offer.service_center_id|string) if service_centers_map else None %}
-
-                        <div class="rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4">
-                            <div class="flex items-start justify-between gap-3">
-                                <div>
-                                    <p class="text-sm text-slate-100 font-semibold">
-                                        {% if sc and sc.get("name") %}
-                                            {{ sc.get("name") }}
-                                        {% elif offer.service_center_id %}
-                                            Сервис #{{ offer.service_center_id }}
-                                        {% else %}
-                                            Сервис
-                                        {% endif %}
-                                    </p>
-
-                                    {% if sc and sc.get("address") %}
-                                        <p class="text-xs text-slate-400 break-words">{{ sc.get("address") }}</p>
-                                    {% endif %}
-
-                                    <p class="text-xs text-slate-300">
-                                        {% if offer.price_text %}Цена: {{ offer.price_text }}
-                                        {% elif offer.price is not none %}Цена: {{ offer.price }}
-                                        {% else %}Цена не указана{% endif %}
-                                        {% if offer.eta_text %} · Срок: {{ offer.eta_text }}
-                                        {% elif offer.eta_hours is not none %} · Срок: ~{{ offer.eta_hours }} ч.{% endif %}
-                                    </p>
-
-                                    {% if offer.comment %}
-                                        <p class="text-xs text-slate-400 mt-1 whitespace-pre-line">{{ offer.comment }}</p>
-                                    {% endif %}
-
-                                    {% if offer.status %}
-                                        <p class="text-[11px] text-slate-500 mt-1">Статус: {{ offer.status }}</p>
-                                    {% endif %}
+                    {% if car %}
+                    <div class="mt-2 rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-2xl bg-slate-800 border border-slate-700 text-lg">
+                                🚗
+                            </div>
+                            <div class="text-xs text-slate-300">
+                                <div class="text-sm text-slate-100 font-semibold">
+                                    {{ car.brand or "Авто" }}
+                                    {% if car.model %} {{ car.model }}{% endif %}
                                 </div>
-
-                                <div class="flex flex-col items-end gap-2">
-                                    {% if offer.service_center_id %}
-                                        <a href="{{ telegram_chat_url_map.get(offer.service_center_id|string) if telegram_chat_url_map else '#' }}"
-                                           class="inline-flex items-center justify-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/30 px-4 py-2 text-xs text-slate-200 hover:bg-slate-900/50 transition">
-                                            💬 Написать в Telegram
-                                        </a>
-                                    {% endif %}
-
-                                    {% if not already_chosen %}
-                                        <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/accept" class="w-full">
-                                            <button type="submit"
-                                                    class="w-full rounded-full bg-emerald-500 text-white px-4 py-2 text-xs font-semibold hover:bg-emerald-400 transition">
-                                                Принять
-                                            </button>
-                                        </form>
-
-                                        <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/reject" class="w-full">
-                                            <button type="submit"
-                                                    class="w-full rounded-full border border-slate-700/70 bg-slate-900/30 px-4 py-2 text-xs text-slate-200 hover:bg-slate-900/50 transition">
-                                                Отклонить
-                                            </button>
-                                        </form>
-                                    {% endif %}
+                                <div>
+                                    {% if car.year %}{{ car.year }} г.в.{% else %}Год не указан{% endif %}
+                                    {% if car.license_plate %} · № {{ car.license_plate }}{% endif %}
                                 </div>
                             </div>
                         </div>
+                        <a href="/me/cars/{{ car.id }}"
+                           class="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-emerald-300 transition">
+                            Открыть авто
+                            <span class="text-base leading-none">→</span>
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Статус / таймлайн -->
+                <div class="w-full md:w-64 space-y-3 text-xs">
+                    {% set status = request_obj.status %}
+                    <div class="flex flex-col items-end gap-2">
+                        {% if status == "new" %}
+                        <span class="rounded-full bg-emerald-500/10 border border-emerald-400/70 px-3 py-1 font-semibold text-emerald-200">
+                            ● {{ request_obj.status_label }}
+                        </span>
+                        <p class="text-[11px] text-emerald-200/80 text-right">
+                            Вы ещё не выбрали сервис. Можно отправить всем подходящим СТО или выбрать из списка.
+                        </p>
+                        {% elif status == "sent" %}
+                        <span class="rounded-full bg-sky-500/10 border border-sky-400/70 px-3 py-1 font-semibold text-sky-200">
+                            ● {{ request_obj.status_label }}
+                        </span>
+                        <p class="text-[11px] text-sky-200/80 text-right">
+                            Заявка отправлена сервисам. Ожидаем откликов.
+                        </p>
+                        {% elif status == "accepted_by_service" %}
+                        <span class="rounded-full bg-amber-500/10 border border-amber-400/70 px-3 py-1 font-semibold text-amber-200">
+                            ● {{ request_obj.status_label }}
+                        </span>
+                        <p class="text-[11px] text-amber-200/80 text-right">
+                            Один из сервисов принял вашу заявку.
+                        </p>
+                        {% elif status == "in_work" %}
+                        <span class="rounded-full bg-amber-500/10 border border-amber-400/70 px-3 py-1 font-semibold text-amber-200">
+                            ● {{ request_obj.status_label }}
+                        </span>
+                        <p class="text-[11px] text-amber-200/80 text-right">
+                            Работа по заявке выполняется.
+                        </p>
+                        {% elif status == "done" %}
+                        <span class="rounded-full bg-emerald-500/15 border border-emerald-400/80 px-3 py-1 font-semibold text-emerald-200">
+                            ● {{ request_obj.status_label }}
+                        </span>
+                        <p class="text-[11px] text-emerald-200/90 text-right">
+                            Заявка выполнена. В будущем здесь появится оценка сервиса.
+                        </p>
+                        {% elif status == "cancelled" %}
+                        <span class="rounded-full bg-slate-700/80 border border-slate-500 px-3 py-1 font-semibold text-slate-200">
+                            ● {{ request_obj.status_label }}
+                        </span>
+                        <p class="text-[11px] text-slate-300/90 text-right">
+                            Заявка отменена.
+                        </p>
+                        {% elif status == "rejected_by_service" %}
+                        <span class="rounded-full bg-red-500/15 border border-red-400/80 px-3 py-1 font-semibold text-red-100">
+                            ● {{ request_obj.status_label }}
+                        </span>
+                        <p class="text-[11px] text-red-100/90 text-right">
+                            Сервис отклонил заявку. Можно выбрать другой сервис или создать новую заявку.
+                        </p>
+                        {% else %}
+                        <span class="rounded-full bg-slate-800/80 border border-slate-600 px-3 py-1 font-semibold text-slate-200">
+                            ● {{ request_obj.status_label or status }}
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Мини-таймлайн -->
+                    <div class="mt-1 space-y-1.5">
+                        {% set steps = [
+                            ("new", "Новая"),
+                            ("sent", "Отправлена СТО"),
+                            ("accepted_by_service", "Принята сервисом"),
+                            ("in_work", "В работе"),
+                            ("done", "Завершена"),
+                        ] %}
+                        <div class="flex flex-col gap-1.5">
+                            {% for code, label in steps %}
+                            {% set reached =
+                                (status == code)
+                                or (status == "sent" and code in ["new", "sent"])
+                                or (status == "accepted_by_service" and code in ["new", "sent", "accepted_by_service"])
+                                or (status == "in_work" and code in ["new", "sent", "accepted_by_service", "in_work"])
+                                or (status == "done" and code in ["new", "sent", "accepted_by_service", "in_work", "done"])
+                            %}
+                            <div class="flex items-center gap-2 text-[11px]">
+                                <div class="h-1 w-6 rounded-full {% if reached %}bg-emerald-400{% else %}bg-slate-700{% endif %}"></div>
+                                <span class="{% if reached %}text-emerald-200{% else %}text-slate-500{% endif %}">
+                                    {{ label }}
+                                </span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Адрес + карта + описание -->
+            <div class="grid gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)]">
+                <div class="space-y-4">
+                    <div class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 space-y-2">
+                        <p class="text-xs font-semibold text-slate-300">Адрес / район</p>
+                        <p class="text-sm text-slate-100">{{ request_obj.address_text or "Адрес не указан" }}</p>
+                        <p class="text-[11px] text-slate-500">
+                            В будущем здесь можно будет выбрать точку на карте или отправить геолокацию из бота.
+                        </p>
+                    </div>
+
+                    <div class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 space-y-2">
+                        <p class="text-xs font-semibold text-slate-300">Описание проблемы</p>
+                        <p class="text-sm text-slate-100 whitespace-pre-wrap">{{ request_obj.description }}</p>
+
+                        {% if request_obj.is_car_movable is not none %}
+                        <p class="text-[11px] text-slate-500">
+                            {% if request_obj.is_car_movable %}
+                                Автомобиль может передвигаться самостоятельно.
+                            {% else %}
+                                Автомобиль не на ходу — требуется эвакуатор или выездной мастер.
+                            {% endif %}
+                            {% if request_obj.radius_km %}Радиус поиска: {{ request_obj.radius_km }} км.{% endif %}
+                        </p>
+                        {% endif %}
+
+                        {% if request_obj.hide_phone %}
+                        <p class="text-[11px] text-amber-200/90">
+                            Телефон скрыт от сервисов до явного согласия.
+                        </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Карта -->
+                <div class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 space-y-2">
+                    <p class="text-xs font-semibold text-slate-300">Локация на карте</p>
+                    <div id="request-map" data-address="{{ request_obj.address_text or '' }}"
+                         class="mt-1 rounded-2xl overflow-hidden bg-slate-900 h-56 relative">
+                        <div id="request-map-inner" class="absolute inset-0 w-full h-full"></div>
+                    </div>
+                    <p id="map-hint" class="text-[11px] text-slate-500 mt-1">
+                        Если адрес можно определить, на карте отобразится примерное положение.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Действия над заявкой -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/80 mt-4">
+                <div class="text-[11px] text-slate-500">
+                    {% if can_distribute and status == "new" %}
+                        Вы ещё не выбрали способ работы с сервисами.
+                    {% endif %}
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    {% if can_distribute and status == "new" %}
+                    <form method="post" action="/me/requests/{{ request_obj.id }}/send-all">
+                        <button type="submit"
+                                class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2 text-xs font-semibold text-slate-900 shadow-md shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                            🚀 Разослать всем подходящим
+                        </button>
+                    </form>
+
+                    <a href="/me/requests/{{ request_obj.id }}/choose-service"
+                       class="inline-flex items-center gap-2 rounded-full border border-slate-600 px-5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 transition">
+                        📍 Выбрать СТО из списка
+                    </a>
+                    {% elif status in ["sent", "accepted_by_service", "in_work"] %}
+                    <a href="/me/requests/{{ request_obj.id }}/choose-service"
+                       class="inline-flex items-center gap-2 rounded-full border border-slate-600 px-5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 transition">
+                        Посмотреть сервисы и отклики
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Отклики сервисов -->
+            <div class="pt-4 space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                    <p class="text-xs uppercase tracking-[0.22em] text-slate-400">Отклики сервисов</p>
+                </div>
+
+                {% set offer_status_labels = {
+                    "new": "Новый",
+                    "accepted": "Принят",
+                    "rejected": "Отклонён"
+                } %}
+
+                {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none) %}
+
+                {% if already_chosen %}
+                {% set chat_sc_id = accepted_sc_id if accepted_sc_id else request_obj.service_center_id %}
+                {% set chosen_sc = service_centers_by_id.get(chat_sc_id|int) if chat_sc_id else None %}
+
+                <div class="rounded-2xl border border-emerald-500/30 bg-emerald-900/10 p-4">
+                    <p class="text-sm text-emerald-200 font-semibold">✅ Сервис выбран</p>
+
+                    <div class="mt-2 text-[11px] text-emerald-200/80">
+                        {% if chosen_sc %}
+                            <div class="text-sm text-slate-100 font-semibold">
+                                {{ chosen_sc.get("name") or ("Сервис #" ~ (chat_sc_id|string)) }}
+                            </div>
+                            {% if chosen_sc.get("address") %}
+                                <div class="text-xs text-slate-300 mt-0.5">{{ chosen_sc.get("address") }}</div>
+                            {% endif %}
+                            {% if chosen_sc.get("phone") %}
+                                <div class="text-xs text-slate-400 mt-0.5">Телефон: {{ chosen_sc.get("phone") }}</div>
+                            {% endif %}
+                        {% else %}
+                            Выбран сервис #{{ chat_sc_id }}.
+                        {% endif %}
+                        <div class="mt-1 text-[11px] text-emerald-200/70">
+                            Кнопки принятия скрыты, чтобы не было повторного выбора.
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        {% if chat_sc_id %}
+                        <button type="button"
+                                onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ chat_sc_id }}', '{{ bot_username }}')"
+                                class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
+                            💬 Написать в Telegram
+                        </button>
+                        <p class="mt-2 text-[11px] text-slate-400">
+                            Мы отправим вам сообщение в боте с кнопкой, которая откроет прямой чат.
+                        </p>
+                        {% else %}
+                        <p class="text-xs text-slate-400">Не удалось определить выбранный сервис для чата.</p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if offers %}
+                <div class="space-y-3">
+                    {% for offer in offers %}
+                    {% set sc = service_centers_by_id.get(offer.service_center_id|int) %}
+                    <div class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div class="space-y-2 min-w-0">
+                            <p class="text-sm font-semibold text-slate-100">
+                                {% if sc %}
+                                    {{ sc.get("name") or ("Сервис #" ~ (offer.service_center_id|string)) }}
+                                {% else %}
+                                    Сервис #{{ offer.service_center_id }}
+                                {% endif %}
+                            </p>
+
+                            {% if sc and sc.get("address") %}
+                                <p class="text-xs text-slate-400 break-words">{{ sc.get("address") }}</p>
+                            {% endif %}
+
+                            <!-- ✅ Цена / Срок / Статус — друг под другом -->
+                            <div class="text-xs text-slate-300 space-y-1">
+                                <div>
+                                    <span class="text-slate-400">Цена:</span>
+                                    {% if offer.price_text %} {{ offer.price_text }}
+                                    {% elif offer.price is not none %} {{ offer.price }}
+                                    {% else %} не указана
+                                    {% endif %}
+                                </div>
+
+                                <div>
+                                    <span class="text-slate-400">Срок:</span>
+                                    {% if offer.eta_text %} {{ offer.eta_text }}
+                                    {% elif offer.eta_hours is not none %} ~{{ offer.eta_hours }} ч.
+                                    {% else %} не указан
+                                    {% endif %}
+                                </div>
+
+                                <div>
+                                    <span class="text-slate-400">Статус:</span>
+                                    {{ offer_status_labels.get(offer.status, offer.status) }}
+                                </div>
+                            </div>
+
+                            {% if offer.comment %}
+                            <p class="text-xs text-slate-400 whitespace-pre-wrap">{{ offer.comment }}</p>
+                            {% endif %}
+
+                            {% if offer.status == "accepted" %}
+                            <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-200 border border-emerald-500/30">
+                                ✅ Выбранный оффер
+                            </span>
+                            {% endif %}
+                        </div>
+
+                        <div class="flex flex-wrap gap-2 text-xs">
+                            <button type="button"
+                                    onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ offer.service_center_id }}', '{{ bot_username }}')"
+                                    class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
+                                💬 Написать в Telegram
+                            </button>
+
+                            {% if not already_chosen %}
+                            <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/accept">
+                                <button type="submit"
+                                        class="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 font-semibold text-slate-900 shadow-md shadow-emerald-500/30 hover:bg-emerald-400 transition">
+                                    Принять
+                                </button>
+                            </form>
+
+                            <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/reject">
+                                <button type="submit"
+                                        class="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 font-semibold text-slate-200 hover:bg-slate-800 transition">
+                                    Отклонить
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </div>
                     {% endfor %}
                 </div>
-            {% else %}
-                <div class="rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4 text-sm text-slate-300">
-                    Откликов пока нет.
-                </div>
-            {% endif %}
+                {% else %}
+                <p class="text-sm text-slate-400">
+                    Пока нет откликов от сервисов. Как только они появятся, они будут показаны здесь.
+                </p>
+                {% endif %}
+            </div>
+
         </div>
     </div>
 </div>
+
+<!-- Leaflet (без integrity/crossorigin — стабильнее в Telegram WebView) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    (function () {
+        const mapContainer = document.getElementById("request-map-inner");
+        const wrapper = document.getElementById("request-map");
+        const hint = document.getElementById("map-hint");
+
+        if (!mapContainer || !wrapper) return;
+
+        const lat = {{ request_obj.latitude | tojson }};
+        const lon = {{ request_obj.longitude | tojson }};
+        const address = wrapper.dataset.address || "";
+
+        function showError(msg) {
+            if (!hint) return;
+            hint.textContent = msg;
+            hint.classList.remove("text-slate-500");
+            hint.classList.add("text-slate-400");
+        }
+
+        function initMap(centerLat, centerLon) {
+            const map = L.map(mapContainer, {
+                attributionControl: false,
+                zoomControl: false
+            }).setView([centerLat, centerLon], 14);
+
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                maxZoom: 19,
+                attribution: ""
+            }).addTo(map);
+
+            L.marker([centerLat, centerLon]).addTo(map);
+
+            setTimeout(() => {
+                try { map.invalidateSize(); } catch(e) {}
+            }, 50);
+        }
+
+        if (lat !== null && lon !== null) {
+            initMap(lat, lon);
+            return;
+        }
+
+        if (!address) {
+            showError("Координаты и адрес не указаны — карту показать нельзя.");
+            return;
+        }
+
+        fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(address))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!Array.isArray(data) || data.length === 0) {
+                    showError("Не удалось определить координаты по адресу.");
+                    return;
+                }
+                const item = data[0];
+                const glat = parseFloat(item.lat);
+                const glon = parseFloat(item.lon);
+
+                if (Number.isNaN(glat) || Number.isNaN(glon)) {
+                    showError("Не удалось определить координаты по адресу.");
+                    return;
+                }
+                initMap(glat, glon);
+            })
+            .catch(function () {
+                showError("Ошибка загрузки карты (нет сети или блокировка).");
+            });
+    })();
+
+    function sendChatLinkAndClose(url, botUsername) {
+        fetch(url, { method: "POST" })
+            .then(function () {
+                // Пытаемся закрыть mini app
+                try {
+                    if (window.Telegram && Telegram.WebApp) {
+                        Telegram.WebApp.close();
+                        return;
+                    }
+                } catch(e) {}
+                // fallback — открываем бота
+                if (botUsername) {
+                    window.location.href = "https://t.me/" + botUsername;
+                }
+            })
+            .catch(function () {
+                if (botUsername) {
+                    window.location.href = "https://t.me/" + botUsername;
+                }
+            });
+    }
+</script>
 {% endblock %}
