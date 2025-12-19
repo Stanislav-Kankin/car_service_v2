@@ -22,6 +22,17 @@
     "agg": "Ремонт агрегатов"
 } %}
 
+{# status -> (label, border, bg, text) #}
+{% set status_badges = {
+    "new": ("Новая", "border-sky-400/60", "bg-sky-500/10", "text-sky-200"),
+    "sent": ("Разослана", "border-amber-400/60", "bg-amber-500/10", "text-amber-200"),
+    "accepted_by_service": ("Принята СТО", "border-emerald-400/60", "bg-emerald-500/10", "text-emerald-200"),
+    "in_work": ("В работе", "border-violet-400/60", "bg-violet-500/10", "text-violet-200"),
+    "done": ("Завершена", "border-emerald-400/60", "bg-emerald-500/10", "text-emerald-200"),
+    "cancelled": ("Отменена", "border-rose-400/60", "bg-rose-500/10", "text-rose-200"),
+    "rejected_by_service": ("Отклонена", "border-rose-400/60", "bg-rose-500/10", "text-rose-200")
+} %}
+
 <div class="mt-8 space-y-6">
     <div class="flex items-start justify-between gap-4">
         <div>
@@ -41,9 +52,11 @@
         </div>
     {% else %}
 
+    {% set st = req.status %}
+    {% set badge = status_badges.get(st, (st or "—", "border-slate-600/60", "bg-slate-800/40", "text-slate-200")) %}
+
     {% set category_code = req.service_category or req.category %}
-    {% set address_text = req.address_text or req.address %}
-    {% set car_obj = req.car if req.car is defined else None %}
+    {% set category_label = req.service_category_label or category_labels.get(category_code, category_code) %}
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Левая колонка: заявка -->
@@ -53,8 +66,8 @@
                 <div class="flex flex-wrap items-center gap-3 justify-between">
                     <div class="flex items-center gap-2">
                         <span class="text-xs uppercase tracking-[0.25em] text-slate-400">Статус</span>
-                        <span class="inline-flex items-center rounded-full border border-slate-800 bg-slate-950/40 px-3 py-1 text-xs font-semibold">
-                            {{ req.status }}
+                        <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold {{ badge[1] }} {{ badge[2] }} {{ badge[3] }}">
+                            {{ badge[0] }}
                         </span>
                     </div>
 
@@ -85,24 +98,12 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Категория</p>
-                        <p class="text-sm text-slate-200 mt-1">
-                            {% if category_code %}
-                                {{ category_labels.get(category_code, category_code) }}
-                            {% else %}
-                                —
-                            {% endif %}
-                        </p>
+                        <p class="text-sm text-slate-200 mt-1">{{ category_label or "—" }}</p>
                     </div>
-
                     <div>
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Авто</p>
                         <p class="text-sm text-slate-200 mt-1">
-                            {% if car_obj %}
-                                {{ car_obj.brand or "" }} {{ car_obj.model or "" }} {{ car_obj.year or "" }}
-                                {% if car_obj.license_plate %} · № {{ car_obj.license_plate }}{% endif %}
-                            {% else %}
-                                {{ req.car_brand or "" }} {{ req.car_model or "" }} {{ req.car_year or "" }}
-                            {% endif %}
+                            {{ req.car_brand or "" }} {{ req.car_model or "" }} {{ req.car_year or "" }}
                         </p>
                     </div>
                 </div>
@@ -116,34 +117,23 @@
                     <div>
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Локация</p>
                         <p class="text-sm text-slate-200 mt-1">
-                            {{ address_text or "—" }}
+                            {{ req.address_text or req.address or "—" }}
                         </p>
                     </div>
                     <div>
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Эвакуация / Выезд</p>
                         <p class="text-sm text-slate-200 mt-1">
-                            {% if req.is_car_movable is not none %}
-                                {% if req.is_car_movable %}Нет{% else %}Да{% endif %}
-                            {% else %}
-                                {% if req.need_tow %}Да{% else %}Нет{% endif %}
-                            {% endif %}
+                            {% if req.need_tow %}Да{% else %}Нет{% endif %}
                         </p>
                     </div>
                 </div>
-
-                {% if req.hide_phone %}
-                <div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
-                    ⚠️ Клиент скрывает номер телефона до выбора сервиса / согласия.
-                </div>
-                {% endif %}
             </div>
 
         </div>
 
-        <!-- Правая колонка: связь/чат/отклик -->
+        <!-- Правая колонка: связь/отклик -->
         <div class="space-y-6">
 
-            <!-- Написать клиенту -->
             <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
                 <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
                     Связь с клиентом
@@ -154,9 +144,6 @@
                    href="https://t.me/{{ bot_username }}?start=chat_{{ req.id }}">
                     💬 Написать клиенту (Telegram)
                 </a>
-                <p class="text-[11px] text-slate-400">
-                    Мы откроем чат по этой заявке через бота.
-                </p>
                 {% else %}
                 <button type="button"
                         class="w-full rounded-2xl bg-slate-800/60 text-slate-300 py-2.5 text-sm font-semibold cursor-not-allowed"
@@ -166,26 +153,25 @@
                 {% endif %}
             </div>
 
-            <!-- Ваш отклик -->
             <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
                 <p class="text-xs uppercase tracking-[0.25em] text-slate-400">
                     Ваш отклик
                 </p>
 
                 {% if my_offer %}
-                <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-                    <p class="text-sm text-slate-200 font-semibold">Текущий отклик</p>
-                    <ul class="text-xs text-slate-300 space-y-1 mt-2">
-                        <li>Цена: <span class="font-semibold">{{ my_offer.price }}</span></li>
-                        <li>Срок: <span class="font-semibold">{{ my_offer.eta_hours }} ч.</span></li>
-                        {% if my_offer.comment %}
-                        <li>Комментарий: <span class="font-semibold">{{ my_offer.comment }}</span></li>
-                        {% endif %}
-                        {% if my_offer.status %}
-                        <li>Статус: <span class="font-semibold">{{ my_offer.status }}</span></li>
-                        {% endif %}
-                    </ul>
-                </div>
+                <p class="text-sm text-slate-300">
+                    Вы уже отправили отклик по этой заявке. Вы можете обновить его.
+                </p>
+                <ul class="text-xs text-slate-300 space-y-1">
+                    <li>Цена: <span class="font-semibold">{{ my_offer.price }}</span></li>
+                    <li>Срок: <span class="font-semibold">{{ my_offer.eta_hours }} ч.</span></li>
+                    {% if my_offer.comment %}
+                    <li>Комментарий: <span class="font-semibold">{{ my_offer.comment }}</span></li>
+                    {% endif %}
+                    {% if my_offer.status %}
+                    <li>Статус: <span class="font-semibold">{{ my_offer.status }}</span></li>
+                    {% endif %}
+                </ul>
                 {% endif %}
 
                 {% set offer_locked = req.status in ["in_work", "done", "cancelled"] %}

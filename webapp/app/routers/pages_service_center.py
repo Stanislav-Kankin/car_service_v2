@@ -1,6 +1,7 @@
 from typing import Any
 import os
 
+import asyncio
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from httpx import AsyncClient
@@ -366,9 +367,13 @@ async def sc_requests_list(
     sc_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
+    status_: str | None = Query(default=None, alias="status"),
+    no_offer: int | None = Query(default=None),
 ) -> HTMLResponse:
     """
     Список заявок, которые были разосланы КОНКРЕТНОМУ СТО.
+    + фильтры: ?status=in_work / ?status=done / ... , ?no_offer=1
+    + best-effort подмешиваем мой отклик в каждую заявку (для UI "без отклика")
     """
     sc = await _load_sc_for_owner(request, client, sc_id)
 
@@ -386,13 +391,73 @@ async def sc_requests_list(
         error_message = "Не удалось загрузить заявки для этого сервиса. Попробуйте позже."
         requests_list = []
 
+    # --- best-effort: подмешиваем my_offer в каждую заявку ---
+    async def _fetch_my_offer(req_id: int) -> dict[str, Any] | None:
+        try:
+            offers_resp = await client.get(f"/api/v1/offers/by-request/{req_id}")
+            if offers_resp.status_code != 200:
+                return None
+            offers = offers_resp.json() or []
+            for o in offers:
+                if o.get("service_center_id") == sc_id:
+                    return o
+            return None
+        except Exception:
+            return None
+
+    if requests_list:
+        tasks = []
+        ids = []
+        for r in requests_list:
+            rid = r.get("id")
+            if isinstance(rid, int):
+                ids.append(rid)
+                tasks.append(_fetch_my_offer(rid))
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            offers_by_id: dict[int, dict[str, Any] | None] = {}
+            for rid, res in zip(ids, results):
+                if isinstance(res, Exception):
+                    offers_by_id[rid] = None
+                else:
+                    offers_by_id[rid] = res
+
+            for r in requests_list:
+                rid = r.get("id")
+                if isinstance(rid, int):
+                    r["my_offer"] = offers_by_id.get(rid)
+
+    # --- counters для UI ---
+    total = len(requests_list)
+    cnt_no_offer = sum(1 for r in requests_list if not r.get("my_offer"))
+    cnt_in_work = sum(1 for r in requests_list if (r.get("status") == "in_work"))
+    cnt_done = sum(1 for r in requests_list if (r.get("status") == "done"))
+
+    # --- применяем фильтры ---
+    filtered = requests_list
+
+    if status_:
+        filtered = [r for r in filtered if r.get("status") == status_]
+
+    if no_offer == 1:
+        filtered = [r for r in filtered if not r.get("my_offer")]
+
     return templates.TemplateResponse(
         "service_center/requests.html",
         {
             "request": request,
             "service_center": sc,
-            "requests_list": requests_list,
+            "requests_list": filtered,
             "error_message": error_message,
+            "filter_status": status_,
+            "filter_no_offer": 1 if no_offer == 1 else 0,
+            "counters": {
+                "total": total,
+                "no_offer": cnt_no_offer,
+                "in_work": cnt_in_work,
+                "done": cnt_done,
+            },
         },
     )
 
