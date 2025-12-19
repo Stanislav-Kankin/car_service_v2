@@ -2,7 +2,7 @@ from typing import Any
 import os
 
 import asyncio
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from httpx import AsyncClient
 
