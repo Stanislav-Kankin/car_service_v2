@@ -161,40 +161,92 @@ class OffersService:
 
     @staticmethod
     async def update_offer(db: AsyncSession, offer_id: int, data: dict) -> Optional[Offer]:
+        from backend.app.core.config import settings
+
         offer = await OffersService.get_offer_by_id(db, offer_id)
         if not offer:
             return None
 
-        # BONUS_HIDDEN_MODE: запретить сохранять cashback_percent
+        # BONUS_HIDDEN_MODE: запрещаем менять cashback_percent (и любую бонусную историю)
         if settings.BONUS_HIDDEN_MODE and "cashback_percent" in data:
             data["cashback_percent"] = None
 
-        # если обновили текст — попробуем обновить и числовые поля (не ломая совместимость)
-        price_text = data.get("price_text")
-        if data.get("price") is None and price_text:
-            parsed_price = _parse_price_to_float(price_text)
-            if parsed_price is not None:
-                data["price"] = parsed_price
+        changed: dict[str, tuple[object, object]] = {}
 
-        eta_text = data.get("eta_text")
-        if data.get("eta_hours") is None and eta_text:
-            parsed_eta = _parse_eta_to_hours(eta_text)
-            if parsed_eta is not None:
-                data["eta_hours"] = parsed_eta
-
-        new_data = {}
         for field, value in data.items():
             if value is None:
                 continue
             if field == "status":
                 continue
-            new_data[field] = value
 
-        for field, value in new_data.items():
-            setattr(offer, field, value)
+            old_val = getattr(offer, field, None)
+            if old_val != value:
+                changed[field] = (old_val, value)
+                setattr(offer, field, value)
+
+        # Если изменений нет — без коммита и без лишних уведомлений
+        if not changed:
+            return offer
 
         await db.commit()
         await db.refresh(offer)
+
+        # --- Уведомление клиента об обновлении оффера ---
+        try:
+            offer_full = await OffersService.get_offer_by_id(db, offer.id)
+            if offer_full and offer_full.request and offer_full.request.user:
+                client = offer_full.request.user
+                if notifier.is_enabled() and getattr(client, "telegram_id", None):
+                    request_id = offer_full.request.id
+                    url = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
+
+                    sc_name = None
+                    if offer_full.service_center:
+                        sc_name = getattr(offer_full.service_center, "name", None)
+
+                    price_line = None
+                    if getattr(offer_full, "price_text", None):
+                        price_line = f"💰 Стоимость: {offer_full.price_text}"
+                    elif getattr(offer_full, "price", None) is not None:
+                        price_line = f"💰 Стоимость: {offer_full.price}"
+
+                    eta_line = None
+                    if getattr(offer_full, "eta_text", None):
+                        eta_line = f"⏱ Срок: {offer_full.eta_text}"
+                    elif getattr(offer_full, "eta_hours", None) is not None:
+                        eta_line = f"⏱ Срок: ~{offer_full.eta_hours} ч."
+
+                    comment = getattr(offer_full, "comment", None)
+                    if comment:
+                        comment = str(comment).strip()
+                        if len(comment) > 220:
+                            comment = comment[:220] + "…"
+
+                    lines = [
+                        f"✏️ Отклик по заявке №{request_id} обновлён.",
+                    ]
+                    if sc_name:
+                        lines.append(f"🏁 Сервис: {sc_name}")
+                    if price_line:
+                        lines.append(price_line)
+                    if eta_line:
+                        lines.append(eta_line)
+                    if comment:
+                        lines.append(f"💬 Комментарий: {comment}")
+
+                    await notifier.send_notification(
+                        recipient_type="client",
+                        telegram_id=int(client.telegram_id),
+                        message="\n".join(lines),
+                        buttons=[
+                            {"text": "Открыть заявку", "type": "web_app", "url": url},
+                        ],
+                        extra={"request_id": request_id, "offer_id": offer.id, "event": "offer_updated"},
+                    )
+        except Exception:
+            # уведомления не должны ломать основной сценарий
+            pass
+
         return offer
 
     @staticmethod
