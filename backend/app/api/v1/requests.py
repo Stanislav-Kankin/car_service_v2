@@ -66,34 +66,42 @@ async def send_request_to_all_service_centers(
     request_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    request = await RequestsService.get_request_by_id(db, request_id)
-    if not request:
+    request_obj = await RequestsService.get_request_by_id(db, request_id)
+    if not request_obj:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Request not found",
         )
 
-    # ⚠️ ВАЖНО: "Отправить всем" разрешаем только при наличии геолокации и радиуса
-    if request.latitude is None or request.longitude is None:
+    # Жёстко: рассылка только при гео + радиус
+    if request_obj.latitude is None or request_obj.longitude is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Нужно указать геолокацию (точку) заявки, чтобы разослать всем СТО.",
+            detail="Нужно указать геолокацию заявки, чтобы разослать всем СТО.",
         )
-    if request.radius_km is None or request.radius_km <= 0:
+    if request_obj.radius_km is None or request_obj.radius_km <= 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Нужно выбрать радиус поиска, чтобы разослать всем СТО.",
         )
 
+    specializations = [request_obj.service_category] if request_obj.service_category else None
+
     service_centers = await ServiceCentersService.search_service_centers(
         db,
-        latitude=request.latitude,
-        longitude=request.longitude,
-        radius_km=request.radius_km,
-        specializations=[request.service_category] if request.service_category else None,
+        latitude=request_obj.latitude,
+        longitude=request_obj.longitude,
+        radius_km=request_obj.radius_km,
+        specializations=specializations,
         is_active=True,
-        fallback_to_category=False,
+        fallback_to_category=False,  # 👈 важно
     )
+
+    if not service_centers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="В выбранном радиусе нет подходящих СТО. Увеличьте радиус или выберите СТО из списка.",
+        )
 
     await RequestsService.send_request_to_all_service_centers(
         db, request_id=request_id, service_centers=service_centers

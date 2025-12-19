@@ -114,15 +114,17 @@ class ServiceCentersService:
         is_active: Optional[bool] = True,
         has_tow_truck: Optional[bool] = None,
         is_mobile_service: Optional[bool] = None,
+        fallback_to_category: bool = True,
     ) -> List[ServiceCenter]:
         """
-        Подбор СТО (без .overlap, потому что specializations хранится как JSON).
-        Алгоритм:
-        1) фильтры активности / tow / mobile в SQL
-        2) фильтр по специализациям в Python (пересечение)
-        3) geo-фильтр (если есть lat/lon + radius) с сортировкой по расстоянию
-        4) fallback: если geo пустой — вернуть список по категории (как было раньше)
+        Подбор СТО без .overlap (specializations у нас JSON).
+        1) SQL-фильтры (active/tow/mobile)
+        2) специализации в Python (пересечение)
+        3) geo-фильтр с сортировкой по расстоянию
+        4) fallback (опционально): если geo пусто — вернуть по категории
         """
+        import math  # чтобы не зависеть от верхних импортов файла
+
         stmt = select(ServiceCenter).options(selectinload(ServiceCenter.owner))
 
         if is_active is not None:
@@ -135,7 +137,7 @@ class ServiceCentersService:
         result = await db.execute(stmt)
         items: List[ServiceCenter] = list(result.scalars().all())
 
-        # 1) Специализации: пересечение множеств
+        # 1) Специализации: пересечение множеств (JSON)
         if specializations:
             wanted = {s.strip() for s in specializations if s and s.strip()}
             if wanted:
@@ -147,10 +149,9 @@ class ServiceCentersService:
                         filtered.append(sc)
                 items = filtered
 
-        # Сохраним "по категории" до гео (для fallback)
         items_by_category = list(items)
 
-        # 2) Гео-фильтр
+        # 2) Geo-фильтр
         if (
             latitude is not None
             and longitude is not None
@@ -189,13 +190,12 @@ class ServiceCentersService:
             filtered_with_dist.sort(key=lambda x: x[0])
             items_geo = [sc for _, sc in filtered_with_dist]
 
-            # fallback: если "рядом" никого — вернём "все по категории"
             if not items_geo:
-                return items_by_category
+                return items_by_category if fallback_to_category else []
 
             return items_geo
 
-        return items
+        return items_by_category
 
     # ------------------------------------------------------------------
     # Обновление
