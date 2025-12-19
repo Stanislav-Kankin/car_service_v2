@@ -418,7 +418,8 @@ async def set_done(
             db,
             request_id,
             payload.service_center_id,
-            final_price=payload.final_price,  # ВАЖНО: keyword-arg
+            final_price=payload.final_price,            # keyword-arg
+            final_price_text=payload.final_price_text,  # ✅ ВАЖНО: текст тоже сохраняем
         )
         if not req:
             raise HTTPException(status_code=404, detail="Request not found")

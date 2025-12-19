@@ -365,3 +365,50 @@ class RequestsService:
             )
 
         return req
+
+    @staticmethod
+    async def reject_by_service(
+        db: AsyncSession,
+        request_id: int,
+        service_center_id: int,
+        *,
+        reason: str | None = None,
+    ) -> Optional[Request]:
+        req = await RequestsService.get_request_by_id(db, request_id)
+        if not req:
+            return None
+
+        # Закрывать может только назначенное СТО
+        if req.service_center_id != service_center_id:
+            raise PermissionError("No access to this request")
+
+        # Нельзя закрывать, если уже закрыта
+        if req.status in [RequestStatus.DONE, RequestStatus.CANCELLED, RequestStatus.REJECTED_BY_SERVICE]:
+            raise ValueError("Invalid status transition")
+
+        req.status = RequestStatus.REJECTED_BY_SERVICE
+        clean_reason = (reason or "").strip()
+        req.reject_reason = clean_reason or None
+
+        await db.commit()
+        await db.refresh(req)
+
+        # уведомление клиенту (не должно ломать основной сценарий)
+        try:
+            client = await UsersService.get_by_id(db, req.user_id)
+            tg_id = getattr(client, "telegram_id", None) if client else None
+            if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
+                msg = f"⛔ Сервис закрыл заявку №{request_id}."
+                if req.reject_reason:
+                    msg += f"\nПричина: {req.reject_reason}"
+                await notifier.send_notification(
+                    recipient_type="client",
+                    telegram_id=int(tg_id),
+                    message=msg,
+                    buttons=[_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")],
+                    extra={"request_id": request_id, "status": "REJECTED_BY_SERVICE"},
+                )
+        except Exception:
+            logger.exception("reject_by_service notify failed (request_id=%s)", request_id)
+
+        return req

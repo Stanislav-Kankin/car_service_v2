@@ -30,7 +30,13 @@
     "in_work": ("В работе", "border-violet-400/60", "bg-violet-500/10", "text-violet-200"),
     "done": ("Завершена", "border-emerald-400/60", "bg-emerald-500/10", "text-emerald-200"),
     "cancelled": ("Отменена", "border-rose-400/60", "bg-rose-500/10", "text-rose-200"),
-    "rejected_by_service": ("Отклонена", "border-rose-400/60", "bg-rose-500/10", "text-rose-200")
+    "rejected_by_service": ("Закрыта (отказ СТО)", "border-rose-400/60", "bg-rose-500/10", "text-rose-200")
+} %}
+
+{% set offer_status_labels = {
+    "new": "Новый",
+    "accepted": "Принят",
+    "rejected": "Отклонён"
 } %}
 
 <div class="mt-8 space-y-6">
@@ -65,6 +71,10 @@
     {% set car_year = car.year or "" %}
     {% set car_text = (car_brand ~ " " ~ car_model ~ " " ~ car_year)|trim %}
 
+    {# ✅ при DONE убираем все кнопки действий (чат/отклик/завершение/закрытие) #}
+    {% set is_done = (req.status == "done") %}
+    {% set is_closed = (req.status in ["done", "cancelled", "rejected_by_service"]) %}
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Левая колонка: заявка -->
         <div class="lg:col-span-2 space-y-6">
@@ -79,28 +89,38 @@
                     </div>
 
                     <div class="flex items-center gap-2">
-                        {% if req.status == "accepted_by_service" %}
-                        <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-in-work">
-                            <button type="submit"
-                                    class="rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-sm font-semibold transition">
-                                ▶ В работу
-                            </button>
-                        </form>
-                        {% endif %}
+                        {# ✅ кнопки действий скрываем если DONE #}
+                        {% if not is_done %}
+                            {% if req.status == "accepted_by_service" %}
+                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-in-work">
+                                <button type="submit"
+                                        class="rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-sm font-semibold transition">
+                                    ▶ В работу
+                                </button>
+                            </form>
+                            {% endif %}
 
-                        {% if req.status == "in_work" %}
-                        <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-done" class="flex items-center gap-2">
-                            <input type="text" name="final_price_text"
-                                   placeholder="Итоговая цена (например: 5000–7000 / после диагностики)"
-                                   class="w-64 rounded-full border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                            <button type="submit"
-                                    class="rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-sm font-semibold transition">
-                                ✅ Завершить
-                            </button>
-                        </form>
+                            {% if req.status == "in_work" %}
+                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-done" class="flex items-center gap-2">
+                                <input type="text" name="final_price_text"
+                                       placeholder="Итоговая цена (например: 5000–7000 / после диагностики)"
+                                       class="w-64 rounded-full border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
+                                <button type="submit"
+                                        class="rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-sm font-semibold transition">
+                                    ✅ Завершить
+                                </button>
+                            </form>
+                            {% endif %}
                         {% endif %}
                     </div>
                 </div>
+
+                {% if req.status == "rejected_by_service" and req.reject_reason %}
+                <div class="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4">
+                    <p class="text-xs uppercase tracking-[0.25em] text-rose-200/80">Причина отказа</p>
+                    <p class="text-sm text-rose-100 mt-2 whitespace-pre-line">{{ req.reject_reason }}</p>
+                </div>
+                {% endif %}
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -134,11 +154,22 @@
                         </p>
                     </div>
                 </div>
+
+                {% if req.status == "done" and (req.final_price_text or req.final_price) %}
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/70">
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Итоговая цена</p>
+                        <p class="text-sm text-slate-200 mt-1">
+                            {{ req.final_price_text or req.final_price }}
+                        </p>
+                    </div>
+                </div>
+                {% endif %}
             </div>
 
         </div>
 
-        <!-- Правая колонка: связь/отклик -->
+        <!-- Правая колонка: связь/отклик/закрытие -->
         <div class="space-y-6">
 
             <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
@@ -146,17 +177,23 @@
                     Связь с клиентом
                 </p>
 
-                {% if client_telegram_id %}
-                <a class="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 py-2.5 text-sm font-semibold transition"
-                   href="https://t.me/{{ bot_username }}?start=chat_{{ req.id }}">
-                    💬 Написать клиенту (Telegram)
-                </a>
+                {% if is_closed %}
+                <div class="w-full rounded-2xl bg-slate-800/50 text-slate-300 py-2.5 text-sm font-semibold text-center">
+                    Заявка закрыта — кнопки недоступны
+                </div>
                 {% else %}
-                <button type="button"
-                        class="w-full rounded-2xl bg-slate-800/60 text-slate-300 py-2.5 text-sm font-semibold cursor-not-allowed"
-                        disabled>
-                    Telegram клиента недоступен
-                </button>
+                    {% if client_telegram_id %}
+                    <a class="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 py-2.5 text-sm font-semibold transition"
+                       href="https://t.me/{{ bot_username }}?start=chat_{{ req.id }}">
+                        💬 Написать клиенту (Telegram)
+                    </a>
+                    {% else %}
+                    <button type="button"
+                            class="w-full rounded-2xl bg-slate-800/60 text-slate-300 py-2.5 text-sm font-semibold cursor-not-allowed"
+                            disabled>
+                        Telegram клиента недоступен
+                    </button>
+                    {% endif %}
                 {% endif %}
             </div>
 
@@ -166,9 +203,6 @@
                 </p>
 
                 {% if my_offer %}
-                <p class="text-sm text-slate-300">
-                    Вы уже отправили отклик по этой заявке. Вы можете обновить его.
-                </p>
                 <ul class="text-xs text-slate-300 space-y-1">
                     <li>Цена: <span class="font-semibold">{{ my_offer.price_text or my_offer.price or "—" }}</span></li>
                     <li>Срок: <span class="font-semibold">{{ my_offer.eta_text or (my_offer.eta_hours ~ " ч.") or "—" }}</span></li>
@@ -176,13 +210,22 @@
                     <li>Комментарий: <span class="font-semibold">{{ my_offer.comment }}</span></li>
                     {% endif %}
                     {% if my_offer.status %}
-                    <li>Статус: <span class="font-semibold">{{ my_offer.status }}</span></li>
+                    <li>Статус: <span class="font-semibold">{{ offer_status_labels.get(my_offer.status, my_offer.status) }}</span></li>
                     {% endif %}
                 </ul>
                 {% endif %}
 
-                {% set offer_locked = req.status in ["in_work", "done", "cancelled"] %}
-                {% if not offer_locked %}
+                {# ✅ После выбора клиентом (accepted_by_service) и дальше — редактирование отклика запрещаем #}
+                {% set offer_locked = req.status in ["accepted_by_service", "in_work", "done", "cancelled", "rejected_by_service"] %}
+
+                {% if not offer_locked and not is_done %}
+                <p class="text-sm text-slate-300">
+                    {% if my_offer %}
+                        Вы уже отправили отклик. Вы можете обновить его.
+                    {% else %}
+                        Отправьте отклик по этой заявке.
+                    {% endif %}
+                </p>
 
                 <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/offer" class="space-y-3">
                     <div class="grid grid-cols-1 gap-3">
@@ -222,17 +265,55 @@
                         {% if my_offer %}🔄 Обновить отклик{% else %}📨 Отправить отклик{% endif %}
                     </button>
                 </form>
-
                 {% else %}
-                <p class="text-sm text-slate-300">
-                    Отклик по этой заявке больше недоступен: заявка в работе или закрыта.
-                </p>
+                    <p class="text-sm text-slate-300">
+                        {% if is_done %}
+                            Заявка завершена — действия недоступны.
+                        {% elif req.status == "accepted_by_service" %}
+                            Клиент выбрал ваш сервис — отклик зафиксирован и больше не редактируется.
+                        {% elif req.status == "in_work" %}
+                            Заявка в работе — отклик больше не редактируется.
+                        {% else %}
+                            Отклик по этой заявке недоступен.
+                        {% endif %}
+                    </p>
                 {% endif %}
 
                 {% if error_message %}
                 <p class="text-xs text-rose-300">{{ error_message }}</p>
                 {% endif %}
             </div>
+
+            {# ✅ Закрытие заявки (отказ СТО) + причина — только пока заявка назначена этому СТО и не закрыта #}
+            {% if not is_done and req.status in ["accepted_by_service", "in_work"] and (req.service_center_id == service_center.id) %}
+            <div class="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4 space-y-3">
+                <p class="text-xs uppercase tracking-[0.25em] text-rose-200/80">
+                    Закрыть заявку
+                </p>
+
+                <p class="text-sm text-slate-200">
+                    Укажите причину — она будет сохранена в заявке.
+                </p>
+
+                <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/reject" class="space-y-3">
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-300">Причина отказа</label>
+                        <textarea name="reason" rows="3"
+                                  class="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-300/40"
+                                  placeholder="например: клиент не приехал / не привезли расходники / нет запчастей..."></textarea>
+                    </div>
+
+                    <button type="submit"
+                            class="w-full rounded-2xl bg-rose-600 hover:bg-rose-500 text-white py-2.5 text-sm font-semibold transition">
+                        ⛔ Закрыть заявку
+                    </button>
+
+                    <p class="text-[11px] text-rose-100/80">
+                        Внимание: заявка будет переведена в статус “Закрыта (отказ СТО)”.
+                    </p>
+                </form>
+            </div>
+            {% endif %}
 
         </div>
     </div>
