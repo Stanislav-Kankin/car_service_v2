@@ -244,18 +244,30 @@
                 {% set already_chosen = (request_obj.service_center_id is not none) or (accepted_offer_id is not none) %}
 
                 {% if already_chosen %}
+                {% set chat_sc_id = accepted_sc_id if accepted_sc_id else request_obj.service_center_id %}
+                {% set chosen_sc = service_centers_by_id.get(chat_sc_id|int) if chat_sc_id else None %}
+
                 <div class="rounded-2xl border border-emerald-500/30 bg-emerald-900/10 p-4">
                     <p class="text-sm text-emerald-200 font-semibold">✅ Сервис выбран</p>
-                    <p class="text-[11px] text-emerald-200/80">
-                        {% if accepted_sc_id %}
-                            Выбран сервис #{{ accepted_sc_id }}.
-                        {% elif request_obj.service_center_id %}
-                            Выбран сервис #{{ request_obj.service_center_id }}.
-                        {% endif %}
-                        Кнопки принятия скрыты, чтобы не было повторного выбора.
-                    </p>
 
-                    {% set chat_sc_id = accepted_sc_id if accepted_sc_id else request_obj.service_center_id %}
+                    <div class="mt-2 text-[11px] text-emerald-200/80">
+                        {% if chosen_sc %}
+                            <div class="text-sm text-slate-100 font-semibold">
+                                {{ chosen_sc.get("name") or ("Сервис #" ~ (chat_sc_id|string)) }}
+                            </div>
+                            {% if chosen_sc.get("address") %}
+                                <div class="text-xs text-slate-300 mt-0.5">{{ chosen_sc.get("address") }}</div>
+                            {% endif %}
+                            {% if chosen_sc.get("phone") %}
+                                <div class="text-xs text-slate-400 mt-0.5">Телефон: {{ chosen_sc.get("phone") }}</div>
+                            {% endif %}
+                        {% else %}
+                            Выбран сервис #{{ chat_sc_id }}.
+                        {% endif %}
+                        <div class="mt-1 text-[11px] text-emerald-200/70">
+                            Кнопки принятия скрыты, чтобы не было повторного выбора.
+                        </div>
+                    </div>
 
                     <div class="mt-3">
                         {% if chat_sc_id %}
@@ -277,11 +289,21 @@
                 {% if offers %}
                 <div class="space-y-3">
                     {% for offer in offers %}
+                    {% set sc = service_centers_by_id.get(offer.service_center_id|int) %}
                     <div class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                        <div class="space-y-1">
+                        <div class="space-y-1 min-w-0">
                             <p class="text-sm font-semibold text-slate-100">
-                                Сервис #{{ offer.service_center_id }}
+                                {% if sc %}
+                                    {{ sc.get("name") or ("Сервис #" ~ (offer.service_center_id|string)) }}
+                                {% else %}
+                                    Сервис #{{ offer.service_center_id }}
+                                {% endif %}
                             </p>
+
+                            {% if sc and sc.get("address") %}
+                                <p class="text-xs text-slate-400 break-words">{{ sc.get("address") }}</p>
+                            {% endif %}
+
                             <p class="text-xs text-slate-300">
                                 {% if offer.price is not none %}Цена: {{ offer.price }}{% else %}Цена не указана{% endif %}
                                 {% if offer.eta_hours is not none %} · Срок: ~{{ offer.eta_hours }} ч.{% endif %}
@@ -363,7 +385,6 @@
         }
 
         function initMap(centerLat, centerLon) {
-            // ✅ никаких подписей/флагов/атрибуции
             const map = L.map(mapContainer, {
                 attributionControl: false,
                 zoomControl: false
@@ -376,7 +397,6 @@
 
             L.marker([centerLat, centerLon]).addTo(map);
 
-            // ✅ фикс “пустой карты” из-за размеров контейнера в WebView
             setTimeout(() => {
                 try { map.invalidateSize(); } catch(e) {}
             }, 50);

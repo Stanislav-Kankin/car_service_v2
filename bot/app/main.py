@@ -54,7 +54,7 @@ async def main():
         if config.WEBAPP_URL:
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
-                    text="Открыть MyGarage",
+                    text="MyGarage",
                     web_app=WebAppInfo(url=config.WEBAPP_URL),
                 )
             )

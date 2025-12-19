@@ -935,24 +935,28 @@ async def request_detail(
             break
 
     # ------------------------------------------------------------
-    # Telegram: собираем telegram_id владельцев СТО для кнопок "Написать"
+    # Собираем данные по СТО (имя/адрес) + telegram_id владельца СТО
     # ------------------------------------------------------------
     offer_sc_telegram_ids: dict[int, int] = {}
+    service_centers_by_id: dict[int, dict[str, Any]] = {}
 
     try:
         sc_ids = {int(o.get("service_center_id")) for o in offers if o.get("service_center_id")}
+
         # ✅ добавляем выбранный сервис, даже если оффера ещё нет
         try:
             if req_data.get("service_center_id"):
                 sc_ids.add(int(req_data.get("service_center_id")))
         except Exception:
             pass
+
         # ✅ добавляем сервис из принятого оффера
         try:
             if accepted_sc_id:
                 sc_ids.add(int(accepted_sc_id))
         except Exception:
             pass
+
         # ✅ добавляем сервис, который выбрал пользователь через UI (chosen_service_id)
         try:
             if chosen_service_id:
@@ -964,7 +968,10 @@ async def request_detail(
             sc_resp = await client.get(f"/api/v1/service-centers/{sc_id}")
             if sc_resp.status_code != 200:
                 continue
+
             sc_data = sc_resp.json() or {}
+            service_centers_by_id[int(sc_id)] = sc_data
+
             sc_user_id = sc_data.get("user_id")
             if not sc_user_id:
                 continue
@@ -972,12 +979,15 @@ async def request_detail(
             u_resp = await client.get(f"/api/v1/users/{int(sc_user_id)}")
             if u_resp.status_code != 200:
                 continue
+
             u_data = u_resp.json() or {}
             tg_id = u_data.get("telegram_id")
             if tg_id:
-                offer_sc_telegram_ids[sc_id] = int(tg_id)
+                offer_sc_telegram_ids[int(sc_id)] = int(tg_id)
+
     except Exception:
         offer_sc_telegram_ids = {}
+        service_centers_by_id = {}
 
     return templates.TemplateResponse(
         "user/request_detail.html",
@@ -991,6 +1001,7 @@ async def request_detail(
             "chosen_service_id": chosen_service_id,
             "offers": offers,
             "offer_sc_telegram_ids": offer_sc_telegram_ids,
+            "service_centers_by_id": service_centers_by_id,
             "accepted_offer_id": accepted_offer_id,
             "accepted_sc_id": accepted_sc_id,
             "bot_username": bot_username,
