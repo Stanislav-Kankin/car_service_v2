@@ -104,6 +104,16 @@
                     </div>
 
                     <div class="mt-4 flex items-center gap-2">
+                        <a href="/me/cars/{{ car.id }}"
+                           class="inline-flex items-center justify-center rounded-full bg-slate-900 hover:bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 transition border border-slate-700">
+                            Открыть
+                        </a>
+
+                        <a href="/me/cars/{{ car.id }}/edit"
+                           class="inline-flex items-center justify-center rounded-full bg-slate-900 hover:bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 transition border border-slate-700">
+                            ✏️ Редактировать
+                        </a>
+
                         <a href="/me/requests/create?car_id={{ car.id }}"
                            class="inline-flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 transition">
                             Создать заявку

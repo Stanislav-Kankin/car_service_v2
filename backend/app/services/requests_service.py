@@ -170,6 +170,81 @@ class RequestsService:
         await db.refresh(req)
         return req
 
+    @staticmethod
+    async def send_request_to_all_service_centers(
+        db: AsyncSession,
+        *,
+        request_id: int,
+        service_centers: List[ServiceCenter],
+    ) -> Optional[Request]:
+        """
+        "Отправить всем" =
+        1) фиксируем RequestDistribution для всех найденных СТО
+        2) ставим статус заявки SENT
+        3) отправляем уведомления владельцам СТО через bot notify API (если включён)
+
+        ВАЖНО:
+        - строгий отбор по радиусу/гео делается ДО вызова (в роутере)
+        - здесь не делаем fallback логики
+        """
+
+        req = await RequestsService.get_request_by_id(db, request_id)
+        if not req:
+            return None
+
+        final_ids: list[int] = [int(sc.id) for sc in (service_centers or []) if sc and getattr(sc, "id", None)]
+        final_ids = sorted(set(final_ids))
+        if not final_ids:
+            # ничего не делаем — пусть роутер сам решает, что показать пользователю
+            return req
+
+        distributed = await RequestsService.distribute_request_to_service_centers(
+            db,
+            request_id=request_id,
+            service_center_ids=final_ids,
+        )
+
+        if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
+            from backend.app.core.catalogs.service_categories import SERVICE_CATEGORY_LABELS
+
+            cat_code = req.service_category or "—"
+            cat_label = SERVICE_CATEGORY_LABELS.get(cat_code, cat_code)
+
+            for sc in service_centers:
+                if not sc:
+                    continue
+                owner = getattr(sc, "owner", None)
+                owner_tg = getattr(owner, "telegram_id", None) if owner else None
+                if not owner_tg:
+                    continue
+
+                url = f"{WEBAPP_PUBLIC_URL}/sc/{sc.id}/requests/{request_id}"
+                message = (
+                    f"📩 Вам отправлена заявка №{request_id}\n"
+                    f"Категория: {cat_label}"
+                )
+
+                try:
+                    await notifier.send_notification(
+                        recipient_type="service_center",
+                        telegram_id=int(owner_tg),
+                        message=message,
+                        buttons=[_btn_webapp("Открыть заявку", url)],
+                        extra={
+                            "request_id": request_id,
+                            "service_center_id": int(sc.id),
+                            "kind": "send_to_all",
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "send_to_all notify failed (request_id=%s, service_center_id=%s)",
+                        request_id,
+                        getattr(sc, "id", None),
+                    )
+
+        return distributed
+
     # ------------------------------------------------------------------
     # В работу
     # ------------------------------------------------------------------

@@ -99,12 +99,17 @@ class ServiceCentersService:
         is_active: Optional[bool] = True,
         has_tow_truck: Optional[bool] = None,
         is_mobile_service: Optional[bool] = None,
+        fallback_to_category: bool = True,
     ) -> List[ServiceCenter]:
         """
         Безопасный поиск:
         - фильтры активности/tow/mobile в SQL
         - фильтр специализаций и гео — в Python (работает и с JSON, и с SQLite, и с Postgres)
-        - fallback: если по гео пусто, вернём список "по категории"
+        - fallback (управляемый): если по гео пусто, можно вернуть список "по категории"
+
+        fallback_to_category:
+            True  -> если по радиусу никого нет, возвращаем список по категории (старое поведение)
+            False -> если по радиусу никого нет, возвращаем пустой список (нужно для строгой рассылки)
         """
         stmt = select(ServiceCenter).options(selectinload(ServiceCenter.owner))
 
@@ -164,7 +169,7 @@ class ServiceCentersService:
             items_geo = [sc for _, sc in filtered_with_dist]
 
             if not items_geo:
-                return items_by_category
+                return items_by_category if fallback_to_category else []
 
             return items_geo
 

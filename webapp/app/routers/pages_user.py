@@ -703,14 +703,25 @@ async def request_create_get(
     Показ формы создания заявки.
     Если передан car_id, подгружаем машину и показываем её в шапке.
     """
-    _ = get_current_user_id(request)
+    user_id = get_current_user_id(request)
+
+    # ✅ если авто не выбрано — показываем список авто прямо на странице (без тупика)
+    cars: list[dict[str, Any]] = []
+    if car_id is None:
+        try:
+            resp = await client.get(f"/api/v1/cars/by-user/{user_id}")
+            if resp.status_code == 200:
+                raw = resp.json() or []
+                if isinstance(raw, list):
+                    cars = raw
+        except Exception:
+            cars = []
 
     car: dict[str, Any] | None = None
     if car_id is not None:
         try:
             car = await _load_car_for_owner(request, client, car_id)
         except HTTPException:
-            # если нет доступа/не найдена — пробрасываем дальше
             raise
         except Exception:
             car = None
@@ -723,6 +734,8 @@ async def request_create_get(
             "request": request,
             "car_id": car_id,
             "car": car,
+            "cars": cars,
+            "car_missing": car is None,
             "created_request": None,
             "error_message": None,
             "primary_categories": primary_categories,
@@ -731,10 +744,10 @@ async def request_create_get(
         },
     )
 
-
 # --------------------------------------------------------------------
 # Создание заявки — POST
 # --------------------------------------------------------------------
+
 
 @router.post("/requests/create", response_class=HTMLResponse)
 async def request_create_post(
@@ -750,7 +763,6 @@ async def request_create_post(
     description: str = Form(...),
     hide_phone: bool = Form(False),
 
-    # ✅ на будущее (если в форме появятся скрытые поля координат)
     latitude: float | None = Form(None),
     longitude: float | None = Form(None),
 ) -> HTMLResponse:
@@ -759,14 +771,27 @@ async def request_create_post(
     car_id_raw = (car_id_raw or "").strip()
     if not car_id_raw:
         primary_categories, extra_categories = _build_service_categories()
+
+        cars: list[dict[str, Any]] = []
+        try:
+            resp = await client.get(f"/api/v1/cars/by-user/{user_id}")
+            if resp.status_code == 200:
+                raw = resp.json() or []
+                if isinstance(raw, list):
+                    cars = raw
+        except Exception:
+            cars = []
+
         return templates.TemplateResponse(
             "user/request_create.html",
             {
                 "request": request,
                 "car_id": None,
                 "car": None,
+                "cars": cars,
+                "car_missing": True,
                 "created_request": None,
-                "error_message": "Сначала выберите автомобиль в гараже, а потом создавайте заявку.",
+                "error_message": None,
                 "primary_categories": primary_categories,
                 "extra_categories": extra_categories,
                 "form_data": {
@@ -776,6 +801,8 @@ async def request_create_post(
                     "service_category": service_category,
                     "description": description,
                     "hide_phone": hide_phone,
+                    "latitude": latitude,
+                    "longitude": longitude,
                 },
             },
         )
@@ -790,6 +817,8 @@ async def request_create_post(
                 "request": request,
                 "car_id": None,
                 "car": None,
+                "cars": [],
+                "car_missing": True,
                 "created_request": None,
                 "error_message": "Некорректный идентификатор автомобиля.",
                 "primary_categories": primary_categories,
@@ -798,7 +827,6 @@ async def request_create_post(
             },
         )
 
-    # подгружаем авто (не критично если упадёт)
     try:
         car_resp = await client.get(f"/api/v1/cars/{car_id}")
         car_resp.raise_for_status()
@@ -837,6 +865,8 @@ async def request_create_post(
                 "request": request,
                 "car_id": car_id,
                 "car": car,
+                "cars": [],
+                "car_missing": False,
                 "created_request": None,
                 "error_message": "Не удалось создать заявку. Попробуйте позже.",
                 "primary_categories": primary_categories,
@@ -848,11 +878,12 @@ async def request_create_post(
                     "service_category": service_category,
                     "description": description,
                     "hide_phone": hide_phone,
+                    "latitude": latitude,
+                    "longitude": longitude,
                 },
             },
         )
 
-    # ✅ ключевое: сразу прыгаем на выбор СТО
     return RedirectResponse(
         url=f"/me/requests/{created_id}/choose-service",
         status_code=status.HTTP_303_SEE_OTHER,
