@@ -263,8 +263,16 @@ class OffersService:
         2) Остальные по заявке = REJECTED
         3) request.service_center_id = offer.service_center_id
         4) request.status = ACCEPTED_BY_SERVICE (временно)
-        5) Уведомить СТО + клиента
+        5) Обновить RequestDistribution:
+            - winner = WINNER
+            - остальные = DECLINED
+        6) Уведомить:
+            - выбранному СТО: "ваше предложение выбрано"
+            - остальным СТО: "клиент выбрал другой сервис"
+            - клиенту: подтверждение
         """
+        from backend.app.models.request_distribution import RequestDistribution, RequestDistributionStatus
+
         offer = await OffersService.get_offer_by_id(db, offer_id)
         if not offer:
             return None
@@ -273,8 +281,11 @@ class OffersService:
         if not req:
             return None
 
-        # проставим всем офферам статус
-        stmt = select(Offer).where(Offer.request_id == req.id)
+        request_id = req.id
+        winner_sc_id = int(offer.service_center_id)
+
+        # --- проставим всем офферам статус ---
+        stmt = select(Offer).where(Offer.request_id == request_id)
         res = await db.execute(stmt)
         offers = list(res.scalars().all())
 
@@ -282,48 +293,113 @@ class OffersService:
             o.status = OfferStatus.REJECTED
         offer.status = OfferStatus.ACCEPTED
 
-        # request -> выбранный сервис
-        req.service_center_id = offer.service_center_id
+        # --- request -> выбранный сервис ---
+        req.service_center_id = winner_sc_id
         req.status = RequestStatus.ACCEPTED_BY_SERVICE
+
+        # --- обновим RequestDistribution (если записи есть) ---
+        other_sc_ids: list[int] = []
+        try:
+            dist_stmt = select(RequestDistribution).where(RequestDistribution.request_id == request_id)
+            dist_res = await db.execute(dist_stmt)
+            dists = list(dist_res.scalars().all())
+
+            for d in dists:
+                if int(d.service_center_id) == winner_sc_id:
+                    d.status = RequestDistributionStatus.WINNER
+                else:
+                    d.status = RequestDistributionStatus.DECLINED
+                    other_sc_ids.append(int(d.service_center_id))
+        except Exception:
+            # distribution — вспомогательная часть, не должна ломать принятие оффера
+            other_sc_ids = []
 
         await db.commit()
         await db.refresh(offer)
 
-        # уведомление сервису + клиенту
+        # --- уведомления ---
         offer_full = await OffersService.get_offer_by_id(db, offer.id)
         if offer_full and notifier.is_enabled():
-            request_id = offer_full.request.id if offer_full.request else None
+            # 1) победителю (как было)
+            try:
+                if (
+                    offer_full.service_center
+                    and offer_full.service_center.owner
+                    and getattr(offer_full.service_center.owner, "telegram_id", None)
+                ):
+                    sc_owner_tg = int(offer_full.service_center.owner.telegram_id)
+                    url_sc = f"{WEBAPP_PUBLIC_URL}/sc/{winner_sc_id}/requests/{request_id}"
+                    await notifier.send_notification(
+                        recipient_type="service_center",
+                        telegram_id=sc_owner_tg,
+                        message=(
+                            f"🎉 Ваше предложение по заявке №{request_id} выбрано клиентом!\n"
+                            f"Откройте заявку и переведите её в работу."
+                        ),
+                        buttons=[
+                            {"text": "Открыть заявку", "type": "web_app", "url": url_sc},
+                        ],
+                        extra={"request_id": request_id, "offer_id": offer_id, "event": "offer_accepted_winner"},
+                    )
+            except Exception:
+                pass
 
-            # сервису
-            if offer_full.service_center and offer_full.service_center.owner and getattr(offer_full.service_center.owner, "telegram_id", None):
-                sc_owner_tg = int(offer_full.service_center.owner.telegram_id)
-                url_sc = f"{WEBAPP_PUBLIC_URL}/sc/{offer_full.service_center_id}/requests/{request_id}"
-                await notifier.send_notification(
-                    recipient_type="service_center",
-                    telegram_id=sc_owner_tg,
-                    message=(
-                        f"🎉 Ваше предложение по заявке №{request_id} выбрано клиентом!\n"
-                        f"Откройте заявку и переведите её в работу."
-                    ),
-                    buttons=[
-                        {"text": "Открыть заявку", "type": "web_app", "url": url_sc},
-                    ],
-                    extra={"request_id": request_id, "offer_id": offer_id},
-                )
+            # 2) остальным СТО — отбивка
+            # Берём СТО + владельцев пачкой, чтобы не делать N запросов
+            try:
+                if other_sc_ids:
+                    sc_stmt = (
+                        select(ServiceCenter)
+                        .where(ServiceCenter.id.in_(other_sc_ids))
+                        .options(selectinload(ServiceCenter.owner))
+                    )
+                    sc_res = await db.execute(sc_stmt)
+                    other_scs = list(sc_res.scalars().all())
 
-            # клиенту
-            if offer_full.request and offer_full.request.user and getattr(offer_full.request.user, "telegram_id", None):
-                client_tg = int(offer_full.request.user.telegram_id)
-                url_me = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
-                await notifier.send_notification(
-                    recipient_type="client",
-                    telegram_id=client_tg,
-                    message=f"✅ Вы выбрали сервис по заявке №{request_id}.",
-                    buttons=[
-                        {"text": "Открыть заявку", "type": "web_app", "url": url_me},
-                    ],
-                    extra={"request_id": request_id, "offer_id": offer_id},
-                )
+                    for sc in other_scs:
+                        owner = getattr(sc, "owner", None)
+                        owner_tg = getattr(owner, "telegram_id", None) if owner else None
+                        if not owner_tg:
+                            continue
+
+                        url_sc = f"{WEBAPP_PUBLIC_URL}/sc/{int(sc.id)}/requests/{request_id}"
+                        await notifier.send_notification(
+                            recipient_type="service_center",
+                            telegram_id=int(owner_tg),
+                            message=(
+                                f"ℹ️ Клиент выбрал другой сервис по заявке №{request_id}.\n"
+                                f"Спасибо за отклик!"
+                            ),
+                            buttons=[
+                                {"text": "Открыть заявку", "type": "web_app", "url": url_sc},
+                            ],
+                            extra={
+                                "request_id": request_id,
+                                "offer_id": offer_id,
+                                "event": "offer_accepted_declined",
+                                "winner_service_center_id": winner_sc_id,
+                                "service_center_id": int(sc.id),
+                            },
+                        )
+            except Exception:
+                pass
+
+            # 3) клиенту (как было)
+            try:
+                if offer_full.request and offer_full.request.user and getattr(offer_full.request.user, "telegram_id", None):
+                    client_tg = int(offer_full.request.user.telegram_id)
+                    url_me = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
+                    await notifier.send_notification(
+                        recipient_type="client",
+                        telegram_id=client_tg,
+                        message=f"✅ Вы выбрали сервис по заявке №{request_id}.",
+                        buttons=[
+                            {"text": "Открыть заявку", "type": "web_app", "url": url_me},
+                        ],
+                        extra={"request_id": request_id, "offer_id": offer_id, "event": "offer_accepted_client"},
+                    )
+            except Exception:
+                pass
 
         return offer
 
