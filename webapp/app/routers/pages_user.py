@@ -1149,14 +1149,47 @@ async def request_send_all_post(
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
     _ = get_current_user_id(request)
+    templates = get_templates()
 
+    # 1) пробуем отправить всем
+    error_message: str | None = None
     try:
         resp = await client.post(f"/api/v1/requests/{request_id}/send_to_all")
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # пытаемся вытащить detail из backend
+            try:
+                data = resp.json() or {}
+                if isinstance(data, dict) and data.get("detail"):
+                    error_message = str(data.get("detail"))
+                else:
+                    error_message = "Не удалось отправить заявку всем СТО. Проверьте геолокацию и радиус."
+            except Exception:
+                error_message = "Не удалось отправить заявку всем СТО. Проверьте геолокацию и радиус."
+        else:
+            # ок — покажем страницу заявки с sent_all=True
+            return await request_detail(request_id, request, client, sent_all=True)
     except Exception:
-        return await request_detail(request_id, request, client, sent_all=False)
+        error_message = "Не удалось отправить заявку всем СТО. Попробуйте позже."
 
-    return await request_detail(request_id, request, client, sent_all=True)
+    # 2) ошибка — остаёмся на choose-service и показываем причину
+    service_centers = []
+    try:
+        sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
+        if sc_resp.status_code == 200:
+            service_centers = sc_resp.json() or []
+    except Exception:
+        pass
+
+    return templates.TemplateResponse(
+        "user/request_choose_service.html",
+        {
+            "request": request,
+            "request_id": request_id,
+            "service_centers": service_centers,
+            "error_message": error_message,
+            "bot_username": BOT_USERNAME,
+        },
+    )
 
 
 # --------------------------------------------------------------------

@@ -172,98 +172,6 @@ async def sc_dashboard(
         },
     )
 
-    # --------------------------
-    # Статистика заявок (best-effort)
-    # --------------------------
-    sc_counters: dict[int, dict[str, int]] = {}
-
-    async def _fetch_requests_for_sc(sc_id: int) -> list[dict[str, Any]]:
-        try:
-            r = await client.get(f"/api/v1/requests/for-service-center/{sc_id}")
-            if r.status_code == status.HTTP_404_NOT_FOUND:
-                return []
-            if r.status_code != 200:
-                return []
-            data = r.json() or []
-            return data if isinstance(data, list) else []
-        except Exception:
-            return []
-
-    async def _fetch_my_offer_exists(sc_id: int, request_id: int) -> bool:
-        """
-        True если по request_id есть оффер от данного sc_id.
-        """
-        try:
-            r = await client.get(f"/api/v1/offers/by-request/{request_id}")
-            if r.status_code != 200:
-                return False
-            offers = r.json() or []
-            if not isinstance(offers, list):
-                return False
-            for o in offers:
-                if isinstance(o, dict) and o.get("service_center_id") == sc_id:
-                    return True
-            return False
-        except Exception:
-            return False
-
-    async def _build_counters(sc_id: int) -> dict[str, int]:
-        reqs = await _fetch_requests_for_sc(sc_id)
-
-        total = len(reqs)
-        in_work = sum(1 for x in reqs if (x.get("status") == "in_work"))
-        done = sum(1 for x in reqs if (x.get("status") == "done"))
-
-        # "Без отклика" — считаем по всем заявкам: нет оффера от этого sc_id.
-        # Чтобы не убить производительность, ограничим проверку офферов первыми 50 заявками (best-effort).
-        max_check = 50
-        ids: list[int] = []
-        for x in reqs:
-            rid = x.get("id")
-            if isinstance(rid, int):
-                ids.append(rid)
-            if len(ids) >= max_check:
-                break
-
-        no_offer = 0
-        if ids:
-            tasks = [_fetch_my_offer_exists(sc_id, rid) for rid in ids]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for ok in results:
-                if isinstance(ok, Exception):
-                    # если один запрос упал — просто пропускаем
-                    continue
-                if ok is False:
-                    no_offer += 1
-
-        return {
-            "total": int(total),
-            "no_offer": int(no_offer),
-            "in_work": int(in_work),
-            "done": int(done),
-        }
-
-    if service_centers:
-        sc_ids = [sc.get("id") for sc in service_centers if isinstance(sc.get("id"), int)]
-        if sc_ids:
-            counters_tasks = [_build_counters(int(sc_id)) for sc_id in sc_ids]
-            counters_results = await asyncio.gather(*counters_tasks, return_exceptions=True)
-            for sc_id, res in zip(sc_ids, counters_results):
-                if isinstance(res, Exception):
-                    sc_counters[int(sc_id)] = {"total": 0, "no_offer": 0, "in_work": 0, "done": 0}
-                else:
-                    sc_counters[int(sc_id)] = res
-
-    return templates.TemplateResponse(
-        "service_center/dashboard.html",
-        {
-            "request": request,
-            "service_centers": service_centers,
-            "error_message": error_message,
-            "sc_counters": sc_counters,
-        },
-    )
-
 
 # ---------------------------------------------------------------------------
 # СОЗДАНИЕ НОВОГО СТО
@@ -299,7 +207,6 @@ async def sc_create_get(
 
 
 @router.post("/create", response_class=HTMLResponse)
-@router.post("/create", response_class=HTMLResponse)
 async def sc_create_post(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
@@ -317,9 +224,6 @@ async def sc_create_post(
     user_id = get_current_user_id(request)
     address = (address or "").strip()
 
-    # -----------------------------------
-    #   Валидация: адрес + координаты обязательны для СТО
-    # -----------------------------------
     if not address:
         specialization_options = [
             ("wash", "Автомойка"),
@@ -435,7 +339,7 @@ async def sc_create_post(
         )
 
     payload: dict[str, Any] = {
-        "owner_user_id": user_id,
+        "user_id": user_id,  # ✅ ВАЖНО: backend ожидает user_id
         "name": name,
         "address": address or None,
         "latitude": lat_value,
@@ -598,9 +502,6 @@ async def sc_edit_post(
 
     address = (address or "").strip()
 
-    # -----------------------------------
-    #   Валидация: адрес + координаты обязательны для СТО
-    # -----------------------------------
     if not address:
         sc = await _load_sc_for_owner(request, client, sc_id)
         return templates.TemplateResponse(
@@ -679,10 +580,7 @@ async def sc_edit_post(
         error_message = "Не удалось сохранить изменения. Попробуйте позже."
 
     if sc is None:
-        try:
-            sc = await _load_sc_for_owner(request, client, sc_id)
-        except HTTPException:
-            raise
+        sc = await _load_sc_for_owner(request, client, sc_id)
 
     return templates.TemplateResponse(
         "service_center/edit.html",
@@ -729,7 +627,6 @@ async def sc_requests_list(
         error_message = "Не удалось загрузить заявки для этого сервиса. Попробуйте позже."
         requests_list = []
 
-    # --- best-effort: подмешиваем my_offer в каждую заявку ---
     async def _fetch_my_offer(req_id: int) -> dict[str, Any] | None:
         try:
             offers_resp = await client.get(f"/api/v1/offers/by-request/{req_id}")
@@ -766,13 +663,11 @@ async def sc_requests_list(
                 if isinstance(rid, int):
                     r["my_offer"] = offers_by_id.get(rid)
 
-    # --- counters для UI ---
     total = len(requests_list)
     cnt_no_offer = sum(1 for r in requests_list if not r.get("my_offer"))
     cnt_in_work = sum(1 for r in requests_list if (r.get("status") == "in_work"))
     cnt_done = sum(1 for r in requests_list if (r.get("status") == "done"))
 
-    # --- применяем фильтры ---
     filtered = requests_list
 
     if status_:
@@ -816,10 +711,8 @@ async def sc_request_detail(
 
     error_message = None
 
-    # service center (и ownership)
     sc = await _load_sc_for_owner(request, client, sc_id)
 
-    # request
     try:
         r = await client.get(f"/api/v1/requests/{request_id}")
         r.raise_for_status()
@@ -827,7 +720,6 @@ async def sc_request_detail(
     except Exception:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
 
-    # car (optional)
     try:
         car_id = request_data.get("car_id")
         if car_id:
@@ -839,7 +731,6 @@ async def sc_request_detail(
     except Exception:
         request_data["car"] = None
 
-    # client telegram_id (owner of request) — нужно для "Написать в Telegram"
     client_telegram_id: int | None = None
     try:
         client_user_id = request_data.get("user_id")
@@ -853,7 +744,6 @@ async def sc_request_detail(
     except Exception:
         client_telegram_id = None
 
-    # offers for request (backend отдаёт все офферы — мы НЕ показываем их СТО)
     offers: list[dict[str, Any]] = []
     try:
         offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
@@ -862,7 +752,6 @@ async def sc_request_detail(
     except Exception:
         offers = []
 
-    # my offer for this service
     my_offer: dict[str, Any] | None = None
     try:
         for o in offers:
@@ -872,7 +761,6 @@ async def sc_request_detail(
     except Exception:
         my_offer = None
 
-    # ✅ Критично: СТО не должно видеть чужие отклики
     offers_for_view: list[dict[str, Any]] = [my_offer] if my_offer else []
 
     return templates.TemplateResponse(
@@ -881,7 +769,7 @@ async def sc_request_detail(
             "request": request,
             "service_center": sc,
             "req": request_data,
-            "offers": offers_for_view,  # <-- теперь только свой
+            "offers": offers_for_view,
             "my_offer": my_offer,
             "error_message": error_message,
             "bot_username": BOT_USERNAME,
@@ -902,7 +790,6 @@ async def sc_offer_submit(
 ) -> HTMLResponse:
     sc = await _load_sc_for_owner(request, client, sc_id)
 
-    # Запрет отклика, если заявка уже в работе/закрыта
     try:
         req_resp = await client.get(f"/api/v1/requests/{request_id}")
         if req_resp.status_code == 200:
@@ -915,7 +802,6 @@ async def sc_offer_submit(
     except Exception:
         pass
 
-    # ищем существующий оффер (если есть) — чтобы обновлять, а не плодить
     my_offer: dict[str, Any] | None = None
     try:
         offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
@@ -956,7 +842,6 @@ async def sc_offer_submit(
         "comment": (comment or "").strip() or None,
     }
 
-    # backward/fallback: если строка случайно числовая — пробуем заполнить старые поля тоже
     p_num = _try_parse_float(price_text_clean)
     if p_num is not None:
         payload["price"] = p_num
