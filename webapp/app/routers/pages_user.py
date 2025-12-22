@@ -858,7 +858,6 @@ async def request_create_post(
             return None
 
         t = text.strip()
-        # допускаем запятую или пробел как разделитель
         m = re.search(r"(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)", t)
         if not m:
             return None
@@ -874,7 +873,7 @@ async def request_create_post(
 
         return (lat, lon)
 
-    def _render_form(
+    async def _render_form(
         *,
         car_id: int | None,
         car: dict[str, Any] | None,
@@ -948,7 +947,7 @@ async def request_create_post(
     except Exception:
         car = None
 
-    # --- 🔧 ВАЖНО: гео должно быть задано (иначе /choose-service всегда будет 400) ---
+    # --- гео должно быть задано (иначе /choose-service будет 400) ---
     lat = latitude
     lon = longitude
 
