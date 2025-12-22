@@ -1089,16 +1089,116 @@ async def request_send_selected_post(
         )
         resp.raise_for_status()
     except Exception:
-        # ✅ не вызываем request_detail напрямую (в контейнере может быть другой файл/имя)
-        return RedirectResponse(
-            url=f"/me/requests/{request_id}",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
+        return await request_detail(request_id, request, client, sent_all=False)
 
-    # ✅ также не вызываем request_detail — редирект на страницу заявки + флаг sent_all
-    return RedirectResponse(
-        url=f"/me/requests/{request_id}?sent_all=1",
-        status_code=status.HTTP_303_SEE_OTHER,
+    return await request_detail(request_id, request, client, sent_all=True)
+
+
+@router.get("/requests/{request_id}/view", response_class=HTMLResponse)
+@router.get("/requests/{request_id}", response_class=HTMLResponse)
+async def request_detail(
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    sent_all: bool | None = None,
+    chosen_service_id: int | None = None,
+) -> HTMLResponse:
+
+    _ = get_current_user_id(request)
+
+    import os
+    bot_username = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
+
+    try:
+        resp = await client.get(f"/api/v1/requests/{request_id}")
+        if resp.status_code == 404:
+            raise HTTPException(404, "Заявка не найдена")
+        resp.raise_for_status()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(502, "Ошибка при загрузке заявки")
+
+    req_data = resp.json()
+
+    code = req_data.get("status")
+    req_data["status_label"] = STATUS_LABELS.get(code, code)
+    cat = req_data.get("service_category")
+    req_data["service_category_label"] = SERVICE_CATEGORY_LABELS.get(cat, cat)
+
+    car = None
+    car_id = req_data.get("car_id")
+    if car_id:
+        try:
+            car_resp = await client.get(f"/api/v1/cars/{car_id}")
+            if car_resp.status_code == 200:
+                car = car_resp.json()
+        except Exception:
+            car = None
+
+    can_distribute = req_data.get("status") in ("new", "sent")
+
+    offers: list[dict[str, Any]] = []
+    accepted_offer_id: int | None = None
+    accepted_sc_id: int | None = None
+
+    try:
+        offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
+        if offers_resp.status_code == 200:
+            offers = offers_resp.json() or []
+    except Exception:
+        offers = []
+
+    for o in offers:
+        if o.get("status") == "accepted":
+            accepted_offer_id = int(o.get("id"))
+            accepted_sc_id = int(o.get("service_center_id"))
+            break
+
+    # Для отображения “Написать в Telegram” нам нужно знать telegram_id СТО по offer-ам
+    offer_sc_telegram_ids: dict[int, int] = {}
+    service_centers_by_id: dict[int, dict[str, Any]] = {}
+
+    try:
+        # Соберём уникальные ID СТО из офферов
+        sc_ids = sorted(
+            {int(o.get("service_center_id")) for o in offers if o.get("service_center_id") is not None}
+        )
+    except Exception:
+        sc_ids = []
+
+    if sc_ids:
+        for sc_id in sc_ids:
+            try:
+                sc_resp = await client.get(f"/api/v1/service-centers/{sc_id}")
+                if sc_resp.status_code == 200:
+                    sc = sc_resp.json() or {}
+                    service_centers_by_id[int(sc_id)] = sc
+
+                    tg_id = sc.get("telegram_id")
+                    if tg_id is not None:
+                        offer_sc_telegram_ids[int(sc_id)] = int(tg_id)
+            except Exception:
+                continue
+
+    templates = get_templates()
+    return templates.TemplateResponse(
+        "user/request_detail.html",
+        {
+            "request": request,
+            "request_obj": req_data,
+            "req": req_data,
+            "car": car,
+            "can_distribute": can_distribute,
+            "sent_all": sent_all,
+            "chosen_service_id": chosen_service_id,
+            "offers": offers,
+            "offer_sc_telegram_ids": offer_sc_telegram_ids,
+            "service_centers_by_id": service_centers_by_id,
+            "accepted_offer_id": accepted_offer_id,
+            "accepted_sc_id": accepted_sc_id,
+            "bot_username": bot_username,
+        },
     )
 
 
