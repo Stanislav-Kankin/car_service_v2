@@ -793,24 +793,29 @@ async def sc_offer_submit(
     request_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
-    price_text: str = Form(...),
-    eta_text: str = Form(...),
+    price_text: str = Form(""),
+    eta_text: str = Form(""),
     comment: str = Form(""),
 ) -> HTMLResponse:
+    _ = get_current_user_id(request)
+
+    # ✅ чтобы шаблон не падал в любой ветке
+    offer_status_labels = {
+        "new": "Новый",
+        "accepted": "Принят",
+        "rejected": "Отклонён",
+    }
+
     sc = await _load_sc_for_owner(request, client, sc_id)
 
+    # подтянем заявку (для редиректа/проверок)
     try:
-        req_resp = await client.get(f"/api/v1/requests/{request_id}")
-        if req_resp.status_code == 200:
-            status_ = (req_resp.json() or {}).get("status")
-            if status_ in ("in_work", "done", "cancelled"):
-                return RedirectResponse(
-                    url=f"/sc/{sc_id}/requests/{request_id}?err=offer_locked",
-                    status_code=status.HTTP_303_SEE_OTHER,
-                )
+        r = await client.get(f"/api/v1/requests/{request_id}")
+        r.raise_for_status()
     except Exception:
-        pass
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
 
+    # найдём мой текущий оффер (если уже был)
     my_offer: dict[str, Any] | None = None
     try:
         offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
@@ -832,11 +837,8 @@ async def sc_offer_submit(
 
     def _try_parse_int(s: str) -> int | None:
         s = (s or "").strip()
-        digits = "".join(ch for ch in s if ch.isdigit())
-        if not digits:
-            return None
         try:
-            return int(digits)
+            return int(s)
         except Exception:
             return None
 
@@ -869,6 +871,7 @@ async def sc_offer_submit(
             resp = await client.post("/api/v1/offers/", json=payload)
             resp.raise_for_status()
     except Exception:
+        # ⚠️ важно: даже при ошибке шаблон должен получить offer_status_labels
         return templates.TemplateResponse(
             "service_center/request_detail.html",
             {
@@ -880,6 +883,7 @@ async def sc_offer_submit(
                 "error_message": "Не удалось сохранить отклик. Попробуйте позже.",
                 "bot_username": BOT_USERNAME,
                 "client_telegram_id": None,
+                "offer_status_labels": offer_status_labels,
             },
         )
 
