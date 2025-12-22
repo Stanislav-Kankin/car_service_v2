@@ -1,14 +1,42 @@
 import logging
+from typing import Set
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 logger = logging.getLogger(__name__)
 
 
+# ------------------------------
+# helpers
+# ------------------------------
+
+def _norm_db_type(db_type: str | None) -> str:
+    return (db_type or "").strip().lower()
+
+
+def _is_postgres(db_type: str | None) -> bool:
+    s = _norm_db_type(db_type)
+    return "postgres" in s or s in {"pg", "postgresql"}
+
+
+async def _sqlite_get_columns(conn: AsyncConnection, table: str) -> Set[str]:
+    res = await conn.exec_driver_sql(f"PRAGMA table_info({table})")
+    rows = res.fetchall()
+    # PRAGMA table_info: (cid, name, type, notnull, dflt_value, pk)
+    return {r[1] for r in rows}
+
+
+async def _sqlite_add_column(conn: AsyncConnection, table: str, column: str, ddl: str) -> None:
+    await conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
+# ------------------------------
+# Postgres migrations
+# ------------------------------
+
 async def _apply_postgres(conn: AsyncConnection) -> None:
     stmts: list[str] = [
-        # --- offers ---
+        # offers
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS final_price_text TEXT;",
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS cashback_percent INTEGER;",
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS cashback_amount INTEGER;",
@@ -21,10 +49,10 @@ async def _apply_postgres(conn: AsyncConnection) -> None:
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS final_price_rejected_by INTEGER;",
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS final_price_reject_reason TEXT;",
 
-        # --- requests ---
+        # requests
         "ALTER TABLE requests ADD COLUMN IF NOT EXISTS reject_reason TEXT;",
 
-        # --- cars (✅ новые поля карточки авто) ---
+        # cars (new engine fields)
         "ALTER TABLE cars ADD COLUMN IF NOT EXISTS engine_type VARCHAR(20);",
         "ALTER TABLE cars ADD COLUMN IF NOT EXISTS engine_volume_l DOUBLE PRECISION;",
         "ALTER TABLE cars ADD COLUMN IF NOT EXISTS engine_power_kw INTEGER;",
@@ -32,46 +60,76 @@ async def _apply_postgres(conn: AsyncConnection) -> None:
 
     for stmt in stmts:
         try:
-            await conn.execute(text(stmt))
-        except Exception as e:
-            # safe-migration: не валим приложение
-            logger.warning("safe_migrations postgres skipped/failed: %s (%s)", stmt, e)
+            await conn.exec_driver_sql(stmt)
+        except Exception:
+            # Идемпотентность: даже если IF NOT EXISTS не сработал/ошибка драйвера — не падаем на старте
+            logger.exception("safe_migration failed (postgres): %s", stmt)
 
+
+# ------------------------------
+# SQLite migrations
+# ------------------------------
 
 async def _apply_sqlite(conn: AsyncConnection) -> None:
-    stmts: list[str] = [
-        # --- offers ---
-        "ALTER TABLE offers ADD COLUMN final_price_text TEXT;",
-        "ALTER TABLE offers ADD COLUMN cashback_percent INTEGER;",
-        "ALTER TABLE offers ADD COLUMN cashback_amount INTEGER;",
-        "ALTER TABLE offers ADD COLUMN final_price_num INTEGER;",
-        "ALTER TABLE offers ADD COLUMN is_cashback_applied BOOLEAN;",
-        "ALTER TABLE offers ADD COLUMN final_price_confirmed BOOLEAN;",
-        "ALTER TABLE offers ADD COLUMN final_price_confirmed_at DATETIME;",
-        "ALTER TABLE offers ADD COLUMN final_price_confirmed_by INTEGER;",
-        "ALTER TABLE offers ADD COLUMN final_price_rejected_at DATETIME;",
-        "ALTER TABLE offers ADD COLUMN final_price_rejected_by INTEGER;",
-        "ALTER TABLE offers ADD COLUMN final_price_reject_reason TEXT;",
+    # offers
+    try:
+        cols = await _sqlite_get_columns(conn, "offers")
+        if "final_price_text" not in cols:
+            await _sqlite_add_column(conn, "offers", "final_price_text", "TEXT")
+        if "cashback_percent" not in cols:
+            await _sqlite_add_column(conn, "offers", "cashback_percent", "INTEGER")
+        if "cashback_amount" not in cols:
+            await _sqlite_add_column(conn, "offers", "cashback_amount", "INTEGER")
+        if "final_price_num" not in cols:
+            await _sqlite_add_column(conn, "offers", "final_price_num", "INTEGER")
+        if "is_cashback_applied" not in cols:
+            await _sqlite_add_column(conn, "offers", "is_cashback_applied", "BOOLEAN")
+        if "final_price_confirmed" not in cols:
+            await _sqlite_add_column(conn, "offers", "final_price_confirmed", "BOOLEAN")
+        if "final_price_confirmed_at" not in cols:
+            await _sqlite_add_column(conn, "offers", "final_price_confirmed_at", "DATETIME")
+        if "final_price_confirmed_by" not in cols:
+            await _sqlite_add_column(conn, "offers", "final_price_confirmed_by", "INTEGER")
+        if "final_price_rejected_at" not in cols:
+            await _sqlite_add_column(conn, "offers", "final_price_rejected_at", "DATETIME")
+        if "final_price_rejected_by" not in cols:
+            await _sqlite_add_column(conn, "offers", "final_price_rejected_by", "INTEGER")
+        if "final_price_reject_reason" not in cols:
+            await _sqlite_add_column(conn, "offers", "final_price_reject_reason", "TEXT")
+    except Exception:
+        logger.exception("safe_migration failed (sqlite) on offers")
 
-        # --- requests ---
-        "ALTER TABLE requests ADD COLUMN reject_reason TEXT;",
+    # requests
+    try:
+        cols = await _sqlite_get_columns(conn, "requests")
+        if "reject_reason" not in cols:
+            await _sqlite_add_column(conn, "requests", "reject_reason", "TEXT")
+    except Exception:
+        logger.exception("safe_migration failed (sqlite) on requests")
 
-        # --- cars (✅ новые поля карточки авто) ---
-        "ALTER TABLE cars ADD COLUMN engine_type TEXT;",
-        "ALTER TABLE cars ADD COLUMN engine_volume_l REAL;",
-        "ALTER TABLE cars ADD COLUMN engine_power_kw INTEGER;",
-    ]
+    # cars
+    try:
+        cols = await _sqlite_get_columns(conn, "cars")
+        if "engine_type" not in cols:
+            await _sqlite_add_column(conn, "cars", "engine_type", "TEXT")
+        if "engine_volume_l" not in cols:
+            await _sqlite_add_column(conn, "cars", "engine_volume_l", "REAL")
+        if "engine_power_kw" not in cols:
+            await _sqlite_add_column(conn, "cars", "engine_power_kw", "INTEGER")
+    except Exception:
+        logger.exception("safe_migration failed (sqlite) on cars")
 
-    for stmt in stmts:
-        try:
-            await conn.execute(text(stmt))
-        except Exception:
-            # SQLite: IF NOT EXISTS нет — игнорируем ошибку "duplicate column"
-            continue
 
+async def apply_safe_migrations(conn: AsyncConnection, db_type: str | None = None) -> None:
+    """
+    Безопасные миграции без Alembic.
 
-async def apply_safe_migrations(conn: AsyncConnection, db_type: str) -> None:
-    if (db_type or "").lower().startswith("postgres"):
+    ВАЖНО:
+    - только ADD COLUMN (ничего не удаляем)
+    - можно запускать на каждом старте (идемпотентно)
+    - совместимо со старым вызовом apply_safe_migrations(conn)
+    """
+    if _is_postgres(db_type):
         await _apply_postgres(conn)
     else:
         await _apply_sqlite(conn)
