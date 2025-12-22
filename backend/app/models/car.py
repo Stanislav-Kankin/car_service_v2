@@ -20,6 +20,9 @@ class Car(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     user = relationship("User", back_populates="cars")
 
+    # ✅ ВАЖНО: симметрия с Request.car -> back_populates="requests"
+    requests = relationship("Request", back_populates="car")
+
     brand = Column(String, nullable=False)
     model = Column(String, nullable=False)
     year = Column(Integer, nullable=True)
