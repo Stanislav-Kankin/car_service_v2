@@ -989,8 +989,25 @@ async def sc_send_chat_link(
 ) -> JSONResponse:
     _ = get_current_user_id(request)
 
-    await client.post(
-        f"/api/v1/requests/{request_id}/send_chat_link",
-        json={"service_center_id": sc_id, "recipient": "service_center"},
-    )
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/send_chat_link",
+            json={"service_center_id": sc_id, "recipient": "service_center"},
+        )
+        if resp.status_code >= 400:
+            try:
+                detail = (resp.json() or {}).get("detail")
+            except Exception:
+                detail = None
+
+            return JSONResponse(
+                {"ok": False, "error": detail or "Не удалось отправить ссылку в Telegram. Попробуйте позже."},
+                status_code=resp.status_code,
+            )
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Не удалось отправить ссылку в Telegram. Попробуйте позже."},
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+
     return JSONResponse({"ok": True})

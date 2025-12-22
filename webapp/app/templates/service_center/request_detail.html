@@ -1,146 +1,71 @@
 {% extends "layout/base.html" %}
 
-{% block title %}Заявка №{{ req.id if req else "—" }} — СТО{% endblock %}
+{% block title %}Заявка №{{ req.id if req else request_id }}{% endblock %}
 
 {% block content %}
-{% set category_labels = {
-    "sto": "СТО / общий ремонт",
-    "wash": "Автомойка",
-    "tire": "Шиномонтаж",
-    "electric": "Автоэлектрик",
-    "mechanic": "Слесарные работы",
-    "paint": "Малярные / кузовные работы",
-    "maint": "ТО / обслуживание",
-    "agg_turbo": "Ремонт турбин",
-    "agg_starter": "Ремонт стартеров",
-    "agg_generator": "Ремонт генераторов",
-    "agg_steering": "Рулевые рейки",
-    "mech": "Слесарные работы",
-    "elec": "Автоэлектрик",
-    "body": "Малярные / кузовные работы",
-    "diag": "Диагностика",
-    "agg": "Ремонт агрегатов"
-} %}
 
-{# status -> (label, border, bg, text) #}
-{% set status_badges = {
-    "new": ("Новая", "border-sky-400/60", "bg-sky-500/10", "text-sky-200"),
-    "sent": ("Отправлена", "border-amber-400/60", "bg-amber-500/10", "text-amber-200"),
-    "accepted_by_service": ("Принята СТО", "border-emerald-400/60", "bg-emerald-500/10", "text-emerald-200"),
-    "in_work": ("В работе", "border-violet-400/60", "bg-violet-500/10", "text-violet-200"),
-    "done": ("Завершена", "border-emerald-400/60", "bg-emerald-500/10", "text-emerald-200"),
-    "cancelled": ("Отменена", "border-rose-400/60", "bg-rose-500/10", "text-rose-200"),
-    "rejected_by_service": ("Закрыта (отказ СТО)", "border-rose-400/60", "bg-rose-500/10", "text-rose-200")
-} %}
-
-{% set offer_status_labels = {
-    "new": "Новый",
-    "accepted": "Принят",
-    "rejected": "Отклонён"
-} %}
-
-<div class="mt-8 space-y-6">
-    <div class="flex items-start justify-between gap-4">
-        <div>
-            <p class="text-xs uppercase tracking-[0.25em] text-slate-400">КарБот • СТО</p>
-            <h1 class="text-xl sm:text-2xl font-semibold mt-1">Заявка №{{ req.id if req else "—" }}</h1>
-        </div>
-
+<div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <div class="flex items-center justify-between gap-3">
         <a href="/sc/{{ service_center.id }}/requests"
-           class="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm font-semibold hover:bg-slate-900 transition">
-            ← Назад
-        </a>
+           class="text-sm text-slate-300 hover:text-slate-100 transition">← Назад к заявкам</a>
+
+        <div class="text-xs text-slate-400">
+            СТО: <span class="text-slate-200 font-semibold">{{ service_center.name }}</span>
+        </div>
     </div>
 
+    {% if error_message %}
+      <div class="rounded-2xl border border-rose-500/30 bg-rose-900/10 p-4 text-sm text-rose-200">
+        {{ error_message }}
+      </div>
+    {% endif %}
+
     {% if not req %}
-        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <p class="text-sm text-slate-300">Не удалось загрузить заявку.</p>
-        </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-slate-200">
+        Заявка не найдена.
+      </div>
     {% else %}
 
-    {% set st = req.status %}
-    {% set badge = status_badges.get(st, (st or "—", "border-slate-600/60", "bg-slate-800/40", "text-slate-200")) %}
-
-    {% set category_code = req.service_category or req.category %}
-    {% set category_label = req.service_category_label or category_labels.get(category_code, category_code) %}
-
-    {# авто приходит как req.car (dict), потому что роутер подмешивает car по car_id #}
-    {% set car = req.car or {} %}
-    {% set car_brand = car.brand or "" %}
-    {% set car_model = car.model or "" %}
-    {% set car_year = car.year or "" %}
-    {% set car_text = (car_brand ~ " " ~ car_model ~ " " ~ car_year)|trim %}
-
-    {# ✅ при DONE убираем все кнопки действий (чат/отклик/завершение/закрытие) #}
-    {% set is_done = (req.status == "done") %}
-    {% set is_closed = (req.status in ["done", "cancelled", "rejected_by_service"]) %}
-
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Левая колонка: заявка -->
+
+        <!-- Левая колонка: детали заявки -->
         <div class="lg:col-span-2 space-y-6">
-
             <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
-                <div class="flex flex-wrap items-center gap-3 justify-between">
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs uppercase tracking-[0.25em] text-slate-400">Статус</span>
-                        <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold {{ badge[1] }} {{ badge[2] }} {{ badge[3] }}">
-                            {{ badge[0] }}
-                        </span>
-                    </div>
-
-                    <div class="flex items-center gap-2">
-                        {# ✅ кнопки действий скрываем если DONE #}
-                        {% if not is_done %}
-                            {% if req.status == "accepted_by_service" %}
-                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-in-work">
-                                <button type="submit"
-                                        class="rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-sm font-semibold transition">
-                                    ▶ В работу
-                                </button>
-                            </form>
-                            {% endif %}
-
-                            {% if req.status == "in_work" %}
-                            <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/set-done" class="flex items-center gap-2">
-                                <input type="text" name="final_price_text"
-                                       placeholder="Итоговая цена (например: 5000–7000 / после диагностики)"
-                                       class="w-64 rounded-full border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40">
-                                <button type="submit"
-                                        class="rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-sm font-semibold transition">
-                                    ✅ Завершить
-                                </button>
-                            </form>
-                            {% endif %}
-                        {% endif %}
-                    </div>
-                </div>
-
-                {% if req.status == "rejected_by_service" and req.reject_reason %}
-                <div class="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4">
-                    <p class="text-xs uppercase tracking-[0.25em] text-rose-200/80">Причина отказа</p>
-                    <p class="text-sm text-rose-100 mt-2 whitespace-pre-line">{{ req.reject_reason }}</p>
-                </div>
-                {% endif %}
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="flex items-start justify-between gap-3">
                     <div>
-                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Категория</p>
-                        <p class="text-sm text-slate-200 mt-1">{{ category_label or "—" }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Авто</p>
-                        <p class="text-sm text-slate-200 mt-1">
-                            {% if car_text %}{{ car_text }}{% else %}—{% endif %}
+                        <h2 class="text-lg font-semibold text-slate-100">Заявка №{{ req.id }}</h2>
+                        <p class="text-xs text-slate-400 mt-1">
+                            Статус: <span class="text-slate-200 font-semibold">{{ req.status }}</span>
                         </p>
                     </div>
+
+                    {% if req.car %}
+                        <div class="text-right">
+                            <p class="text-xs text-slate-400">Автомобиль</p>
+                            <p class="text-sm text-slate-100 font-semibold">
+                                {{ req.car.brand }} {{ req.car.model }} {% if req.car.year %}({{ req.car.year }}){% endif %}
+                            </p>
+                            {% if req.car.plate_number %}
+                                <p class="text-xs text-slate-400 mt-0.5">{{ req.car.plate_number }}</p>
+                            {% endif %}
+                        </div>
+                    {% endif %}
                 </div>
 
-                <div>
-                    <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Описание</p>
-                    <p class="text-sm text-slate-200 mt-1 whitespace-pre-line">{{ req.description or "—" }}</p>
-                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/70">
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Категория</p>
+                        <p class="text-sm text-slate-200 mt-1">{{ req.service_category or "—" }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Радиус</p>
+                        <p class="text-sm text-slate-200 mt-1">{{ req.radius_km or "—" }} км</p>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Описание</p>
+                        <p class="text-sm text-slate-200 mt-1 whitespace-pre-wrap break-words">{{ req.description or "—" }}</p>
+                    </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Локация</p>
                         <p class="text-sm text-slate-200 mt-1 break-words">
@@ -177,16 +102,21 @@
                     Связь с клиентом
                 </p>
 
+                {% set is_closed = req.status in ["done", "cancelled"] %}
+
                 {% if is_closed %}
                 <div class="w-full rounded-2xl bg-slate-800/50 text-slate-300 py-2.5 text-sm font-semibold text-center">
                     Заявка закрыта — кнопки недоступны
                 </div>
                 {% else %}
                     {% if client_telegram_id %}
-                    <a class="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 py-2.5 text-sm font-semibold transition"
-                       href="https://t.me/{{ bot_username }}?start=chat_r{{ req.id }}_s{{ service_center.id }}">
+                    <button type="button" id="sendChatLinkBtn"
+                            class="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 py-2.5 text-sm font-semibold transition">
                         💬 Написать клиенту (Telegram)
-                    </a>
+                    </button>
+                    <p class="mt-2 text-[11px] text-slate-400">
+                        Мы отправим вам сообщение в боте с кнопкой, которая откроет прямой чат.
+                    </p>
                     {% else %}
                     <button type="button"
                             class="w-full rounded-2xl bg-slate-800/60 text-slate-300 py-2.5 text-sm font-semibold cursor-not-allowed"
@@ -215,8 +145,8 @@
                 </ul>
                 {% endif %}
 
-                {# ✅ После выбора клиентом (accepted_by_service) и дальше — редактирование отклика запрещаем #}
                 {% set offer_locked = req.status in ["accepted_by_service", "in_work", "done", "cancelled", "rejected_by_service"] %}
+                {% set is_done = req.status == "done" %}
 
                 {% if not offer_locked and not is_done %}
                 <p class="text-sm text-slate-300">
@@ -257,7 +187,7 @@
                         </label>
                         <textarea name="comment" rows="4"
                                   class="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
-                                  placeholder="Уточнения, детали, что входит в цену...">{{ my_offer.comment if my_offer else '' }}</textarea>
+                                  placeholder="Уточнения, детали, что входит в цену.">{{ my_offer.comment if my_offer else '' }}</textarea>
                     </div>
 
                     <button type="submit"
@@ -278,46 +208,49 @@
                         {% endif %}
                     </p>
                 {% endif %}
-
-                {% if error_message %}
-                <p class="text-xs text-rose-300">{{ error_message }}</p>
-                {% endif %}
             </div>
-
-            {# ✅ Закрытие заявки (отказ СТО) + причина — только пока заявка назначена этому СТО и не закрыта #}
-            {% if not is_done and req.status in ["accepted_by_service", "in_work"] and (req.service_center_id == service_center.id) %}
-            <div class="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4 space-y-3">
-                <p class="text-xs uppercase tracking-[0.25em] text-rose-200/80">
-                    Закрыть заявку
-                </p>
-
-                <p class="text-sm text-slate-200">
-                    Укажите причину — она будет сохранена в заявке.
-                </p>
-
-                <form method="post" action="/sc/{{ service_center.id }}/requests/{{ req.id }}/reject" class="space-y-3">
-                    <div class="space-y-1.5">
-                        <label class="block text-xs font-semibold text-slate-300">Причина отказа</label>
-                        <textarea name="reason" rows="3"
-                                  class="w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-300/40"
-                                  placeholder="например: клиент не приехал / не привезли расходники / нет запчастей..."></textarea>
-                    </div>
-
-                    <button type="submit"
-                            class="w-full rounded-2xl bg-rose-600 hover:bg-rose-500 text-white py-2.5 text-sm font-semibold transition">
-                        ⛔ Закрыть заявку
-                    </button>
-
-                    <p class="text-[11px] text-rose-100/80">
-                        Внимание: заявка будет переведена в статус “Закрыта (отказ СТО)”.
-                    </p>
-                </form>
-            </div>
-            {% endif %}
 
         </div>
     </div>
 
     {% endif %}
 </div>
+
+<script>
+(function () {
+  const btn = document.getElementById('sendChatLinkBtn');
+  if (!btn) return;
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const original = btn.innerText;
+    btn.innerText = 'Отправляем…';
+    try {
+      const resp = await fetch('/sc/{{ service_center.id }}/requests/{{ req.id }}/send-chat-link', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'fetch' },
+      });
+      const data = await resp.json().catch(() => null);
+
+      if (!resp.ok || !data || data.ok !== true) {
+        const msg = (data && data.error) ? data.error : 'Не удалось отправить ссылку в Telegram. Попробуйте позже.';
+        alert(msg);
+        return;
+      }
+
+      if (window.Telegram && window.Telegram.WebApp) {
+        window.Telegram.WebApp.close();
+      } else {
+        alert('Готово! Мы отправили вам сообщение в Telegram с кнопкой для открытия чата.');
+      }
+    } catch (e) {
+      alert('Не удалось отправить ссылку в Telegram. Попробуйте позже.');
+    } finally {
+      btn.disabled = false;
+      btn.innerText = original;
+    }
+  });
+})();
+</script>
+
 {% endblock %}

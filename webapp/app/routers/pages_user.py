@@ -1099,66 +1099,203 @@ async def request_send_selected_post(
 # --------------------------------------------------------------------
 
 
-@router.get("/requests/{request_id}/view", response_class=HTMLResponse)
-@router.get("/requests/{request_id}", response_class=HTMLResponse)
-async def request_detail(
-    request_id: int,
+@router.post("/requests/create", response_class=HTMLResponse)
+async def request_create_post(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
-    sent_all: bool | None = None,
-    chosen_service_id: int | None = None,
+
+    car_id_raw: str = Form("", alias="car_id"),
+
+    address_text: str = Form(""),
+    is_car_movable: str = Form("movable"),
+    radius_km: int = Form(5),
+    service_category: str = Form("sto"),
+    description: str = Form(""),
+    hide_phone: bool = Form(False),
+
+    latitude: float | None = Form(None),
+    longitude: float | None = Form(None),
 ) -> HTMLResponse:
+    user_id = get_current_user_id(request)
 
-    _ = get_current_user_id(request)
+    def _try_parse_coords_from_text(text: str) -> tuple[float, float] | None:
+        """
+        Поддержка ввода координат прямо в поле адреса:
+        "55.7558, 37.6173" или "55.7558 37.6173"
+        """
+        import re
 
-    import os
-    bot_username = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
+        if not text:
+            return None
 
-    try:
-        resp = await client.get(f"/api/v1/requests/{request_id}")
-        if resp.status_code == 404:
-            raise HTTPException(404, "Заявка не найдена")
-        resp.raise_for_status()
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(502, "Ошибка при загрузке заявки")
+        t = text.strip()
+        m = re.search(r"(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)", t)
+        if not m:
+            return None
 
-    req_data = resp.json()
-
-    code = req_data.get("status")
-    req_data["status_label"] = STATUS_LABELS.get(code, code)
-    cat = req_data.get("service_category")
-    req_data["service_category_label"] = SERVICE_CATEGORY_LABELS.get(cat, cat)
-
-    car = None
-    car_id = req_data.get("car_id")
-    if car_id:
         try:
-            car_resp = await client.get(f"/api/v1/cars/{car_id}")
-            if car_resp.status_code == 200:
-                car = car_resp.json()
+            lat = float(m.group(1))
+            lon = float(m.group(2))
         except Exception:
-            car = None
+            return None
 
-    can_distribute = req_data.get("status") in ("new", "sent")
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return None
 
-    offers: list[dict[str, Any]] = []
-    accepted_offer_id: int | None = None
-    accepted_sc_id: int | None = None
+        return (lat, lon)
+
+    templates = get_templates()
+
+    async def _render_form(
+        *,
+        car_id: int | None,
+        car: dict[str, Any] | None,
+        car_missing: bool,
+        error_message: str | None,
+        form_data: dict[str, Any],
+    ) -> HTMLResponse:
+        primary_categories, extra_categories = _build_service_categories()
+
+        cars: list[dict[str, Any]] = []
+        if car_id is None:
+            try:
+                resp = await client.get(f"/api/v1/cars/by-user/{user_id}")
+                if resp.status_code == 200:
+                    raw = resp.json() or []
+                    if isinstance(raw, list):
+                        cars = raw
+            except Exception:
+                cars = []
+
+        return templates.TemplateResponse(
+            "user/request_create.html",
+            {
+                "request": request,
+                "car_id": car_id,
+                "car": car,
+                "cars": cars,
+                "car_missing": car_missing,
+                "created_request": None,
+                "error_message": error_message,
+                "primary_categories": primary_categories,
+                "extra_categories": extra_categories,
+                "form_data": form_data,
+            },
+        )
+
+    car_id_raw = (car_id_raw or "").strip()
+    if not car_id_raw:
+        return await _render_form(
+            car_id=None,
+            car=None,
+            car_missing=True,
+            error_message=None,
+            form_data={
+                "address_text": address_text,
+                "is_car_movable": is_car_movable,
+                "radius_km": radius_km,
+                "service_category": service_category,
+                "description": description,
+                "hide_phone": hide_phone,
+                "latitude": latitude,
+                "longitude": longitude,
+            },
+        )
 
     try:
-        offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
-        if offers_resp.status_code == 200:
-            offers = offers_resp.json() or []
-    except Exception:
-        offers = []
+        car_id = int(car_id_raw)
+    except ValueError:
+        return await _render_form(
+            car_id=None,
+            car=None,
+            car_missing=True,
+            error_message="Некорректный идентификатор автомобиля.",
+            form_data={},
+        )
 
-    for o in offers:
-        if o.get("status") == "accepted":
-            accepted_offer_id = int(o.get("id"))
-            accepted_sc_id = int(o.get("service_center_id"))
-            break
+    try:
+        car_resp = await client.get(f"/api/v1/cars/{car_id}")
+        car_resp.raise_for_status()
+        car = car_resp.json()
+    except Exception:
+        car = None
+
+    # --- гео должно быть задано (иначе /choose-service будет 400) ---
+    lat = latitude
+    lon = longitude
+
+    if lat is None or lon is None:
+        parsed = _try_parse_coords_from_text(address_text)
+        if parsed:
+            lat, lon = parsed
+
+    if lat is None or lon is None:
+        return await _render_form(
+            car_id=car_id,
+            car=car,
+            car_missing=False,
+            error_message=(
+                "📍 Чтобы подобрать подходящие СТО, нужно указать геолокацию.\n"
+                "Нажмите «Определить моё местоположение» или введите координаты в поле адреса\n"
+                "например: 55.7558, 37.6173"
+            ),
+            form_data={
+                "address_text": address_text,
+                "is_car_movable": is_car_movable,
+                "radius_km": radius_km,
+                "service_category": service_category,
+                "description": description,
+                "hide_phone": hide_phone,
+                "latitude": lat,
+                "longitude": lon,
+            },
+        )
+
+    movable = is_car_movable == "movable"
+
+    payload = {
+        "user_id": user_id,
+        "car_id": car_id,
+        "latitude": lat,
+        "longitude": lon,
+        "address_text": address_text or None,
+        "is_car_movable": movable,
+        "need_tow_truck": not movable,
+        "need_mobile_master": not movable,
+        "radius_km": radius_km,
+        "service_category": service_category,
+        "description": description,
+        "photos": [],
+        "hide_phone": hide_phone,
+    }
+
+    try:
+        resp = await client.post("/api/v1/requests/", json=payload)
+        resp.raise_for_status()
+        created_request = resp.json()
+        created_id = int(created_request.get("id"))
+    except Exception:
+        return await _render_form(
+            car_id=car_id,
+            car=car,
+            car_missing=False,
+            error_message="Не удалось создать заявку. Попробуйте позже.",
+            form_data={
+                "address_text": address_text,
+                "is_car_movable": is_car_movable,
+                "radius_km": radius_km,
+                "service_category": service_category,
+                "description": description,
+                "hide_phone": hide_phone,
+                "latitude": lat,
+                "longitude": lon,
+            },
+        )
+
+    return RedirectResponse(
+        url=f"/me/requests/{created_id}/choose-service",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
     # ------------------------------------------------------------
     # Собираем данные по СТО (имя/адрес) + telegram_id владельца СТО
