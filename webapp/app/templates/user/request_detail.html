@@ -13,7 +13,7 @@
                     Заявка №{{ request_obj.id }}
                 </div>
                 <div class="text-lg md:text-xl font-semibold text-slate-100">
-                    {{ service_category_labels.get(request_obj.service_category, request_obj.service_category or "Без категории") }}
+                    {{ request_obj.service_category_label or request_obj.service_category or "Без категории" }}
                 </div>
 
                 {% if car %}
