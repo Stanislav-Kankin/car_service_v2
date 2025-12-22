@@ -1,5 +1,8 @@
 import asyncio
+import os
 import logging
+import logging.config
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
@@ -23,7 +26,59 @@ from .handlers.chat import router as chat_router
 from .handlers.general import router as general_router
 from .notify_api import build_notify_app  # ✅ ВАЖНО
 
-logging.basicConfig(level=logging.INFO)
+
+def setup_logging(service_name: str) -> dict:
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_dir = os.getenv("LOG_DIR", "/app/logs")
+    log_to_file = os.getenv("LOG_TO_FILE", "1").lower() in ("1", "true", "yes", "on")
+    max_bytes = int(os.getenv("LOG_MAX_BYTES", "10485760"))  # 10 MB
+    backup_count = int(os.getenv("LOG_BACKUP_COUNT", "10"))
+
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
+
+    handlers = {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": log_level,
+            "formatter": "default",
+            "stream": "ext://sys.stdout",
+        },
+    }
+    handler_names = ["console"]
+
+    if log_to_file:
+        handlers["file"] = {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": log_level,
+            "formatter": "default",
+            "filename": str(Path(log_dir) / f"{service_name}.log"),
+            "maxBytes": max_bytes,
+            "backupCount": backup_count,
+            "encoding": "utf-8",
+        }
+        handler_names.append("file")
+
+    cfg = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {"format": "%(asctime)s | %(levelname)s | %(name)s | %(message)s"}
+        },
+        "handlers": handlers,
+        "root": {"level": log_level, "handlers": handler_names},
+        "loggers": {
+            "uvicorn": {"level": log_level, "handlers": handler_names, "propagate": False},
+            "uvicorn.error": {"level": log_level, "handlers": handler_names, "propagate": False},
+            "uvicorn.access": {"level": log_level, "handlers": handler_names, "propagate": False},
+            "aiogram": {"level": log_level, "handlers": handler_names, "propagate": False},
+        },
+    }
+
+    logging.config.dictConfig(cfg)
+    return cfg
+
+
+LOG_CONFIG = setup_logging("bot")
 
 # ✅ Это будет приложение notify API (/api/v1/notify, /health)
 app: FastAPI = FastAPI()
@@ -41,7 +96,7 @@ async def main():
 
     dp = Dispatcher(storage=storage)
 
-    # ✅ ВАЖНО: deep-link /start chat_r.._s.. должен отрабатывать ПЕРВЫМ
+    # ✅ ВАЖНО: deep-link /start chat_r._s. должен отрабатывать ПЕРВЫМ
     dp.include_router(chat_router)
     dp.include_router(general_router)
 
@@ -59,7 +114,7 @@ async def main():
                 )
             )
     except Exception:
-        pass
+        logging.getLogger(__name__).exception("Failed to set chat menu button")
 
     await asyncio.gather(
         dp.start_polling(bot),
@@ -68,7 +123,13 @@ async def main():
 
 
 async def _run_api():
-    uv_config = uvicorn.Config(app, host="0.0.0.0", port=8086, log_level="info")
+    uv_config = uvicorn.Config(
+        app,
+        host="0.0.0.0",
+        port=8086,
+        log_level=os.getenv("LOG_LEVEL", "INFO").lower(),
+        log_config=LOG_CONFIG,  # ✅ чтобы uvicorn.access тоже шёл в файл
+    )
     server = uvicorn.Server(uv_config)
     await server.serve()
 

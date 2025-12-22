@@ -64,6 +64,8 @@ services:
     command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8044"]
     ports:
       - "8044:8044"
+    volumes:
+      - ./logs:/app/logs
     restart: unless-stopped
     networks:
       - carbot_net
@@ -91,6 +93,8 @@ services:
     command: ["uvicorn", "webapp.app.main:app", "--host", "0.0.0.0", "--port", "8045"]
     ports:
       - "8045:8045"
+    volumes:
+      - ./logs:/app/logs
     restart: unless-stopped
     networks:
       - carbot_net
@@ -117,6 +121,8 @@ services:
     command: ["python", "-m", "bot.app.main"]
     ports:
       - "8086:8086"
+    volumes:
+      - ./logs:/app/logs
     restart: unless-stopped
     networks:
       - carbot_net
