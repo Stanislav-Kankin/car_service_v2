@@ -408,7 +408,53 @@ class OffersService:
         offer = await OffersService.get_offer_by_id(db, offer_id)
         if not offer:
             return None
+
+        # идемпотентность
+        if offer.status == OfferStatus.REJECTED:
+            return offer
+
+        # если уже принят — не даём "отклонить" (просто вернём как есть)
+        if offer.status == OfferStatus.ACCEPTED:
+            return offer
+
         offer.status = OfferStatus.REJECTED
         await db.commit()
         await db.refresh(offer)
+
+        # уведомление СТО (не должно ломать сценарий)
+        try:
+            if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
+                offer_full = await OffersService.get_offer_by_id(db, offer_id)
+                if offer_full and offer_full.request:
+                    request_id = offer_full.request.id
+
+                    if (
+                        offer_full.service_center
+                        and offer_full.service_center.owner
+                        and getattr(offer_full.service_center.owner, "telegram_id", None)
+                    ):
+                        sc_owner_tg = int(offer_full.service_center.owner.telegram_id)
+                        url_sc = f"{WEBAPP_PUBLIC_URL}/sc/{offer_full.service_center_id}/requests/{request_id}"
+
+                        await notifier.send_notification(
+                            recipient_type="service_center",
+                            telegram_id=sc_owner_tg,
+                            message=f"⛔ Клиент отклонил ваше предложение по заявке №{request_id}.",
+                            buttons=[
+                                {"text": "Открыть заявку", "type": "web_app", "url": url_sc},
+                            ],
+                            extra={"request_id": request_id, "offer_id": offer_id, "status": "rejected"},
+                        )
+        except Exception:
+            # максимально безопасно, чтобы не зависеть от наличия logger в модуле
+            try:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "reject_offer_by_client notify failed (offer_id=%s)",
+                    offer_id,
+                )
+            except Exception:
+                pass
+
         return offer
+
