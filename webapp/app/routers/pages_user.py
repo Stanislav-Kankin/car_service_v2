@@ -493,6 +493,9 @@ async def car_create_post(
     year: str = Form(""),
     license_plate: str = Form(""),
     vin: str = Form(""),
+    engine_type: str = Form(""),
+    engine_volume_l: str = Form(""),
+    engine_power_kw: str = Form(""),
 ) -> HTMLResponse:
     """
     Обработка формы создания автомобиля.
@@ -509,6 +512,30 @@ async def car_create_post(
         except ValueError:
             error_message = "Год выпуска должен быть числом."
 
+    # Двигатель
+    engine_type_value: str | None = (engine_type or "").strip() or None
+
+    engine_volume_value: float | None = None
+    if engine_volume_l.strip():
+        try:
+            engine_volume_value = float(engine_volume_l.replace(",", ".").strip())
+        except ValueError:
+            error_message = "Объём двигателя должен быть числом (например 1.6)."
+
+    engine_power_value: int | None = None
+    if engine_power_kw.strip():
+        try:
+            engine_power_value = int(engine_power_kw.strip())
+        except ValueError:
+            error_message = "Мощность (кВт) должна быть числом."
+
+    # Если электрический — объём не нужен
+    if engine_type_value == "electric":
+        engine_volume_value = None
+    else:
+        # Для не электрических мощность не обязательна — оставляем как есть
+        pass
+
     # Если ошибка валидации на фронте — не ходим в backend
     if error_message:
         car_data = {
@@ -517,6 +544,9 @@ async def car_create_post(
             "year": year,
             "license_plate": license_plate,
             "vin": vin,
+            "engine_type": engine_type,
+            "engine_volume_l": engine_volume_l,
+            "engine_power_kw": engine_power_kw,
         }
         return templates.TemplateResponse(
             "user/car_form.html",
@@ -524,7 +554,7 @@ async def car_create_post(
                 "request": request,
                 "mode": "create",
                 "car": car_data,
-                "error_message": error_message,
+                "error": error_message,
             },
         )
 
@@ -535,6 +565,9 @@ async def car_create_post(
         "year": year_value,
         "license_plate": license_plate or None,
         "vin": vin or None,
+        "engine_type": engine_type_value,
+        "engine_volume_l": engine_volume_value,
+        "engine_power_kw": engine_power_value,
     }
 
     try:
@@ -549,6 +582,9 @@ async def car_create_post(
             "year": year,
             "license_plate": license_plate,
             "vin": vin,
+            "engine_type": engine_type,
+            "engine_volume_l": engine_volume_l,
+            "engine_power_kw": engine_power_kw,
         }
         return templates.TemplateResponse(
             "user/car_form.html",
@@ -556,15 +592,11 @@ async def car_create_post(
                 "request": request,
                 "mode": "create",
                 "car": car_data,
-                "error_message": error_message,
+                "error": error_message,
             },
         )
 
-    # Успешно — ведём в карточку машины
-    return RedirectResponse(
-        url=f"/me/cars/{car_created['id']}",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    return RedirectResponse(url=f"/me/cars/{car_created['id']}", status_code=303)
 
 
 # --------------------------------------------------------------------
@@ -609,6 +641,9 @@ async def car_edit_post(
     year: str = Form(""),
     license_plate: str = Form(""),
     vin: str = Form(""),
+    engine_type: str = Form(""),
+    engine_volume_l: str = Form(""),
+    engine_power_kw: str = Form(""),
 ) -> HTMLResponse:
     """
     Обработка формы редактирования автомобиля.
@@ -625,6 +660,27 @@ async def car_edit_post(
         except ValueError:
             error_message = "Год выпуска должен быть числом."
 
+    # Двигатель
+    engine_type_value: str | None = (engine_type or "").strip() or None
+
+    engine_volume_value: float | None = None
+    if engine_volume_l.strip():
+        try:
+            engine_volume_value = float(engine_volume_l.replace(",", ".").strip())
+        except ValueError:
+            error_message = "Объём двигателя должен быть числом (например 1.6)."
+
+    engine_power_value: int | None = None
+    if engine_power_kw.strip():
+        try:
+            engine_power_value = int(engine_power_kw.strip())
+        except ValueError:
+            error_message = "Мощность (кВт) должна быть числом."
+
+    # Если электрический — объём не нужен
+    if engine_type_value == "electric":
+        engine_volume_value = None
+
     car_data = {
         "id": car_id,
         "brand": brand,
@@ -632,6 +688,9 @@ async def car_edit_post(
         "year": year,
         "license_plate": license_plate,
         "vin": vin,
+        "engine_type": engine_type,
+        "engine_volume_l": engine_volume_l,
+        "engine_power_kw": engine_power_kw,
     }
 
     if error_message:
@@ -641,7 +700,7 @@ async def car_edit_post(
                 "request": request,
                 "mode": "edit",
                 "car": car_data,
-                "error_message": error_message,
+                "error": error_message,
             },
         )
 
@@ -651,6 +710,9 @@ async def car_edit_post(
         "year": year_value,
         "license_plate": license_plate or None,
         "vin": vin or None,
+        "engine_type": engine_type_value,
+        "engine_volume_l": engine_volume_value,
+        "engine_power_kw": engine_power_value,
     }
 
     try:
@@ -664,15 +726,11 @@ async def car_edit_post(
                 "request": request,
                 "mode": "edit",
                 "car": car_data,
-                "error_message": error_message,
+                "error": error_message,
             },
         )
 
-    return RedirectResponse(
-        url=f"/me/cars/{car_id}",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
-
+    return RedirectResponse(url=f"/me/cars/{car_id}", status_code=303)
 
 # --------------------------------------------------------------------
 # Удаление автомобиля
