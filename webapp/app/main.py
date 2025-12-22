@@ -29,7 +29,7 @@ def setup_logging(service_name: str) -> None:
         },
     }
 
-    handler_names = ["console"]
+    root_handlers = ["console"]
 
     if log_to_file:
         handlers["file"] = {
@@ -41,7 +41,16 @@ def setup_logging(service_name: str) -> None:
             "backupCount": backup_count,
             "encoding": "utf-8",
         }
-        handler_names.append("file")
+        handlers["file_error"] = {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "ERROR",
+            "formatter": "default",
+            "filename": str(Path(log_dir) / f"{service_name}.error.log"),
+            "maxBytes": max_bytes,
+            "backupCount": backup_count,
+            "encoding": "utf-8",
+        }
+        root_handlers.extend(["file", "file_error"])
 
     logging.config.dictConfig(
         {
@@ -53,11 +62,11 @@ def setup_logging(service_name: str) -> None:
                 }
             },
             "handlers": handlers,
-            "root": {"level": log_level, "handlers": handler_names},
+            "root": {"level": log_level, "handlers": root_handlers},
             "loggers": {
-                "uvicorn": {"level": log_level, "handlers": handler_names, "propagate": False},
-                "uvicorn.error": {"level": log_level, "handlers": handler_names, "propagate": False},
-                "uvicorn.access": {"level": log_level, "handlers": handler_names, "propagate": False},
+                "uvicorn": {"level": log_level, "handlers": root_handlers, "propagate": False},
+                "uvicorn.error": {"level": log_level, "handlers": root_handlers, "propagate": False},
+                "uvicorn.access": {"level": log_level, "handlers": ["console"], "propagate": False},
             },
         }
     )
