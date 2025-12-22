@@ -1,40 +1,51 @@
-from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
 
 class CarBase(BaseModel):
-    brand: Optional[str] = Field(None, max_length=100)
-    model: Optional[str] = Field(None, max_length=100)
-    year: Optional[int] = None
+    user_id: int
+    brand: str = Field(..., max_length=64)
+    model: str = Field(..., max_length=64)
+    year: Optional[int] = Field(None, ge=1900, le=2100)
     license_plate: Optional[str] = Field(None, max_length=32)
     vin: Optional[str] = Field(None, max_length=64)
+
+    # Новые поля
+    # engine_type: gasoline | diesel | hybrid | electric
+    engine_type: Optional[str] = Field(None, max_length=20)
+    engine_volume_l: Optional[float] = Field(None, ge=0)
+    engine_power_kw: Optional[int] = Field(None, ge=0)
 
 
 class CarCreate(CarBase):
-    user_id: int  # владелец машины
+    pass
 
 
 class CarUpdate(BaseModel):
-    brand: Optional[str] = Field(None, max_length=100)
-    model: Optional[str] = Field(None, max_length=100)
-    year: Optional[int] = None
+    brand: Optional[str] = Field(None, max_length=64)
+    model: Optional[str] = Field(None, max_length=64)
+    year: Optional[int] = Field(None, ge=1900, le=2100)
     license_plate: Optional[str] = Field(None, max_length=32)
     vin: Optional[str] = Field(None, max_length=64)
+
+    engine_type: Optional[str] = Field(None, max_length=20)
+    engine_volume_l: Optional[float] = Field(None, ge=0)
+    engine_power_kw: Optional[int] = Field(None, ge=0)
 
 
 class CarRead(BaseModel):
     id: int
     user_id: int
-
-    brand: Optional[str]
-    model: Optional[str]
+    brand: str
+    model: str
     year: Optional[int]
     license_plate: Optional[str]
     vin: Optional[str]
 
-    created_at: datetime
+    engine_type: Optional[str] = None
+    engine_volume_l: Optional[float] = None
+    engine_power_kw: Optional[int] = None
 
     class Config:
         from_attributes = True

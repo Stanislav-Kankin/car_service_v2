@@ -73,6 +73,60 @@
                     <p>{{ car.license_plate or "Не указан" }}</p>
                 </div>
             </div>
+
+            {# ✅ Новый блок по двигателю #}
+            {% set et = car.engine_type if car and car.engine_type is not none else '' %}
+            {% set engine_type_label = {
+                'gasoline': 'Бензин',
+                'diesel': 'Дизель',
+                'hybrid': 'Гибрид',
+                'electric': 'Электрический'
+            } %}
+
+            <div class="grid md:grid-cols-3 gap-4 text-sm text-slate-300">
+                <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                    <p class="text-xs text-slate-400 mb-1">Тип двигателя</p>
+                    <p>
+                        {% if et %}
+                            {{ engine_type_label.get(et, et) }}
+                        {% else %}
+                            Не указан
+                        {% endif %}
+                    </p>
+                </div>
+
+                {% if et == 'electric' %}
+                    <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <p class="text-xs text-slate-400 mb-1">Мощность</p>
+                        <p>
+                            {% if car.engine_power_kw is not none %}
+                                {{ car.engine_power_kw }} кВт
+                            {% else %}
+                                Не указана
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <p class="text-xs text-slate-400 mb-1">Объём двигателя</p>
+                        <p>—</p>
+                    </div>
+                {% else %}
+                    <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <p class="text-xs text-slate-400 mb-1">Объём двигателя</p>
+                        <p>
+                            {% if car.engine_volume_l is not none %}
+                                {{ car.engine_volume_l }} л
+                            {% else %}
+                                Не указан
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <p class="text-xs text-slate-400 mb-1">Мощность</p>
+                        <p>—</p>
+                    </div>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>

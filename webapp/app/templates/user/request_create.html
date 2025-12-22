@@ -211,21 +211,41 @@
                             Категория услуги
                         </label>
 
+                        {# ✅ Новый список категорий заказчика.
+                           ВАЖНО: чтобы не ломать текущий backend/webapp, поддерживаем два режима:
+                           1) Если роутер отдаёт category_groups -> используем optgroup как надо.
+                           2) Иначе fallback на старые primary_categories/extra_categories (как было у тебя).
+                        #}
                         <select name="service_category"
                                 class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 focus:border-emerald-400 transition">
-                            {% for code, label in primary_categories %}
-                                <option value="{{ code }}" {% if (fd.service_category or "mechanic") == code %}selected{% endif %}>
-                                    {{ label }}
-                                </option>
-                            {% endfor %}
-                            {% if extra_categories %}
-                                <optgroup label="Дополнительно">
-                                    {% for code, label in extra_categories %}
-                                        <option value="{{ code }}" {% if fd.service_category == code %}selected{% endif %}>
-                                            {{ label }}
-                                        </option>
-                                    {% endfor %}
-                                </optgroup>
+
+                            {% set current = (fd.service_category or "mechanic") %}
+
+                            {% if category_groups %}
+                                {% for group in category_groups %}
+                                    <optgroup label="{{ group.label }}">
+                                        {% for code, label in group.options %}
+                                            <option value="{{ code }}" {% if current == code %}selected{% endif %}>
+                                                {{ label }}
+                                            </option>
+                                        {% endfor %}
+                                    </optgroup>
+                                {% endfor %}
+                            {% else %}
+                                {% for code, label in primary_categories %}
+                                    <option value="{{ code }}" {% if current == code %}selected{% endif %}>
+                                        {{ label }}
+                                    </option>
+                                {% endfor %}
+                                {% if extra_categories %}
+                                    <optgroup label="Дополнительно">
+                                        {% for code, label in extra_categories %}
+                                            <option value="{{ code }}" {% if current == code %}selected{% endif %}>
+                                                {{ label }}
+                                            </option>
+                                        {% endfor %}
+                                    </optgroup>
+                                {% endif %}
                             {% endif %}
                         </select>
                     </div>
