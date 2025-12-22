@@ -709,13 +709,6 @@ async def sc_request_detail(
     _ = get_current_user_id(request)
     templates = get_templates()
 
-    # ✅ чтобы шаблон не падал
-    offer_status_labels = {
-        "new": "Новый",
-        "accepted": "Принят",
-        "rejected": "Отклонён",
-    }
-
     error_message = None
 
     sc = await _load_sc_for_owner(request, client, sc_id)
@@ -770,6 +763,13 @@ async def sc_request_detail(
 
     offers_for_view: list[dict[str, Any]] = [my_offer] if my_offer else []
 
+    # ✅ чтобы шаблон не падал даже если его “резали”/меняли
+    offer_status_labels = {
+        "new": "Новый",
+        "accepted": "Принят",
+        "rejected": "Отклонён",
+    }
+
     return templates.TemplateResponse(
         "service_center/request_detail.html",
         {
@@ -781,8 +781,7 @@ async def sc_request_detail(
             "error_message": error_message,
             "bot_username": BOT_USERNAME,
             "client_telegram_id": client_telegram_id,
-            # ✅ добавили
-            "offer_status_labels": offer_status_labels,
+            "offer_status_labels": offer_status_labels,  # ✅ fix
         },
     )
 
@@ -926,7 +925,7 @@ async def sc_set_done(
     request_id: int,
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
-    final_price_text: str = Form(...),
+    final_price_text: str = Form(""),
 ) -> HTMLResponse:
     _ = await _load_sc_for_owner(request, client, sc_id)
 
