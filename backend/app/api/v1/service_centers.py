@@ -310,6 +310,18 @@ async def list_service_centers_for_request(
             detail="Request not found",
         )
 
+    # ✅ Жёстко: список “подходящих СТО” строим только при наличии гео + радиуса
+    if req.latitude is None or req.longitude is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Нужно указать геолокацию заявки, чтобы показать подходящие СТО.",
+        )
+    if req.radius_km is None or req.radius_km <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Нужно выбрать радиус поиска, чтобы показать подходящие СТО.",
+        )
+
     spec_codes = get_specializations_for_category(req.service_category)
 
     if spec_codes is None and req.service_category and req.service_category not in ("sto",):
@@ -330,6 +342,7 @@ async def list_service_centers_for_request(
         is_active=True,
         has_tow_truck=has_tow_truck,
         is_mobile_service=is_mobile_service,
+        fallback_to_category=False,  # ✅ важно: никакого “покажи всех по категории”
     )
     return sc_list
 

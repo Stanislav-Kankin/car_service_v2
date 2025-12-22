@@ -184,7 +184,7 @@
                 {% else %}
                     {% if client_telegram_id %}
                     <a class="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 py-2.5 text-sm font-semibold transition"
-                       href="https://t.me/{{ bot_username }}?start=chat_{{ req.id }}">
+                       href="https://t.me/{{ bot_username }}?start=chat_r{{ req.id }}_s{{ service_center.id }}">
                         💬 Написать клиенту (Telegram)
                     </a>
                     {% else %}
