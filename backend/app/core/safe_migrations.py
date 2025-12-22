@@ -1,4 +1,6 @@
 import logging
+
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 logger = logging.getLogger(__name__)
@@ -6,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 async def _apply_postgres(conn: AsyncConnection) -> None:
     stmts: list[str] = [
+        # --- offers ---
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS final_price_text TEXT;",
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS cashback_percent INTEGER;",
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS cashback_amount INTEGER;",
@@ -18,9 +21,10 @@ async def _apply_postgres(conn: AsyncConnection) -> None:
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS final_price_rejected_by INTEGER;",
         "ALTER TABLE offers ADD COLUMN IF NOT EXISTS final_price_reject_reason TEXT;",
 
+        # --- requests ---
         "ALTER TABLE requests ADD COLUMN IF NOT EXISTS reject_reason TEXT;",
 
-        # --- cars ---
+        # --- cars (✅ новые поля карточки авто) ---
         "ALTER TABLE cars ADD COLUMN IF NOT EXISTS engine_type VARCHAR(20);",
         "ALTER TABLE cars ADD COLUMN IF NOT EXISTS engine_volume_l DOUBLE PRECISION;",
         "ALTER TABLE cars ADD COLUMN IF NOT EXISTS engine_power_kw INTEGER;",
@@ -28,14 +32,15 @@ async def _apply_postgres(conn: AsyncConnection) -> None:
 
     for stmt in stmts:
         try:
-            await conn.execute(stmt)  # type: ignore[arg-type]
+            await conn.execute(text(stmt))
         except Exception as e:
-            # не падаем на частичном выполнении — это safe-migration
+            # safe-migration: не валим приложение
             logger.warning("safe_migrations postgres skipped/failed: %s (%s)", stmt, e)
 
 
 async def _apply_sqlite(conn: AsyncConnection) -> None:
     stmts: list[str] = [
+        # --- offers ---
         "ALTER TABLE offers ADD COLUMN final_price_text TEXT;",
         "ALTER TABLE offers ADD COLUMN cashback_percent INTEGER;",
         "ALTER TABLE offers ADD COLUMN cashback_amount INTEGER;",
@@ -48,9 +53,10 @@ async def _apply_sqlite(conn: AsyncConnection) -> None:
         "ALTER TABLE offers ADD COLUMN final_price_rejected_by INTEGER;",
         "ALTER TABLE offers ADD COLUMN final_price_reject_reason TEXT;",
 
+        # --- requests ---
         "ALTER TABLE requests ADD COLUMN reject_reason TEXT;",
 
-        # --- cars ---
+        # --- cars (✅ новые поля карточки авто) ---
         "ALTER TABLE cars ADD COLUMN engine_type TEXT;",
         "ALTER TABLE cars ADD COLUMN engine_volume_l REAL;",
         "ALTER TABLE cars ADD COLUMN engine_power_kw INTEGER;",
@@ -58,14 +64,14 @@ async def _apply_sqlite(conn: AsyncConnection) -> None:
 
     for stmt in stmts:
         try:
-            await conn.execute(stmt)  # type: ignore[arg-type]
+            await conn.execute(text(stmt))
         except Exception:
-            # SQLite не поддерживает IF NOT EXISTS — будем просто игнорить ошибки «duplicate column name»
+            # SQLite: IF NOT EXISTS нет — игнорируем ошибку "duplicate column"
             continue
 
 
 async def apply_safe_migrations(conn: AsyncConnection, db_type: str) -> None:
-    if db_type.lower().startswith("postgres"):
+    if (db_type or "").lower().startswith("postgres"):
         await _apply_postgres(conn)
     else:
         await _apply_sqlite(conn)
