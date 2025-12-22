@@ -36,4 +36,11 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await apply_safe_migrations(conn)
+
+        # Совместимость: в проекте могла оказаться версия apply_safe_migrations()
+        # либо с сигнатурой (conn), либо (conn, db_type).
+        try:
+            await apply_safe_migrations(conn, settings.DB_TYPE)
+        except TypeError:
+            # fallback для старой сигнатуры
+            await apply_safe_migrations(conn)
