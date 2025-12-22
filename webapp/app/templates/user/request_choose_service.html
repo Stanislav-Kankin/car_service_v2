@@ -76,6 +76,9 @@
                     <p class="text-xs text-slate-400">
                         Выбрано: <span id="selectedCount">0</span>
                     </p>
+                    <p class="text-[11px] text-slate-500">
+                        💡 Расстояние считается по прямой. Маршрут откроется в Картах.
+                    </p>
                 </div>
             </div>
 
@@ -94,17 +97,35 @@
 
                             <div class="flex-1">
                                 <div class="flex items-start justify-between gap-3">
-                                    <div>
+                                    <div class="min-w-0">
                                         <h2 class="text-lg font-semibold mb-1">
                                             {{ sc.name or ("Сервис #" ~ sc.id) }}
                                         </h2>
+
                                         {% if sc.address %}
-                                        <p class="text-sm text-slate-300 mb-1">
+                                        <p class="text-sm text-slate-300 mb-1 break-words">
                                             {{ sc.address }}
                                         </p>
                                         {% endif %}
+
+                                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                            {% if sc.distance_km is not none %}
+                                            <span class="inline-flex items-center rounded-full border border-slate-700 bg-slate-950/60 px-2.5 py-1 text-[11px] text-slate-200">
+                                                ≈ {{ "%.1f"|format(sc.distance_km) }} км
+                                            </span>
+                                            {% endif %}
+
+                                            {% if sc.maps_url %}
+                                            <a href="{{ sc.maps_url }}"
+                                               onclick="openExternal(event, '{{ sc.maps_url }}')"
+                                               class="inline-flex items-center gap-1 text-[11px] text-sky-200 hover:text-sky-100 underline underline-offset-4">
+                                                📍 На карте
+                                            </a>
+                                            {% endif %}
+                                        </div>
+
                                         {% if sc.phone %}
-                                        <p class="text-xs text-slate-400">
+                                        <p class="text-xs text-slate-400 mt-1">
                                             Телефон: {{ sc.phone }}
                                         </p>
                                         {% endif %}
@@ -170,6 +191,21 @@
                     checks.forEach(ch => ch.addEventListener("change", update));
                     update();
                 })();
+
+                function openExternal(evt, url) {
+                    try { evt.stopPropagation(); } catch(e) {}
+                    try { evt.preventDefault(); } catch(e) {}
+
+                    try {
+                        if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openLink) {
+                            Telegram.WebApp.openLink(url);
+                            return false;
+                        }
+                    } catch(e) {}
+
+                    window.open(url, "_blank");
+                    return false;
+                }
             </script>
             {% else %}
             <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 text-sm text-slate-300">

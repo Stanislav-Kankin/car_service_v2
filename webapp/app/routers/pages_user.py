@@ -1,5 +1,6 @@
 from typing import Any
 import os
+import math
 
 from fastapi import (
     APIRouter,
@@ -81,6 +82,84 @@ def _is_profile_complete(user: dict[str, Any] | None) -> bool:
     full_name = (user.get("full_name") or "").strip()
     phone = (user.get("phone") or "").strip()
     return bool(full_name) and bool(phone)
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Расстояние по прямой между двумя точками (км).
+    Без внешних зависимостей. Подходит для сортировки/индикации.
+    """
+    r = 6371.0088  # средний радиус Земли в км
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lam = math.radians(lon2 - lon1)
+
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lam / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return r * c
+
+
+def _enrich_service_centers_with_distance_and_maps(
+    *,
+    request_lat: float | None,
+    request_lon: float | None,
+    service_centers: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Добавляет в каждый sc:
+      - distance_km: float | None
+      - maps_url: str | None (Яндекс.Карты: маршрут или точка)
+    Ничего не ломает, если координат нет.
+    """
+    out: list[dict[str, Any]] = []
+
+    for sc in (service_centers or []):
+        if not isinstance(sc, dict):
+            continue
+
+        sc_lat = sc.get("latitude")
+        sc_lon = sc.get("longitude")
+
+        distance_km: float | None = None
+        maps_url: str | None = None
+
+        try:
+            if sc_lat is not None and sc_lon is not None:
+                sc_lat_f = float(sc_lat)
+                sc_lon_f = float(sc_lon)
+
+                # Маршрут: если есть точка заявки
+                if request_lat is not None and request_lon is not None:
+                    req_lat_f = float(request_lat)
+                    req_lon_f = float(request_lon)
+
+                    distance_km = haversine_km(req_lat_f, req_lon_f, sc_lat_f, sc_lon_f)
+
+                    # Яндекс ожидает lat,lon в rtext как "lat,lon~lat,lon"
+                    maps_url = (
+                        "https://yandex.ru/maps/?"
+                        f"rtext={req_lat_f},{req_lon_f}~{sc_lat_f},{sc_lon_f}&rtt=auto"
+                    )
+                else:
+                    # Просто точка СТО (Яндекс: pt=lon,lat)
+                    maps_url = (
+                        "https://yandex.ru/maps/?"
+                        f"pt={sc_lon_f},{sc_lat_f}&z=14&l=map"
+                    )
+        except Exception:
+            distance_km = None
+            maps_url = maps_url  # оставим что было/None
+
+        out.append(
+            {
+                **sc,
+                "distance_km": distance_km,
+                "maps_url": maps_url,
+            }
+        )
+
+    return out
 
 
 # --------------------------------------------------------------------
@@ -906,13 +985,35 @@ async def request_send_selected_post(
     if not selected:
         # перерисуем страницу выбора с ошибкой
         error_message = "Выберите хотя бы один сервис."
-        service_centers = []
+        service_centers: list[dict[str, Any]] = []
+
+        # подтянем координаты заявки (для distance/maps)
+        req_data: dict[str, Any] = {}
+        try:
+            r = await client.get(f"/api/v1/requests/{request_id}")
+            if r.status_code == 200:
+                req_data = r.json() or {}
+        except Exception:
+            req_data = {}
+
+        request_lat = req_data.get("latitude") if isinstance(req_data, dict) else None
+        request_lon = req_data.get("longitude") if isinstance(req_data, dict) else None
+
         try:
             sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
             sc_resp.raise_for_status()
-            service_centers = sc_resp.json() or []
+            raw = sc_resp.json() or []
+            if isinstance(raw, list):
+                service_centers = raw
         except Exception:
             error_message = "Не удалось загрузить список подходящих СТО."
+            service_centers = []
+
+        service_centers = _enrich_service_centers_with_distance_and_maps(
+            request_lat=request_lat,
+            request_lon=request_lon,
+            service_centers=service_centers,
+        )
 
         return templates.TemplateResponse(
             "user/request_choose_service.html",
@@ -1172,13 +1273,33 @@ async def request_send_all_post(
         error_message = "Не удалось отправить заявку всем СТО. Попробуйте позже."
 
     # 2) ошибка — остаёмся на choose-service и показываем причину
-    service_centers = []
+    # Подтянем координаты заявки (для distance/maps)
+    req_data: dict[str, Any] = {}
+    try:
+        r = await client.get(f"/api/v1/requests/{request_id}")
+        if r.status_code == 200:
+            req_data = r.json() or {}
+    except Exception:
+        req_data = {}
+
+    request_lat = req_data.get("latitude") if isinstance(req_data, dict) else None
+    request_lon = req_data.get("longitude") if isinstance(req_data, dict) else None
+
+    service_centers: list[dict[str, Any]] = []
     try:
         sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
         if sc_resp.status_code == 200:
-            service_centers = sc_resp.json() or []
+            raw = sc_resp.json() or []
+            if isinstance(raw, list):
+                service_centers = raw
     except Exception:
-        pass
+        service_centers = []
+
+    service_centers = _enrich_service_centers_with_distance_and_maps(
+        request_lat=request_lat,
+        request_lon=request_lon,
+        service_centers=service_centers,
+    )
 
     return templates.TemplateResponse(
         "user/request_choose_service.html",
@@ -1208,21 +1329,36 @@ async def choose_service_get(
 
     error_message = None
 
-    # Проверяем, что заявка существует
+    # Проверяем, что заявка существует + берём её координаты
+    req_data: dict[str, Any] | None = None
     try:
         r = await client.get(f"/api/v1/requests/{request_id}")
         r.raise_for_status()
+        req_data = r.json() or {}
     except Exception:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
 
+    request_lat = req_data.get("latitude") if isinstance(req_data, dict) else None
+    request_lon = req_data.get("longitude") if isinstance(req_data, dict) else None
+
     # ✅ Берём подходящие СТО по заявке (не общий список)
-    service_centers = []
+    service_centers: list[dict[str, Any]] = []
     try:
         sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
         sc_resp.raise_for_status()
         service_centers = sc_resp.json() or []
+        if not isinstance(service_centers, list):
+            service_centers = []
     except Exception:
         error_message = "Не удалось загрузить список подходящих СТО."
+        service_centers = []
+
+    # ✅ добавляем distance_km + maps_url
+    service_centers = _enrich_service_centers_with_distance_and_maps(
+        request_lat=request_lat,
+        request_lon=request_lon,
+        service_centers=service_centers,
+    )
 
     return templates.TemplateResponse(
         "user/request_choose_service.html",
