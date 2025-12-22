@@ -163,71 +163,194 @@ def _enrich_service_centers_with_distance_and_maps(
 
 
 # --------------------------------------------------------------------
-# Справочники для подписей категорий и статусов
+# Справочники категорий (единый стиль, с импортом из backend при наличии)
 # --------------------------------------------------------------------
 
-SERVICE_CATEGORY_LABELS = {
-    "sto": "СТО / общий ремонт",
-    "wash": "Автомойка",
-    "tire": "Шиномонтаж",
-    "electric": "Автоэлектрик",
-    "mechanic": "Слесарные работы",
-    "paint": "Малярные / кузовные работы",
-    "maint": "ТО / обслуживание",
-    "agg_turbo": "Ремонт турбин",
-    "agg_starter": "Ремонт стартеров",
-    "agg_generator": "Ремонт генераторов",
-    "agg_steering": "Рулевые рейки",
-    "mech": "Слесарные работы",
-    "elec": "Автоэлектрик",
-    "body": "Кузовные работы",
-    "diag": "Диагностика",
-    "agg": "Ремонт агрегатов",
-}
+def _load_backend_service_catalog() -> tuple[dict[str, str], list[dict[str, Any]], list[tuple[str, str]]]:
+    """
+    Возвращает:
+      - labels: dict(code -> label)
+      - request_groups: [{"label": "...", "options": [(code, label), ...]}, ...]
+      - sc_specs: [(code, label), ...]
+    """
+    # 1) Пытаемся импортировать единый каталог из backend
+    try:
+        from backend.app.core.catalogs.service_categories import (
+            SERVICE_CATEGORY_LABELS as _LBL,
+            get_request_category_groups as _req_groups,
+            get_service_center_specialization_options as _sc_specs,
+        )
+        labels = dict(_LBL)
+        request_groups = _req_groups()
+        sc_specs = _sc_specs()
+        return labels, request_groups, sc_specs
+    except Exception:
+        # 2) Фолбэк (на случай если импорт недоступен в окружении webapp)
+        labels = {
+            # --- Заявка (клиент) ---
+            "wash_combo": "Мойка, детейлинг, химчистка",
+            "tire": "Шиномонтаж",
+            "maint": "ТО/ обслуживание",
 
-STATUS_LABELS = {
-    "new": "Новая",
-    "sent": "Отправлена СТО",
-    "accepted_by_service": "Принята сервисом",
-    "in_work": "В работе",
-    "done": "Завершена",
-    "cancelled": "Отменена",
-    "rejected_by_service": "Отклонена СТО",
-}
+            # Помощь на дороге
+            "road_tow": "Эвакуация",
+            "road_fuel": "Топливо",
+            "road_unlock": "Вскрытие автомобиля",
+            "road_jump": "Прикурить автомобиль",
+            "road_mobile_tire": "Выездной шиномонтаж",
+            "road_mobile_master": "Выездной мастер",
 
-PRIMARY_SERVICE_CODES = [
-    "sto",
-    "maint",
-    "mechanic",
-    "electric",
-    "diag",
-    "body",
-    "paint",
-]
+            # СТО / общий ремонт
+            "diag": "Диагностика",
+            "electric": "Автоэлектрик",
+            "engine_fuel": "Двигатель и топливная система",
+            "mechanic": "Слесарные работы",
+            "body_work": "Кузовные работы",
+            "welding": "Сварочные работы",
+            "argon_welding": "Аргонная сварка",
+            "auto_glass": "Автостекло",
+            "ac_climate": "Автокондиционер и системы климата",
+            "exhaust": "Выхлопная система",
+            "alignment": "Развал-схождение",
 
-EXTRA_SERVICE_CODES = [
-    "wash",
-    "tire",
-    "agg",
-]
+            # Агрегатный ремонт
+            "agg_turbo": "Турбина",
+            "agg_starter": "Стартер",
+            "agg_generator": "Генератор",
+            "agg_steering": "Рулевая рейка",
+            "agg_gearbox": "Коробка передач",
+            "agg_fuel_system": "Топливная система",
+            "agg_exhaust": "Выхлопная система",
+            "agg_compressor": "Компрессор",
+            "agg_driveshaft": "Карданный вал",
+            "agg_motor": "Мотор",
+
+            # --- Специализации СТО ---
+            "wash": "Мойка",
+            "detailing": "Детейлинг",
+            "dry_cleaning": "Химчистка",
+            "truck_tire": "Грузовой шиномонтаж",
+
+            # Legacy (чтобы старые записи не “сломались” в отображении)
+            "sto": "СТО / общий ремонт",
+        }
+
+        request_groups = [
+            {"label": "Мойка / детейлинг / химчистка", "options": [("wash_combo", labels["wash_combo"])]},
+            {"label": "Шиномонтаж", "options": [("tire", labels["tire"])]},
+            {"label": "ТО/ обслуживание", "options": [("maint", labels["maint"])]},
+            {"label": "Помощь на дороге", "options": [
+                ("road_tow", labels["road_tow"]),
+                ("road_fuel", labels["road_fuel"]),
+                ("road_unlock", labels["road_unlock"]),
+                ("road_jump", labels["road_jump"]),
+                ("road_mobile_tire", labels["road_mobile_tire"]),
+                ("road_mobile_master", labels["road_mobile_master"]),
+            ]},
+            {"label": "СТО / общий ремонт", "options": [
+                ("diag", labels["diag"]),
+                ("electric", labels["electric"]),
+                ("engine_fuel", labels["engine_fuel"]),
+                ("mechanic", labels["mechanic"]),
+                ("body_work", labels["body_work"]),
+                ("welding", labels["welding"]),
+                ("argon_welding", labels["argon_welding"]),
+                ("auto_glass", labels["auto_glass"]),
+                ("ac_climate", labels["ac_climate"]),
+                ("exhaust", labels["exhaust"]),
+                ("alignment", labels["alignment"]),
+            ]},
+            {"label": "Агрегатный ремонт", "options": [
+                ("agg_turbo", labels["agg_turbo"]),
+                ("agg_starter", labels["agg_starter"]),
+                ("agg_generator", labels["agg_generator"]),
+                ("agg_steering", labels["agg_steering"]),
+                ("agg_gearbox", labels["agg_gearbox"]),
+                ("agg_fuel_system", labels["agg_fuel_system"]),
+                ("agg_exhaust", labels["agg_exhaust"]),
+                ("agg_compressor", labels["agg_compressor"]),
+                ("agg_driveshaft", labels["agg_driveshaft"]),
+                ("agg_motor", labels["agg_motor"]),
+            ]},
+        ]
+
+        sc_specs = [
+            ("wash", labels["wash"]),
+            ("detailing", labels["detailing"]),
+            ("dry_cleaning", labels["dry_cleaning"]),
+            ("maint", labels["maint"]),
+            ("diag", labels["diag"]),
+            ("electric", labels["electric"]),
+            ("engine_fuel", labels["engine_fuel"]),
+            ("mechanic", labels["mechanic"]),
+            ("body_work", labels["body_work"]),
+            ("welding", labels["welding"]),
+            ("argon_welding", labels["argon_welding"]),
+            ("auto_glass", labels["auto_glass"]),
+            ("ac_climate", labels["ac_climate"]),
+            ("exhaust", labels["exhaust"]),
+            ("alignment", labels["alignment"]),
+            ("tire", labels["tire"]),
+            ("truck_tire", labels["truck_tire"]),
+            # Агрегатный ремонт
+            ("agg_turbo", labels["agg_turbo"]),
+            ("agg_starter", labels["agg_starter"]),
+            ("agg_generator", labels["agg_generator"]),
+            ("agg_steering", labels["agg_steering"]),
+            ("agg_gearbox", labels["agg_gearbox"]),
+            ("agg_fuel_system", labels["agg_fuel_system"]),
+            ("agg_exhaust", labels["agg_exhaust"]),
+            ("agg_compressor", labels["agg_compressor"]),
+            ("agg_driveshaft", labels["agg_driveshaft"]),
+            ("agg_motor", labels["agg_motor"]),
+            # Помощь на дороге
+            ("road_tow", labels["road_tow"]),
+            ("road_fuel", labels["road_fuel"]),
+            ("road_unlock", labels["road_unlock"]),
+            ("road_jump", labels["road_jump"]),
+            ("road_mobile_tire", labels["road_mobile_tire"]),
+            ("road_mobile_master", labels["road_mobile_master"]),
+        ]
+        return labels, request_groups, sc_specs
+
+
+_SERVICE_LABELS, _REQUEST_CATEGORY_GROUPS, _SC_SPEC_OPTIONS = _load_backend_service_catalog()
+
+# Это имя используется в шаблонах/рендере заявок — оставляем как было
+SERVICE_CATEGORY_LABELS: dict[str, str] = dict(_SERVICE_LABELS)
+
+# Чтобы старые значения не “пропадали” в UI:
+SERVICE_CATEGORY_LABELS.setdefault("wash", "Мойка")
+SERVICE_CATEGORY_LABELS.setdefault("tire", "Шиномонтаж")
+SERVICE_CATEGORY_LABELS.setdefault("sto", "СТО / общий ремонт")
 
 
 def _build_service_categories() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """
     Возвращает списки (code, label) для основных и дополнительных категорий.
+    Важно: request_create.html ожидает primary_categories + extra_categories.
     """
-    primary = [
-        (code, SERVICE_CATEGORY_LABELS[code])
-        for code in PRIMARY_SERVICE_CODES
-        if code in SERVICE_CATEGORY_LABELS
-    ]
-    extra = [
-        (code, SERVICE_CATEGORY_LABELS[code])
-        for code in EXTRA_SERVICE_CODES
-        if code in SERVICE_CATEGORY_LABELS
-    ]
-    return primary, extra
+    primary_codes = ["wash_combo", "tire", "maint"]
 
+    primary: list[tuple[str, str]] = []
+    extra: list[tuple[str, str]] = []
+
+    for group in _REQUEST_CATEGORY_GROUPS:
+        group_label = group.get("label", "")
+        for code, label in group.get("options", []):
+            if code in primary_codes:
+                primary.append((code, label))
+            else:
+                # Чтобы даже в одном <optgroup> было понятно к чему относится пункт
+                extra.append((code, f"{group_label}: {label}" if group_label else label))
+
+    # На случай если чего-то нет — добиваем из labels (без падений)
+    seen_primary = {c for c, _ in primary}
+    for c in primary_codes:
+        if c not in seen_primary and c in SERVICE_CATEGORY_LABELS:
+            primary.append((c, SERVICE_CATEGORY_LABELS[c]))
+
+    return primary, extra
 
 # --------------------------------------------------------------------
 # Вспомогательный загрузчик машины с проверкой владельца
@@ -513,30 +636,26 @@ async def car_create_post(
             error_message = "Год выпуска должен быть числом."
 
     # Двигатель
-    engine_type_value: str | None = (engine_type or "").strip() or None
+    engine_type_value: str | None = engine_type.strip() or None
+    volume_value: float | None = None
+    power_value: int | None = None
 
-    engine_volume_value: float | None = None
-    if engine_volume_l.strip():
-        try:
-            engine_volume_value = float(engine_volume_l.replace(",", ".").strip())
-        except ValueError:
-            error_message = "Объём двигателя должен быть числом (например 1.6)."
-
-    engine_power_value: int | None = None
-    if engine_power_kw.strip():
-        try:
-            engine_power_value = int(engine_power_kw.strip())
-        except ValueError:
-            error_message = "Мощность (кВт) должна быть числом."
-
-    # Если электрический — объём не нужен
     if engine_type_value == "electric":
-        engine_volume_value = None
+        # Для электромобиля объём не нужен
+        if engine_power_kw.strip():
+            try:
+                power_value = int(engine_power_kw.strip())
+            except ValueError:
+                error_message = "Мощность (кВт) должна быть числом."
     else:
-        # Для не электрических мощность не обязательна — оставляем как есть
-        pass
+        # Для ДВС/гибридов — объём
+        if engine_volume_l.strip():
+            try:
+                volume_value = float(engine_volume_l.strip().replace(",", "."))
+            except ValueError:
+                error_message = "Объём двигателя должен быть числом (например, 1.6)."
 
-    # Если ошибка валидации на фронте — не ходим в backend
+    # Если ошибка валидации — не ходим в backend
     if error_message:
         car_data = {
             "brand": brand,
@@ -544,7 +663,7 @@ async def car_create_post(
             "year": year,
             "license_plate": license_plate,
             "vin": vin,
-            "engine_type": engine_type,
+            "engine_type": engine_type_value,
             "engine_volume_l": engine_volume_l,
             "engine_power_kw": engine_power_kw,
         }
@@ -554,7 +673,7 @@ async def car_create_post(
                 "request": request,
                 "mode": "create",
                 "car": car_data,
-                "error": error_message,
+                "error_message": error_message,
             },
         )
 
@@ -566,8 +685,8 @@ async def car_create_post(
         "license_plate": license_plate or None,
         "vin": vin or None,
         "engine_type": engine_type_value,
-        "engine_volume_l": engine_volume_value,
-        "engine_power_kw": engine_power_value,
+        "engine_volume_l": volume_value,
+        "engine_power_kw": power_value,
     }
 
     try:
@@ -582,7 +701,7 @@ async def car_create_post(
             "year": year,
             "license_plate": license_plate,
             "vin": vin,
-            "engine_type": engine_type,
+            "engine_type": engine_type_value,
             "engine_volume_l": engine_volume_l,
             "engine_power_kw": engine_power_kw,
         }
@@ -592,11 +711,14 @@ async def car_create_post(
                 "request": request,
                 "mode": "create",
                 "car": car_data,
-                "error": error_message,
+                "error_message": error_message,
             },
         )
 
-    return RedirectResponse(url=f"/me/cars/{car_created['id']}", status_code=303)
+    return RedirectResponse(
+        url=f"/me/cars/{car_created['id']}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 # --------------------------------------------------------------------
@@ -652,7 +774,7 @@ async def car_edit_post(
 
     error_message: str | None = None
 
-    # Парсим год
+    # Год
     year_value: int | None = None
     if year.strip():
         try:
@@ -661,46 +783,42 @@ async def car_edit_post(
             error_message = "Год выпуска должен быть числом."
 
     # Двигатель
-    engine_type_value: str | None = (engine_type or "").strip() or None
+    engine_type_value: str | None = engine_type.strip() or None
+    volume_value: float | None = None
+    power_value: int | None = None
 
-    engine_volume_value: float | None = None
-    if engine_volume_l.strip():
-        try:
-            engine_volume_value = float(engine_volume_l.replace(",", ".").strip())
-        except ValueError:
-            error_message = "Объём двигателя должен быть числом (например 1.6)."
-
-    engine_power_value: int | None = None
-    if engine_power_kw.strip():
-        try:
-            engine_power_value = int(engine_power_kw.strip())
-        except ValueError:
-            error_message = "Мощность (кВт) должна быть числом."
-
-    # Если электрический — объём не нужен
     if engine_type_value == "electric":
-        engine_volume_value = None
-
-    car_data = {
-        "id": car_id,
-        "brand": brand,
-        "model": model,
-        "year": year,
-        "license_plate": license_plate,
-        "vin": vin,
-        "engine_type": engine_type,
-        "engine_volume_l": engine_volume_l,
-        "engine_power_kw": engine_power_kw,
-    }
+        if engine_power_kw.strip():
+            try:
+                power_value = int(engine_power_kw.strip())
+            except ValueError:
+                error_message = "Мощность (кВт) должна быть числом."
+    else:
+        if engine_volume_l.strip():
+            try:
+                volume_value = float(engine_volume_l.strip().replace(",", "."))
+            except ValueError:
+                error_message = "Объём двигателя должен быть числом (например, 1.6)."
 
     if error_message:
+        car_data = {
+            "id": car_id,
+            "brand": brand,
+            "model": model,
+            "year": year,
+            "license_plate": license_plate,
+            "vin": vin,
+            "engine_type": engine_type_value,
+            "engine_volume_l": engine_volume_l,
+            "engine_power_kw": engine_power_kw,
+        }
         return templates.TemplateResponse(
             "user/car_form.html",
             {
                 "request": request,
                 "mode": "edit",
                 "car": car_data,
-                "error": error_message,
+                "error_message": error_message,
             },
         )
 
@@ -711,8 +829,8 @@ async def car_edit_post(
         "license_plate": license_plate or None,
         "vin": vin or None,
         "engine_type": engine_type_value,
-        "engine_volume_l": engine_volume_value,
-        "engine_power_kw": engine_power_value,
+        "engine_volume_l": volume_value,
+        "engine_power_kw": power_value,
     }
 
     try:
@@ -720,17 +838,31 @@ async def car_edit_post(
         resp.raise_for_status()
     except Exception:
         error_message = "Не удалось сохранить изменения. Попробуйте позже."
+        car_data = {
+            "id": car_id,
+            "brand": brand,
+            "model": model,
+            "year": year,
+            "license_plate": license_plate,
+            "vin": vin,
+            "engine_type": engine_type_value,
+            "engine_volume_l": engine_volume_l,
+            "engine_power_kw": engine_power_kw,
+        }
         return templates.TemplateResponse(
             "user/car_form.html",
             {
                 "request": request,
                 "mode": "edit",
                 "car": car_data,
-                "error": error_message,
+                "error_message": error_message,
             },
         )
 
-    return RedirectResponse(url=f"/me/cars/{car_id}", status_code=303)
+    return RedirectResponse(
+        url=f"/me/cars/{car_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 # --------------------------------------------------------------------
 # Удаление автомобиля
@@ -847,10 +979,10 @@ async def request_create_get(
     if car_id is None:
         try:
             resp = await client.get(f"/api/v1/cars/by-user/{user_id}")
-            if resp.status_code == 200:
-                raw = resp.json() or []
-                if isinstance(raw, list):
-                    cars = raw
+            resp.raise_for_status()
+            raw = resp.json()
+            if isinstance(raw, list):
+                cars = raw
         except Exception:
             cars = []
 
@@ -896,7 +1028,7 @@ async def request_create_post(
     address_text: str = Form(""),
     is_car_movable: str = Form("movable"),
     radius_km: int = Form(5),
-    service_category: str = Form("sto"),
+    service_category: str = Form("mechanic"),
     description: str = Form(...),
     hide_phone: bool = Form(False),
 
@@ -905,221 +1037,90 @@ async def request_create_post(
 ) -> HTMLResponse:
     user_id = get_current_user_id(request)
 
-    def _try_parse_coords_from_text(text: str) -> tuple[float, float] | None:
-        """
-        Поддержка ввода координат прямо в поле адреса:
-        "55.7558, 37.6173" или "55.7558 37.6173"
-        """
-        import re
-
-        if not text:
-            return None
-
-        t = text.strip()
-        m = re.search(r"(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)", t)
-        if not m:
-            return None
-
+    # car_id может быть пустым (если пользователь не выбрал авто)
+    car_id: int | None = None
+    if car_id_raw.strip():
         try:
-            lat = float(m.group(1))
-            lon = float(m.group(2))
+            car_id = int(car_id_raw.strip())
+        except ValueError:
+            car_id = None
+
+    primary_categories, extra_categories = _build_service_categories()
+
+    # Подгружаем авто (если есть)
+    car: dict[str, Any] | None = None
+    if car_id is not None:
+        try:
+            car = await _load_car_for_owner(request, client, car_id)
         except Exception:
-            return None
+            car = None
 
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-            return None
+    # На случай ошибки — сохраняем введённые данные
+    form_data = {
+        "address_text": address_text,
+        "is_car_movable": is_car_movable,
+        "radius_km": radius_km,
+        "service_category": service_category,
+        "description": description,
+        "hide_phone": hide_phone,
+        "latitude": latitude,
+        "longitude": longitude,
+    }
 
-        return (lat, lon)
-
-    templates = get_templates()
-
-    async def _render_form(
-        *,
-        car_id: int | None,
-        car: dict[str, Any] | None,
-        car_missing: bool,
-        error_message: str | None,
-        form_data: dict[str, Any],
-    ) -> HTMLResponse:
-        primary_categories, extra_categories = _build_service_categories()
-
-        cars: list[dict[str, Any]] = []
-        if car_id is None:
-            try:
-                resp = await client.get(f"/api/v1/cars/by-user/{user_id}")
-                if resp.status_code == 200:
-                    raw = resp.json() or []
-                    if isinstance(raw, list):
-                        cars = raw
-            except Exception:
-                cars = []
-
+    # Мини-валидация
+    if not description.strip():
         return templates.TemplateResponse(
             "user/request_create.html",
             {
                 "request": request,
                 "car_id": car_id,
                 "car": car,
-                "cars": cars,
-                "car_missing": car_missing,
+                "cars": [],
+                "car_missing": car is None,
                 "created_request": None,
-                "error_message": error_message,
+                "error_message": "Опишите проблему — это обязательное поле.",
                 "primary_categories": primary_categories,
                 "extra_categories": extra_categories,
                 "form_data": form_data,
             },
         )
 
-    car_id_raw = (car_id_raw or "").strip()
-    if not car_id_raw:
-        return await _render_form(
-            car_id=None,
-            car=None,
-            car_missing=True,
-            error_message=None,
-            form_data={
-                "address_text": address_text,
-                "is_car_movable": is_car_movable,
-                "radius_km": radius_km,
-                "service_category": service_category,
-                "description": description,
-                "hide_phone": hide_phone,
-                "latitude": latitude,
-                "longitude": longitude,
-            },
-        )
-
-    try:
-        car_id = int(car_id_raw)
-    except ValueError:
-        return await _render_form(
-            car_id=None,
-            car=None,
-            car_missing=True,
-            error_message="Некорректный идентификатор автомобиля.",
-            form_data={},
-        )
-
-    try:
-        car_resp = await client.get(f"/api/v1/cars/{car_id}")
-        car_resp.raise_for_status()
-        car = car_resp.json()
-    except Exception:
-        car = None
-
-    # --- гео должно быть задано (иначе /choose-service будет 400) ---
-    lat = latitude
-    lon = longitude
-
-    if lat is None or lon is None:
-        parsed = _try_parse_coords_from_text(address_text)
-        if parsed:
-            lat, lon = parsed
-
-    if lat is None or lon is None:
-        return await _render_form(
-            car_id=car_id,
-            car=car,
-            car_missing=False,
-            error_message=(
-                "📍 Чтобы подобрать подходящие СТО, нужно указать геолокацию.\n"
-                "Нажмите «Определить моё местоположение» или введите координаты в поле адреса\n"
-                "например: 55.7558, 37.6173"
-            ),
-            form_data={
-                "address_text": address_text,
-                "is_car_movable": is_car_movable,
-                "radius_km": radius_km,
-                "service_category": service_category,
-                "description": description,
-                "hide_phone": hide_phone,
-                "latitude": lat,
-                "longitude": lon,
-            },
-        )
-
-    movable = is_car_movable == "movable"
-
-    # --- валидация описания (backend требует минимум 3 символа) ---
-    desc = (description or "").strip()
-    if len(desc) < 3:
-        return await _render_form(
-            car_id=car_id,
-            car=car,
-            car_missing=False,
-            error_message="Опишите проблему (минимум 3 символа).",
-            form_data={
-                "address_text": address_text,
-                "is_car_movable": is_car_movable,
-                "radius_km": radius_km,
-                "service_category": service_category,
-                "description": description,
-                "hide_phone": hide_phone,
-                "latitude": lat,
-                "longitude": lon,
-            },
-        )
-
-    payload = {
+    payload: dict[str, Any] = {
         "user_id": user_id,
         "car_id": car_id,
-        "latitude": lat,
-        "longitude": lon,
         "address_text": address_text or None,
-        "is_car_movable": movable,
-        "need_tow_truck": not movable,
-        "need_mobile_master": not movable,
+        "is_car_movable": (is_car_movable == "movable"),
         "radius_km": radius_km,
         "service_category": service_category,
-        "description": desc,
-        "photos": [],
+        "description": description,
         "hide_phone": hide_phone,
+        "latitude": latitude,
+        "longitude": longitude,
     }
 
     try:
         resp = await client.post("/api/v1/requests/", json=payload)
-        if resp.status_code == 422:
-            # backend вернул ошибку валидации (чаще всего — пустое описание или неверное гео)
-            return await _render_form(
-                car_id=car_id,
-                car=car,
-                car_missing=False,
-                error_message="Проверьте поля заявки: описание должно быть минимум 3 символа, а геолокация задана.",
-                form_data={
-                    "address_text": address_text,
-                    "is_car_movable": is_car_movable,
-                    "radius_km": radius_km,
-                    "service_category": service_category,
-                    "description": description,
-                    "hide_phone": hide_phone,
-                    "latitude": lat,
-                    "longitude": lon,
-                },
-            )
-
         resp.raise_for_status()
         created_request = resp.json()
-        created_id = int(created_request.get("id"))
     except Exception:
-        return await _render_form(
-            car_id=car_id,
-            car=car,
-            car_missing=False,
-            error_message="Не удалось создать заявку. Попробуйте позже.",
-            form_data={
-                "address_text": address_text,
-                "is_car_movable": is_car_movable,
-                "radius_km": radius_km,
-                "service_category": service_category,
-                "description": description,
-                "hide_phone": hide_phone,
-                "latitude": lat,
-                "longitude": lon,
+        return templates.TemplateResponse(
+            "user/request_create.html",
+            {
+                "request": request,
+                "car_id": car_id,
+                "car": car,
+                "cars": [],
+                "car_missing": car is None,
+                "created_request": None,
+                "error_message": "Не удалось создать заявку. Попробуйте позже.",
+                "primary_categories": primary_categories,
+                "extra_categories": extra_categories,
+                "form_data": form_data,
             },
         )
 
     return RedirectResponse(
-        url=f"/me/requests/{created_id}/choose-service",
+        url=f"/me/requests/{created_request['id']}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

@@ -445,18 +445,7 @@ async def sc_edit_get(
     """
     sc = await _load_sc_for_owner(request, client, sc_id)
 
-    specialization_options = [
-        ("wash", "Автомойка"),
-        ("tire", "Шиномонтаж"),
-        ("electric", "Автоэлектрик"),
-        ("mechanic", "Слесарные работы"),
-        ("paint", "Малярные / кузовные работы"),
-        ("maint", "ТО / обслуживание"),
-        ("agg_turbo", "Ремонт турбин"),
-        ("agg_starter", "Ремонт стартеров"),
-        ("agg_generator", "Ремонт генераторов"),
-        ("agg_steering", "Рулевые рейки"),
-    ]
+    specialization_options = _get_sc_specialization_options()
 
     return templates.TemplateResponse(
         "service_center/edit.html",
@@ -468,6 +457,54 @@ async def sc_edit_get(
             "specialization_options": specialization_options,
         },
     )
+
+
+def _get_sc_specialization_options() -> list[tuple[str, str]]:
+    """
+    Единый список специализаций СТО (импорт из backend если доступен, иначе фолбэк).
+    """
+    try:
+        from backend.app.core.catalogs.service_categories import get_service_center_specialization_options
+        return list(get_service_center_specialization_options())
+    except Exception:
+        # Фолбэк: тот же порядок и те же значения, что в каталоге backend
+        return [
+            ("wash", "Мойка"),
+            ("detailing", "Детейлинг"),
+            ("dry_cleaning", "Химчистка"),
+            ("maint", "ТО/ обслуживание"),
+            ("diag", "Диагностика"),
+            ("electric", "Автоэлектрик"),
+            ("engine_fuel", "Двигатель и топливная система"),
+            ("mechanic", "Слесарные работы"),
+            ("body_work", "Кузовные работы"),
+            ("welding", "Сварочные работы"),
+            ("argon_welding", "Аргонная сварка"),
+            ("auto_glass", "Автостекло"),
+            ("ac_climate", "Автокондиционер и системы климата"),
+            ("exhaust", "Выхлопная система"),
+            ("alignment", "Развал-схождение"),
+            ("tire", "Шиномонтаж"),
+            ("truck_tire", "Грузовой шиномонтаж"),
+            # Агрегатный ремонт
+            ("agg_turbo", "Турбина"),
+            ("agg_starter", "Стартер"),
+            ("agg_generator", "Генератор"),
+            ("agg_steering", "Рулевая рейка"),
+            ("agg_gearbox", "Коробка передач"),
+            ("agg_fuel_system", "Топливная система"),
+            ("agg_exhaust", "Выхлопная система"),
+            ("agg_compressor", "Компрессор"),
+            ("agg_driveshaft", "Карданный вал"),
+            ("agg_motor", "Мотор"),
+            # Помощь на дороге
+            ("road_tow", "Эвакуация"),
+            ("road_fuel", "Топливо"),
+            ("road_unlock", "Вскрытие автомобиля"),
+            ("road_jump", "Прикурить автомобиль"),
+            ("road_mobile_tire", "Выездной шиномонтаж"),
+            ("road_mobile_master", "Выездной мастер"),
+        ]
 
 
 @router.post("/edit/{sc_id}", response_class=HTMLResponse)
@@ -487,61 +524,14 @@ async def sc_edit_post(
     has_tow_truck: bool = Form(False),
     is_active: bool = Form(True),
 ) -> HTMLResponse:
-    specialization_options = [
-        ("wash", "Автомойка"),
-        ("tire", "Шиномонтаж"),
-        ("electric", "Автоэлектрик"),
-        ("mechanic", "Слесарные работы"),
-        ("paint", "Кузовные/покраска"),
-        ("maint", "ТО/обслуживание"),
-        ("agg_turbo", "Турбины"),
-        ("agg_starter", "Стартеры"),
-        ("agg_generator", "Генераторы"),
-        ("agg_steering", "Рулевые рейки"),
-    ]
+    specialization_options = _get_sc_specialization_options()
+    known_codes = {code for code, _ in specialization_options}
 
-    address = (address or "").strip()
-
-    if not address:
-        sc = await _load_sc_for_owner(request, client, sc_id)
-        return templates.TemplateResponse(
-            "service_center/edit.html",
-            {
-                "request": request,
-                "service_center": sc,
-                "error_message": "Укажите адрес СТО (обязательное поле).",
-                "success": False,
-                "specialization_options": specialization_options,
-            },
-        )
-
-    lat_value: float | None = None
-    lon_value: float | None = None
-
-    if (latitude or "").strip() and (longitude or "").strip():
-        try:
-            lat_value = float(latitude)
-            lon_value = float(longitude)
-        except ValueError:
-            lat_value = None
-            lon_value = None
-
-    if lat_value is None or lon_value is None:
-        sc = await _load_sc_for_owner(request, client, sc_id)
-        return templates.TemplateResponse(
-            "service_center/edit.html",
-            {
-                "request": request,
-                "service_center": sc,
-                "error_message": "Укажите геолокацию СТО (кнопка 📍) — без неё СТО не сможет участвовать в подборе.",
-                "success": False,
-                "specialization_options": specialization_options,
-            },
-        )
+    # Владелец/доступ + текущие данные (нужно для legacy-спеков)
+    sc = await _load_sc_for_owner(request, client, sc_id)
 
     specs_clean = [s for s in (specializations or []) if s]
     if not specs_clean:
-        sc = await _load_sc_for_owner(request, client, sc_id)
         return templates.TemplateResponse(
             "service_center/edit.html",
             {
@@ -553,6 +543,50 @@ async def sc_edit_post(
             },
         )
 
+    # ✅ Защита от потери старых специализаций, которых нет в UI
+    existing_specs = sc.get("specializations") or []
+    legacy_specs = [s for s in existing_specs if s and s not in known_codes]
+
+    # сохраняем порядок: сначала выбранные, потом legacy (без дублей)
+    specs_final: list[str] = []
+    for s in specs_clean + legacy_specs:
+        if s and s not in specs_final:
+            specs_final.append(s)
+
+    # Координаты
+    lat_value: float | None = None
+    lon_value: float | None = None
+
+    if latitude.strip():
+        try:
+            lat_value = float(latitude.strip().replace(",", "."))
+        except ValueError:
+            return templates.TemplateResponse(
+                "service_center/edit.html",
+                {
+                    "request": request,
+                    "service_center": sc,
+                    "error_message": "Широта должна быть числом.",
+                    "success": False,
+                    "specialization_options": specialization_options,
+                },
+            )
+
+    if longitude.strip():
+        try:
+            lon_value = float(longitude.strip().replace(",", "."))
+        except ValueError:
+            return templates.TemplateResponse(
+                "service_center/edit.html",
+                {
+                    "request": request,
+                    "service_center": sc,
+                    "error_message": "Долгота должна быть числом.",
+                    "success": False,
+                    "specialization_options": specialization_options,
+                },
+            )
+
     payload: dict[str, Any] = {
         "name": name,
         "address": address or None,
@@ -561,14 +595,13 @@ async def sc_edit_post(
         "phone": phone or None,
         "website": website or None,
         "org_type": org_type or None,
-        "specializations": specs_clean,
-        "is_mobile_service": bool(is_mobile_service),
-        "has_tow_truck": bool(has_tow_truck),
-        "is_active": bool(is_active),
+        "specializations": specs_final,
+        "is_mobile_service": is_mobile_service,
+        "has_tow_truck": has_tow_truck,
+        "is_active": is_active,
     }
 
     error_message: str | None = None
-    sc: dict[str, Any] | None = None
     success = False
 
     try:
@@ -578,9 +611,7 @@ async def sc_edit_post(
         success = True
     except Exception:
         error_message = "Не удалось сохранить изменения. Попробуйте позже."
-
-    if sc is None:
-        sc = await _load_sc_for_owner(request, client, sc_id)
+        # sc уже есть из _load_sc_for_owner
 
     return templates.TemplateResponse(
         "service_center/edit.html",
