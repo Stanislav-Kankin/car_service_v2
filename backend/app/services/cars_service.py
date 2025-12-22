@@ -48,3 +48,17 @@ class CarsService:
     async def delete_car(db: AsyncSession, car: Car) -> None:
         await db.delete(car)
         await db.commit()
+
+    @staticmethod
+    async def get_car_by_id(db: AsyncSession, car_id: int) -> Car | None:
+        """
+        Совместимость с API-слоем: часть кода ожидает метод get_car_by_id().
+        В проекте уже может существовать get_car(); этот метод — безопасный алиас.
+        """
+        # Если в сервисе уже есть get_car(), используем его.
+        if hasattr(CarsService, "get_car"):
+            return await CarsService.get_car(db, car_id)  # type: ignore[attr-defined]
+
+        # Фолбэк: прямой запрос (на случай, если get_car() переименовали/удалили)
+        res = await db.execute(select(Car).where(Car.id == car_id))
+        return res.scalar_one_or_none()
