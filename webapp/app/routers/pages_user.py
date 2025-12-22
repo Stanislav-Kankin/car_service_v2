@@ -1046,7 +1046,7 @@ async def request_create_post(
     is_car_movable: str = Form("movable"),
     radius_km: int = Form(5),
     service_category: str = Form("mechanic"),
-    description: str = Form(...),
+    description: str = Form(""),  # ✅ было Form(...), из-за этого ловили 422
     hide_phone: bool = Form(False),
 
     latitude: float | None = Form(None),
@@ -1064,6 +1064,18 @@ async def request_create_post(
 
     primary_categories, extra_categories = _build_service_categories()
 
+    # ✅ Если авто не выбрано — подгружаем список авто (чтобы при ошибке не был тупик)
+    cars: list[dict[str, Any]] = []
+    if car_id is None:
+        try:
+            resp = await client.get(f"/api/v1/cars/by-user/{user_id}")
+            if resp.status_code == 200:
+                raw = resp.json()
+                if isinstance(raw, list):
+                    cars = raw
+        except Exception:
+            cars = []
+
     # Подгружаем авто (если есть)
     car: dict[str, Any] | None = None
     if car_id is not None:
@@ -1073,26 +1085,28 @@ async def request_create_post(
             car = None
 
     # На случай ошибки — сохраняем введённые данные
+    description_clean = (description or "").strip()
+
     form_data = {
         "address_text": address_text,
         "is_car_movable": is_car_movable,
         "radius_km": radius_km,
         "service_category": service_category,
-        "description": description,
+        "description": description_clean,
         "hide_phone": hide_phone,
         "latitude": latitude,
         "longitude": longitude,
     }
 
-    # Мини-валидация
-    if not description.strip():
+    # ✅ Мягкая валидация (без 422)
+    if not description_clean:
         return templates.TemplateResponse(
             "user/request_create.html",
             {
                 "request": request,
                 "car_id": car_id,
                 "car": car,
-                "cars": [],
+                "cars": cars,  # ✅ важно: не теряем список авто
                 "car_missing": car is None,
                 "created_request": None,
                 "error_message": "Опишите проблему — это обязательное поле.",
@@ -1109,7 +1123,7 @@ async def request_create_post(
         "is_car_movable": (is_car_movable == "movable"),
         "radius_km": radius_km,
         "service_category": service_category,
-        "description": description,
+        "description": description_clean,
         "hide_phone": hide_phone,
         "latitude": latitude,
         "longitude": longitude,
@@ -1126,7 +1140,7 @@ async def request_create_post(
                 "request": request,
                 "car_id": car_id,
                 "car": car,
-                "cars": [],
+                "cars": cars,  # ✅ и тут тоже не теряем
                 "car_missing": car is None,
                 "created_request": None,
                 "error_message": "Не удалось создать заявку. Попробуйте позже.",
