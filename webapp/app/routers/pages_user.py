@@ -847,63 +847,98 @@ async def request_create_post(
 ) -> HTMLResponse:
     user_id = get_current_user_id(request)
 
-    car_id_raw = (car_id_raw or "").strip()
-    if not car_id_raw:
+    def _try_parse_coords_from_text(text: str) -> tuple[float, float] | None:
+        """
+        Поддержка ввода координат прямо в поле адреса:
+        "55.7558, 37.6173" или "55.7558 37.6173"
+        """
+        import re
+
+        if not text:
+            return None
+
+        t = text.strip()
+        # допускаем запятую или пробел как разделитель
+        m = re.search(r"(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)", t)
+        if not m:
+            return None
+
+        try:
+            lat = float(m.group(1))
+            lon = float(m.group(2))
+        except Exception:
+            return None
+
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return None
+
+        return (lat, lon)
+
+    def _render_form(
+        *,
+        car_id: int | None,
+        car: dict[str, Any] | None,
+        car_missing: bool,
+        error_message: str | None,
+        form_data: dict[str, Any],
+    ) -> HTMLResponse:
         primary_categories, extra_categories = _build_service_categories()
 
         cars: list[dict[str, Any]] = []
-        try:
-            resp = await client.get(f"/api/v1/cars/by-user/{user_id}")
-            if resp.status_code == 200:
-                raw = resp.json() or []
-                if isinstance(raw, list):
-                    cars = raw
-        except Exception:
-            cars = []
+        if car_id is None:
+            try:
+                resp = await client.get(f"/api/v1/cars/by-user/{user_id}")
+                if resp.status_code == 200:
+                    raw = resp.json() or []
+                    if isinstance(raw, list):
+                        cars = raw
+            except Exception:
+                cars = []
 
         return templates.TemplateResponse(
             "user/request_create.html",
             {
                 "request": request,
-                "car_id": None,
-                "car": None,
+                "car_id": car_id,
+                "car": car,
                 "cars": cars,
-                "car_missing": True,
+                "car_missing": car_missing,
                 "created_request": None,
-                "error_message": None,
+                "error_message": error_message,
                 "primary_categories": primary_categories,
                 "extra_categories": extra_categories,
-                "form_data": {
-                    "address_text": address_text,
-                    "is_car_movable": is_car_movable,
-                    "radius_km": radius_km,
-                    "service_category": service_category,
-                    "description": description,
-                    "hide_phone": hide_phone,
-                    "latitude": latitude,
-                    "longitude": longitude,
-                },
+                "form_data": form_data,
+            },
+        )
+
+    car_id_raw = (car_id_raw or "").strip()
+    if not car_id_raw:
+        return await _render_form(
+            car_id=None,
+            car=None,
+            car_missing=True,
+            error_message=None,
+            form_data={
+                "address_text": address_text,
+                "is_car_movable": is_car_movable,
+                "radius_km": radius_km,
+                "service_category": service_category,
+                "description": description,
+                "hide_phone": hide_phone,
+                "latitude": latitude,
+                "longitude": longitude,
             },
         )
 
     try:
         car_id = int(car_id_raw)
     except ValueError:
-        primary_categories, extra_categories = _build_service_categories()
-        return templates.TemplateResponse(
-            "user/request_create.html",
-            {
-                "request": request,
-                "car_id": None,
-                "car": None,
-                "cars": [],
-                "car_missing": True,
-                "created_request": None,
-                "error_message": "Некорректный идентификатор автомобиля.",
-                "primary_categories": primary_categories,
-                "extra_categories": extra_categories,
-                "form_data": {},
-            },
+        return await _render_form(
+            car_id=None,
+            car=None,
+            car_missing=True,
+            error_message="Некорректный идентификатор автомобиля.",
+            form_data={},
         )
 
     try:
@@ -913,13 +948,44 @@ async def request_create_post(
     except Exception:
         car = None
 
+    # --- 🔧 ВАЖНО: гео должно быть задано (иначе /choose-service всегда будет 400) ---
+    lat = latitude
+    lon = longitude
+
+    if lat is None or lon is None:
+        parsed = _try_parse_coords_from_text(address_text)
+        if parsed:
+            lat, lon = parsed
+
+    if lat is None or lon is None:
+        return await _render_form(
+            car_id=car_id,
+            car=car,
+            car_missing=False,
+            error_message=(
+                "📍 Чтобы подобрать подходящие СТО, нужно указать геолокацию.\n"
+                "Нажмите «Определить моё местоположение» или введите координаты в поле адреса\n"
+                "например: 55.7558, 37.6173"
+            ),
+            form_data={
+                "address_text": address_text,
+                "is_car_movable": is_car_movable,
+                "radius_km": radius_km,
+                "service_category": service_category,
+                "description": description,
+                "hide_phone": hide_phone,
+                "latitude": lat,
+                "longitude": lon,
+            },
+        )
+
     movable = is_car_movable == "movable"
 
     payload = {
         "user_id": user_id,
         "car_id": car_id,
-        "latitude": latitude,
-        "longitude": longitude,
+        "latitude": lat,
+        "longitude": lon,
         "address_text": address_text or None,
         "is_car_movable": movable,
         "need_tow_truck": not movable,
@@ -937,29 +1003,20 @@ async def request_create_post(
         created_request = resp.json()
         created_id = int(created_request.get("id"))
     except Exception:
-        primary_categories, extra_categories = _build_service_categories()
-        return templates.TemplateResponse(
-            "user/request_create.html",
-            {
-                "request": request,
-                "car_id": car_id,
-                "car": car,
-                "cars": [],
-                "car_missing": False,
-                "created_request": None,
-                "error_message": "Не удалось создать заявку. Попробуйте позже.",
-                "primary_categories": primary_categories,
-                "extra_categories": extra_categories,
-                "form_data": {
-                    "address_text": address_text,
-                    "is_car_movable": is_car_movable,
-                    "radius_km": radius_km,
-                    "service_category": service_category,
-                    "description": description,
-                    "hide_phone": hide_phone,
-                    "latitude": latitude,
-                    "longitude": longitude,
-                },
+        return await _render_form(
+            car_id=car_id,
+            car=car,
+            car_missing=False,
+            error_message="Не удалось создать заявку. Попробуйте позже.",
+            form_data={
+                "address_text": address_text,
+                "is_car_movable": is_car_movable,
+                "radius_km": radius_km,
+                "service_category": service_category,
+                "description": description,
+                "hide_phone": hide_phone,
+                "latitude": lat,
+                "longitude": lon,
             },
         )
 
@@ -1327,9 +1384,9 @@ async def choose_service_get(
     _ = get_current_user_id(request)
     templates = get_templates()
 
-    error_message = None
+    error_message: str | None = None
 
-    # Проверяем, что заявка существует + берём её координаты
+    # Проверяем, что заявка существует + берём её координаты/радиус
     req_data: dict[str, Any] | None = None
     try:
         r = await client.get(f"/api/v1/requests/{request_id}")
@@ -1340,15 +1397,56 @@ async def choose_service_get(
 
     request_lat = req_data.get("latitude") if isinstance(req_data, dict) else None
     request_lon = req_data.get("longitude") if isinstance(req_data, dict) else None
+    radius_km = req_data.get("radius_km") if isinstance(req_data, dict) else None
 
-    # ✅ Берём подходящие СТО по заявке (не общий список)
+    # ✅ Если гео/радиуса нет — не дергаем backend-ручку for-request, сразу показываем понятное сообщение
+    if request_lat is None or request_lon is None:
+        error_message = "📍 В заявке не указана геолокация. Вернитесь назад и нажмите «Определить моё местоположение»."
+        service_centers: list[dict[str, Any]] = []
+        return templates.TemplateResponse(
+            "user/request_choose_service.html",
+            {
+                "request": request,
+                "request_id": request_id,
+                "service_centers": service_centers,
+                "error_message": error_message,
+                "bot_username": BOT_USERNAME,
+            },
+        )
+
+    if radius_km is None or (isinstance(radius_km, (int, float)) and radius_km <= 0):
+        error_message = "Нужно выбрать радиус поиска, чтобы показать подходящие СТО."
+        service_centers = []
+        return templates.TemplateResponse(
+            "user/request_choose_service.html",
+            {
+                "request": request,
+                "request_id": request_id,
+                "service_centers": service_centers,
+                "error_message": error_message,
+                "bot_username": BOT_USERNAME,
+            },
+        )
+
+    # ✅ Берём подходящие СТО по заявке
     service_centers: list[dict[str, Any]] = []
     try:
         sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
-        sc_resp.raise_for_status()
-        service_centers = sc_resp.json() or []
-        if not isinstance(service_centers, list):
+
+        if sc_resp.status_code == 400:
+            # покажем detail с backend (например: нет гео/радиуса или нет СТО)
+            try:
+                detail = (sc_resp.json() or {}).get("detail")
+            except Exception:
+                detail = None
+            error_message = detail or "Не удалось загрузить список подходящих СТО."
             service_centers = []
+        else:
+            sc_resp.raise_for_status()
+            service_centers = sc_resp.json() or []
+            if not isinstance(service_centers, list):
+                service_centers = []
+
     except Exception:
         error_message = "Не удалось загрузить список подходящих СТО."
         service_centers = []
@@ -1359,6 +1457,10 @@ async def choose_service_get(
         request_lon=request_lon,
         service_centers=service_centers,
     )
+
+    # если список пустой, но ошибки нет — покажем полезное сообщение
+    if not service_centers and not error_message:
+        error_message = "В выбранном радиусе нет подходящих СТО. Попробуйте увеличить радиус или сменить категорию."
 
     return templates.TemplateResponse(
         "user/request_choose_service.html",
