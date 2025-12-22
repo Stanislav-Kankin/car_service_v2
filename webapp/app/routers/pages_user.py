@@ -873,6 +873,8 @@ async def request_create_post(
 
         return (lat, lon)
 
+    templates = get_templates()
+
     async def _render_form(
         *,
         car_id: int | None,
@@ -980,6 +982,26 @@ async def request_create_post(
 
     movable = is_car_movable == "movable"
 
+    # --- валидация описания (backend требует минимум 3 символа) ---
+    desc = (description or "").strip()
+    if len(desc) < 3:
+        return await _render_form(
+            car_id=car_id,
+            car=car,
+            car_missing=False,
+            error_message="Опишите проблему (минимум 3 символа).",
+            form_data={
+                "address_text": address_text,
+                "is_car_movable": is_car_movable,
+                "radius_km": radius_km,
+                "service_category": service_category,
+                "description": description,
+                "hide_phone": hide_phone,
+                "latitude": lat,
+                "longitude": lon,
+            },
+        )
+
     payload = {
         "user_id": user_id,
         "car_id": car_id,
@@ -991,13 +1013,32 @@ async def request_create_post(
         "need_mobile_master": not movable,
         "radius_km": radius_km,
         "service_category": service_category,
-        "description": description,
+        "description": desc,
         "photos": [],
         "hide_phone": hide_phone,
     }
 
     try:
         resp = await client.post("/api/v1/requests/", json=payload)
+        if resp.status_code == 422:
+            # backend вернул ошибку валидации (чаще всего — пустое описание или неверное гео)
+            return await _render_form(
+                car_id=car_id,
+                car=car,
+                car_missing=False,
+                error_message="Проверьте поля заявки: описание должно быть минимум 3 символа, а геолокация задана.",
+                form_data={
+                    "address_text": address_text,
+                    "is_car_movable": is_car_movable,
+                    "radius_km": radius_km,
+                    "service_category": service_category,
+                    "description": description,
+                    "hide_phone": hide_phone,
+                    "latitude": lat,
+                    "longitude": lon,
+                },
+            )
+
         resp.raise_for_status()
         created_request = resp.json()
         created_id = int(created_request.get("id"))
