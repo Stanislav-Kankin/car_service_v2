@@ -1,0 +1,128 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: carbot_stage_postgres
+    environment:
+      POSTGRES_USER: carbot
+      POSTGRES_PASSWORD: carbot_password
+      POSTGRES_DB: carbot_v2_stage
+    volumes:
+      - carbot_stage_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carbot -d carbot_v2_stage"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    networks:
+      - carbot_stage_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: carbot_stage_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - carbot_stage_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    networks:
+      - carbot_stage_net
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: car_service_v2_backend:stage
+    container_name: carbot_stage_backend
+    env_file:
+      - .env.stage
+    environment:
+      DB_TYPE: ${DB_TYPE:-postgres}
+      DB_URL: ${DB_URL:-postgresql+asyncpg://carbot:carbot_password@postgres:5432/carbot_v2_stage}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+
+      BOT_API_URL: ${BOT_API_URL:-http://bot:8086}
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-supersecret_stage_123}
+
+      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS:-}
+      BOT_TOKEN: ${BOT_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8044"]
+    ports:
+      - "8144:8044"
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - carbot_stage_net
+
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: car_service_v2_webapp:stage
+    container_name: carbot_stage_webapp
+    env_file:
+      - .env.stage
+    environment:
+      backend_url: ${BACKEND_URL:-http://backend:8044}
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8044}
+      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS:-}
+      DEBUG: "false"
+    depends_on:
+      backend:
+        condition: service_started
+    command: ["uvicorn", "webapp.app.main:app", "--host", "0.0.0.0", "--port", "8045"]
+    ports:
+      - "8145:8045"
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - carbot_stage_net
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: car_service_v2_bot:stage
+    container_name: carbot_stage_bot
+    env_file:
+      - .env.stage
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8044}
+      BOT_API_URL: ${BOT_API_URL:-http://bot:8086}
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-supersecret_stage_123}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      BOT_TOKEN: ${BOT_TOKEN:-}
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    command: ["python", "-m", "bot.app.main"]
+    ports:
+      - "8186:8086"
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - carbot_stage_net
+
+volumes:
+  carbot_stage_postgres_data:
+  carbot_stage_redis_data:
+
+networks:
+  carbot_stage_net:
+    driver: bridge

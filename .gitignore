@@ -207,3 +207,4 @@ marimo/_lsp/
 __marimo__/
 carbot_v2.db
 .env.test
+.env.stage
