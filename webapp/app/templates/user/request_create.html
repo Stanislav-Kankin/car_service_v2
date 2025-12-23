@@ -2,6 +2,17 @@
 
 {% block title %}Новая заявка — CarBot{% endblock %}
 
+{% block head %}
+    {{ super() }}
+    <!-- Leaflet (карта для ручного выбора точки) -->
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""
+    />
+{% endblock %}
+
 {% block content %}
 {% set fd = form_data or {} %}
 <div class="mt-8 space-y-6">
@@ -18,7 +29,7 @@
                     Опишите проблему — мы подберём СТО
                 </h1>
                 <p class="text-sm text-slate-400 mt-2 max-w-xl">
-                    Укажи адрес, радиус и категорию услуги — дальше можно выбрать СТО из списка или разослать всем подходящим.
+                    Укажи геолокацию, радиус и категорию услуги — дальше можно выбрать СТО из списка или разослать всем подходящим.
                 </p>
             </div>
 
@@ -27,65 +38,47 @@
                ------------------------------------------------------------ #}
             {% if car %}
                 <div class="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
-                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                        <div>
-                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Выбран автомобиль</div>
-                            <div class="text-sm font-semibold text-slate-100 mt-1">
-                                {{ car.brand or "—" }} {{ car.model or "" }}
-                                {% if car.year %}<span class="text-slate-300 font-normal">• {{ car.year }}</span>{% endif %}
-                                {% if car.license_plate %}<span class="text-slate-400 font-normal">• {{ car.license_plate }}</span>{% endif %}
-                            </div>
-                        </div>
-
-                        <div class="flex flex-wrap gap-2">
-                            <a href="/me/cars/{{ car.id }}"
-                               class="inline-flex items-center gap-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-100 px-4 py-2 text-xs font-semibold border border-slate-700 transition">
-                                Открыть авто
-                            </a>
-                            <a href="/me/garage"
-                               class="inline-flex items-center gap-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-100 px-4 py-2 text-xs font-semibold border border-slate-700 transition">
-                                Сменить авто
-                            </a>
-                        </div>
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Автомобиль</div>
+                    <div class="mt-1 text-lg font-bold text-slate-100">
+                        {{ car.brand }} {{ car.model }}
+                        {% if car.year %}<span class="text-slate-400 font-semibold">· {{ car.year }}</span>{% endif %}
+                    </div>
+                    <div class="text-xs text-slate-400 mt-1">
+                        {% if car.plate_number %} Госномер: <span class="text-slate-200 font-semibold">{{ car.plate_number }}</span> {% endif %}
                     </div>
                 </div>
             {% else %}
-                <div class="rounded-2xl border p-4 {% if car_missing %}border-rose-500/40 bg-rose-500/10{% else %}border-slate-800 bg-slate-900/40{% endif %}">
-                    <div class="flex items-start justify-between gap-3">
-                        <div>
-                            <div class="text-sm font-semibold {% if car_missing %}text-rose-200{% else %}text-slate-100{% endif %}">
-                                🚗 Авто не выбрано
-                            </div>
-                            <div class="text-xs text-slate-300 mt-1">
-                                Выберите автомобиль ниже — и продолжайте создание заявки без возврата в гараж.
-                            </div>
-                        </div>
-                        <a href="/me/cars/create"
-                           class="shrink-0 inline-flex items-center gap-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-xs font-semibold transition">
-                            ➕ Добавить авто
-                        </a>
+                <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-2">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Автомобиль</div>
+                    <div class="text-sm text-slate-200 font-semibold">
+                        {% if cars and cars|length > 0 %}
+                            Выберите авто из списка:
+                        {% else %}
+                            У вас пока нет авто в гараже.
+                        {% endif %}
                     </div>
 
                     {% if cars and cars|length > 0 %}
-                        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {% for c in cars %}
                                 <a href="/me/requests/create?car_id={{ c.id }}"
-                                   class="group rounded-2xl border border-slate-800 bg-slate-900/50 p-3 hover:border-emerald-500/40 hover:bg-slate-900/70 transition">
-                                    <div class="text-sm font-semibold text-slate-100 group-hover:text-emerald-200 transition">
-                                        {{ c.brand or "—" }} {{ c.model or "" }}
+                                   class="rounded-2xl border border-slate-800 bg-slate-900/50 hover:bg-slate-900/70 transition p-3">
+                                    <div class="font-semibold text-slate-100 text-sm">
+                                        {{ c.brand }} {{ c.model }}
                                     </div>
-                                    <div class="text-xs text-slate-300 mt-1">
-                                        {% if c.year %}{{ c.year }} г.{% else %}Год не указан{% endif %}
-                                        {% if c.license_plate %}<span class="text-slate-400">• {{ c.license_plate }}</span>{% endif %}
+                                    <div class="text-xs text-slate-400 mt-1">
+                                        {% if c.year %}{{ c.year }}{% endif %}
+                                        {% if c.plate_number %} · {{ c.plate_number }}{% endif %}
                                     </div>
                                 </a>
                             {% endfor %}
                         </div>
-                    {% else %}
-                        <div class="mt-3 text-sm text-slate-300">
-                            В гараже пока нет автомобилей. Нажмите «Добавить авто» и вернитесь сюда.
-                        </div>
                     {% endif %}
+
+                    <a href="/me/cars/create"
+                       class="inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-100 px-5 py-2 text-xs font-bold border border-slate-700 transition">
+                        ➕ Добавить авто в гараж
+                    </a>
                 </div>
             {% endif %}
 
@@ -136,18 +129,16 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="space-y-1.5">
                         <label class="block text-xs font-semibold text-slate-300">
-                            Адрес / ориентир
+                            Геолокация заявки
                         </label>
-                        <input type="text"
-                               name="address_text" required
-                               value="{{ fd.address_text or '' }}"
-                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 focus:border-emerald-400 transition"
-                               placeholder="Например: Краснодар, ул. Северная 10"
-                            />
                             <div class="mt-2 flex flex-wrap items-center gap-2">
                                 <button type="button" id="btn-geo"
                                         class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-800 transition">
                                     📍 Определить моё местоположение
+                                </button>
+                                <button type="button" id="btn-map"
+                                        class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-800 transition">
+                                    🗺 Выбрать на карте
                                 </button>
                                 <span id="geo-status" class="text-[11px] text-slate-500">
                                     {% if fd.latitude and fd.longitude %}
@@ -163,7 +154,7 @@
                                 {% endif %}
                             </p>
                         <p class="text-[11px] text-slate-500">
-                            Нужно указать адрес/ориентир и подтвердить геолокацию. Без геолокации рассылка "всем СТО" будет недоступна.
+                            Без геолокации рассылка "всем СТО" будет недоступна.
                         </p>
                     </div>
 
@@ -199,10 +190,10 @@
                         <input type="range" name="radius_km"
                                min="1" max="100" step="1"
                                value="{{ fd.radius_km or 5 }}"
-                               class="w-full accent-emerald-500"
-                               id="radius-range">
+                               id="radius-range"
+                               class="w-full accent-emerald-500">
                         <p class="text-[11px] text-slate-500">
-                            Обычно 5–10 км достаточно. При необходимости можно увеличить до 100 км.
+                            Чем больше радиус — тем больше СТО получат заявку.
                         </p>
                     </div>
 
@@ -210,53 +201,35 @@
                         <label class="block text-xs font-semibold text-slate-300">
                             Категория услуги
                         </label>
-
-                        {# ✅ Новый список категорий заказчика.
-                           ВАЖНО: чтобы не ломать текущий backend/webapp, поддерживаем два режима:
-                           1) Если роутер отдаёт category_groups -> используем optgroup как надо.
-                           2) Иначе fallback на старые primary_categories/extra_categories (как было у тебя).
-                        #}
                         <select name="service_category"
                                 class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 focus:border-emerald-400 transition">
-
-                            {% set current = (fd.service_category or "mechanic") %}
-
-                            {% if category_groups %}
-                                {% for group in category_groups %}
-                                    <optgroup label="{{ group.label }}">
-                                        {% for code, label in group.options %}
-                                            <option value="{{ code }}" {% if current == code %}selected{% endif %}>
-                                                {{ label }}
-                                            </option>
-                                        {% endfor %}
-                                    </optgroup>
-                                {% endfor %}
-                            {% else %}
-                                {% for code, label in primary_categories %}
-                                    <option value="{{ code }}" {% if current == code %}selected{% endif %}>
-                                        {{ label }}
-                                    </option>
-                                {% endfor %}
-                                {% if extra_categories %}
-                                    <optgroup label="Дополнительно">
-                                        {% for code, label in extra_categories %}
-                                            <option value="{{ code }}" {% if current == code %}selected{% endif %}>
-                                                {{ label }}
-                                            </option>
-                                        {% endfor %}
-                                    </optgroup>
-                                {% endif %}
+                            {% for code, label in primary_categories %}
+                                <option value="{{ code }}" {% if (fd.service_category or 'mechanic') == code %}selected{% endif %}>
+                                    {{ label }}
+                                </option>
+                            {% endfor %}
+                            {% if extra_categories and extra_categories|length > 0 %}
+                                <optgroup label="Дополнительно">
+                                    {% for code, label in extra_categories %}
+                                        <option value="{{ code }}" {% if fd.service_category == code %}selected{% endif %}>
+                                            {{ label }}
+                                        </option>
+                                    {% endfor %}
+                                </optgroup>
                             {% endif %}
                         </select>
+                        <p class="text-[11px] text-slate-500">
+                            Категория влияет на список подходящих СТО.
+                        </p>
                     </div>
                 </div>
 
                 <div class="space-y-1.5">
                     <label class="block text-xs font-semibold text-slate-300">
-                        Описание проблемы
+                        Описание проблемы <span class="text-emerald-300">*</span>
                     </label>
                     <textarea name="description"
-                              rows="4"
+                              rows="5"
                               required
                               minlength="3"
                               class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 focus:border-emerald-400 transition"
@@ -296,6 +269,45 @@
     </div>
 </div>
 
+<!-- Модалка выбора точки на карте -->
+<div id="map-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-slate-950/70 backdrop-blur" id="map-modal-bg"></div>
+
+    <div class="absolute inset-0 flex items-end md:items-center justify-center p-4">
+        <div class="w-full max-w-2xl rounded-3xl border border-slate-800 bg-slate-950/90 overflow-hidden">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between gap-3">
+                <div>
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Выбор точки</div>
+                    <div class="text-sm font-semibold text-slate-100">Ткните на карте, где находится автомобиль</div>
+                </div>
+                <button type="button" id="map-close-x"
+                        class="rounded-full px-3 py-1.5 text-xs font-semibold bg-slate-900/70 ring-1 ring-slate-800 hover:bg-slate-900">
+                    ✕
+                </button>
+            </div>
+
+            <div class="p-4 space-y-3">
+                <div id="pick-map" class="w-full rounded-2xl border border-slate-800" style="height: 380px;"></div>
+                <div class="flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center">
+                    <div id="map-hint" class="text-[11px] text-slate-400">
+                        Выберите точку — и нажмите «Сохранить».
+                    </div>
+                    <div class="flex gap-2">
+                        <button type="button" id="map-cancel"
+                                class="inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-100 px-5 py-2 text-xs font-bold border border-slate-700 transition">
+                            Отмена
+                        </button>
+                        <button type="button" id="map-apply" disabled
+                                class="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white px-5 py-2 text-xs font-bold transition">
+                            ✅ Сохранить точку
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     (function () {
         const range = document.getElementById("radius-range");
@@ -309,11 +321,19 @@
         }
 
         const btn = document.getElementById("btn-geo");
+        const btnMap = document.getElementById("btn-map");
         const status = document.getElementById("geo-status");
         const coords = document.getElementById("geo-coords");
         const latInput = document.getElementById("geo-lat");
         const lonInput = document.getElementById("geo-lon");
-        const addressInput = document.querySelector('input[name="address_text"]');
+
+        // --- modal/map elements ---
+        const modal = document.getElementById("map-modal");
+        const modalBg = document.getElementById("map-modal-bg");
+        const modalCloseX = document.getElementById("map-close-x");
+        const modalCancel = document.getElementById("map-cancel");
+        const modalApply = document.getElementById("map-apply");
+        const mapHint = document.getElementById("map-hint");
 
         const setStatus = (text, ok = false) => {
             if (!status) return;
@@ -325,6 +345,15 @@
             if (latInput) latInput.value = String(lat);
             if (lonInput) lonInput.value = String(lon);
             if (coords) coords.textContent = `Координаты: ${lat}, ${lon}`;
+        };
+
+        const getCurrentCoords = () => {
+            const lat = latInput && latInput.value ? parseFloat(latInput.value) : null;
+            const lon = lonInput && lonInput.value ? parseFloat(lonInput.value) : null;
+            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                return { lat, lon };
+            }
+            return null;
         };
 
         if (btn) {
@@ -342,17 +371,147 @@
                         const lon = pos.coords.longitude.toFixed(6);
                         setCoords(lat, lon);
                         setStatus("Геолокация сохранена ✅", true);
-
-                        // если адрес не заполнен — подставим нейтральную подсказку
-                        if (addressInput && !addressInput.value.trim()) {
-                            addressInput.value = "Текущее местоположение";
-                        }
                     },
                     (err) => {
                         setStatus("Не удалось получить геолокацию: " + (err && err.message ? err.message : "ошибка"), false);
                     },
                     { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
                 );
+            });
+        }
+
+        // -------------------------
+        // Ручной выбор точки на карте
+        // -------------------------
+        let leafletLoaded = false;
+        let mapInstance = null;
+        let marker = null;
+        let picked = null;
+
+        const loadLeaflet = () => {
+            return new Promise((resolve, reject) => {
+                if (window.L && window.L.map) {
+                    resolve();
+                    return;
+                }
+
+                const script = document.createElement("script");
+                script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+                script.integrity = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
+                script.crossOrigin = "";
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error("leaflet load failed"));
+                document.head.appendChild(script);
+            });
+        };
+
+        const openModal = async () => {
+            if (!modal) return;
+            modal.classList.remove("hidden");
+            document.body.classList.add("overflow-hidden");
+
+            try {
+                if (!leafletLoaded) {
+                    await loadLeaflet();
+                    leafletLoaded = true;
+                }
+            } catch (e) {
+                setStatus("Не удалось загрузить карту. Попробуйте позже.", false);
+                closeModal();
+                return;
+            }
+
+            const current = getCurrentCoords();
+            const startLat = current ? current.lat : 55.751244;
+            const startLon = current ? current.lon : 37.618423;
+            const startZoom = current ? 15 : 11;
+
+            // Инициализируем карту 1 раз, дальше только setView
+            if (!mapInstance) {
+                mapInstance = L.map("pick-map", {
+                    zoomControl: true,
+                }).setView([startLat, startLon], startZoom);
+
+                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                    maxZoom: 19,
+                }).addTo(mapInstance);
+
+                mapInstance.on("click", (e) => {
+                    const lat = Number(e.latlng.lat.toFixed(6));
+                    const lon = Number(e.latlng.lng.toFixed(6));
+                    picked = { lat, lon };
+                    if (!marker) {
+                        marker = L.marker([lat, lon]).addTo(mapInstance);
+                    } else {
+                        marker.setLatLng([lat, lon]);
+                    }
+                    if (mapHint) mapHint.textContent = `Выбрано: ${lat}, ${lon}`;
+                    if (modalApply) modalApply.disabled = false;
+                });
+            } else {
+                mapInstance.setView([startLat, startLon], startZoom);
+            }
+
+            // Если координаты уже есть — ставим маркер
+            if (current) {
+                picked = { lat: Number(current.lat.toFixed(6)), lon: Number(current.lon.toFixed(6)) };
+                if (!marker) {
+                    marker = L.marker([picked.lat, picked.lon]).addTo(mapInstance);
+                } else {
+                    marker.setLatLng([picked.lat, picked.lon]);
+                }
+                if (mapHint) mapHint.textContent = `Текущая точка: ${picked.lat}, ${picked.lon}`;
+                if (modalApply) modalApply.disabled = false;
+            } else {
+                picked = null;
+                if (modalApply) modalApply.disabled = true;
+                if (mapHint) mapHint.textContent = "Выберите точку — и нажмите «Сохранить».";
+
+                // Пытаемся центрировать по текущему местоположению (без автозаписи)
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            try {
+                                const lat = Number(pos.coords.latitude.toFixed(6));
+                                const lon = Number(pos.coords.longitude.toFixed(6));
+                                mapInstance.setView([lat, lon], 15);
+                            } catch (e) {}
+                        },
+                        () => {},
+                        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+                    );
+                }
+            }
+
+            // Важно: Leaflet в модалке может отрисоваться криво без invalidateSize
+            setTimeout(() => {
+                try { mapInstance.invalidateSize(); } catch (e) {}
+            }, 150);
+        };
+
+        const closeModal = () => {
+            if (!modal) return;
+            modal.classList.add("hidden");
+            document.body.classList.remove("overflow-hidden");
+        };
+
+        if (btnMap) {
+            btnMap.addEventListener("click", () => {
+                openModal();
+            });
+        }
+
+        const closeHandlers = [modalBg, modalCloseX, modalCancel].filter(Boolean);
+        closeHandlers.forEach((el) => {
+            el.addEventListener("click", () => closeModal());
+        });
+
+        if (modalApply) {
+            modalApply.addEventListener("click", () => {
+                if (!picked) return;
+                setCoords(picked.lat.toFixed(6), picked.lon.toFixed(6));
+                setStatus("Геолокация выбрана на карте ✅", true);
+                closeModal();
             });
         }
     })();
