@@ -183,18 +183,7 @@ async def sc_create_get(
 ) -> HTMLResponse:
     _ = get_current_user_id(request)
 
-    specialization_options = [
-        ("wash", "Автомойка"),
-        ("tire", "Шиномонтаж"),
-        ("electric", "Автоэлектрик"),
-        ("mechanic", "Слесарные работы"),
-        ("paint", "Кузовные/покраска"),
-        ("maint", "ТО/обслуживание"),
-        ("agg_turbo", "Турбины"),
-        ("agg_starter", "Стартеры"),
-        ("agg_generator", "Генераторы"),
-        ("agg_steering", "Рулевые рейки"),
-    ]
+    specialization_options = _get_sc_specialization_options()
 
     return templates.TemplateResponse(
         "service_center/create.html",
@@ -224,19 +213,9 @@ async def sc_create_post(
     user_id = get_current_user_id(request)
     address = (address or "").strip()
 
+    specialization_options = _get_sc_specialization_options()
+
     if not address:
-        specialization_options = [
-            ("wash", "Автомойка"),
-            ("tire", "Шиномонтаж"),
-            ("electric", "Автоэлектрик"),
-            ("mechanic", "Слесарные работы"),
-            ("paint", "Кузовные/покраска"),
-            ("maint", "ТО/обслуживание"),
-            ("agg_turbo", "Турбины"),
-            ("agg_starter", "Стартеры"),
-            ("agg_generator", "Генераторы"),
-            ("agg_steering", "Рулевые рейки"),
-        ]
         return templates.TemplateResponse(
             "service_center/create.html",
             {
@@ -270,23 +249,11 @@ async def sc_create_post(
             lon_value = None
 
     if lat_value is None or lon_value is None:
-        specialization_options = [
-            ("wash", "Автомойка"),
-            ("tire", "Шиномонтаж"),
-            ("electric", "Автоэлектрик"),
-            ("mechanic", "Слесарные работы"),
-            ("paint", "Кузовные/покраска"),
-            ("maint", "ТО/обслуживание"),
-            ("agg_turbo", "Турбины"),
-            ("agg_starter", "Стартеры"),
-            ("agg_generator", "Генераторы"),
-            ("agg_steering", "Рулевые рейки"),
-        ]
         return templates.TemplateResponse(
             "service_center/create.html",
             {
                 "request": request,
-                "error_message": "Укажите геолокацию СТО (кнопка 📍) — без неё СТО не сможет участвовать в подборе.",
+                "error_message": "Укажите геолокацию СТО (📍 или 🗺) — без неё СТО не сможет участвовать в подборе.",
                 "specialization_options": specialization_options,
                 "form_data": {
                     "name": name,
@@ -305,18 +272,6 @@ async def sc_create_post(
 
     specs_clean = [s for s in (specializations or []) if s]
     if not specs_clean:
-        specialization_options = [
-            ("wash", "Автомойка"),
-            ("tire", "Шиномонтаж"),
-            ("electric", "Автоэлектрик"),
-            ("mechanic", "Слесарные работы"),
-            ("paint", "Кузовные/покраска"),
-            ("maint", "ТО/обслуживание"),
-            ("agg_turbo", "Турбины"),
-            ("agg_starter", "Стартеры"),
-            ("agg_generator", "Генераторы"),
-            ("agg_steering", "Рулевые рейки"),
-        ]
         return templates.TemplateResponse(
             "service_center/create.html",
             {
@@ -339,7 +294,7 @@ async def sc_create_post(
         )
 
     payload: dict[str, Any] = {
-        "user_id": user_id,  # ✅ ВАЖНО: backend ожидает user_id
+        "user_id": user_id,
         "name": name,
         "address": address or None,
         "latitude": lat_value,
@@ -362,19 +317,6 @@ async def sc_create_post(
         success = True
     except Exception:
         error_message = "Не удалось отправить заявку на модерацию. Попробуйте позже."
-
-    specialization_options = [
-        ("wash", "Автомойка"),
-        ("tire", "Шиномонтаж"),
-        ("electric", "Автоэлектрик"),
-        ("mechanic", "Слесарные работы"),
-        ("paint", "Кузовные/покраска"),
-        ("maint", "ТО/обслуживание"),
-        ("agg_turbo", "Турбины"),
-        ("agg_starter", "Стартеры"),
-        ("agg_generator", "Генераторы"),
-        ("agg_steering", "Рулевые рейки"),
-    ]
 
     return templates.TemplateResponse(
         "service_center/create.html",
