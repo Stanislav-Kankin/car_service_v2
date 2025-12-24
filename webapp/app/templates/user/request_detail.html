@@ -26,6 +26,10 @@
 {% set req_lon = request_obj.longitude or request_obj.lon %}
 {% set has_geo = true if (req_lat and req_lon) else false %}
 
+{# Радиус (если нет радиуса — backend даст 400, поэтому кнопку "всем" не показываем) #}
+{% set req_radius = request_obj.radius_km or 0 %}
+{% set has_radius = true if (req_radius and (req_radius|float > 0)) else false %}
+
 <div class="max-w-4xl mx-auto px-4 py-6">
 
   <div class="flex items-center justify-between gap-3 mb-4">
@@ -115,7 +119,7 @@
             📋 Выбрать СТО из списка
           </a>
 
-          {% if has_geo %}
+          {% if has_geo and has_radius %}
             <button type="button"
                     onclick="sendToAllWithFallback({{ request_obj.id }})"
                     class="inline-flex items-center gap-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 text-xs font-semibold transition">
@@ -123,7 +127,13 @@
             </button>
           {% else %}
             <span class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-slate-400 border border-slate-700">
-              📍 Чтобы разослать всем — укажите геолокацию при создании заявки
+              {% if not has_geo and not has_radius %}
+                📍📏 Чтобы разослать всем — укажите геолокацию и радиус при создании заявки
+              {% elif not has_geo %}
+                📍 Чтобы разослать всем — укажите геолокацию при создании заявки
+              {% else %}
+                📏 Чтобы разослать всем — выберите радиус при создании заявки
+              {% endif %}
             </span>
           {% endif %}
         </div>
@@ -315,6 +325,7 @@
   }
 
   // POST "send to all" — с фолбэком на альтернативный URL (у тебя в проекте встречались оба варианта)
+  // ВАЖНО: webapp может вернуть HTML-страницу (даже при backend 400) => НЕЛЬЗЯ просто reload().
   function sendToAllWithFallback(requestId) {
     const urls = [
       `/me/requests/${requestId}/send-to-all`,
@@ -328,14 +339,28 @@
       }
 
       fetch(urls[i], { method: "POST" })
-        .then((r) => {
-          if (r.ok) {
-            // перезагрузим страницу заявки — увидишь сообщение/статус/офферы
-            window.location.reload();
+        .then(async (r) => {
+          // Если сервер реально сделал редирект (fetch его уже последовал) — покажем конечный URL
+          // (на всякий случай, чтобы не застревать на detail странице)
+          if (r.url && r.url !== window.location.href) {
+            window.location.href = r.url;
             return;
           }
-          // если 404/405 — пробуем следующий вариант
-          tryPost(i + 1);
+
+          const ct = (r.headers.get("content-type") || "").toLowerCase();
+          const body = await r.text();
+
+          // Если пришёл HTML — подменяем страницу этим HTML,
+          // чтобы пользователь увидел ошибку/баннер/страницу выбора сервиса.
+          if (ct.includes("text/html") || body.includes("<html") || body.includes("<!doctype")) {
+            document.open();
+            document.write(body);
+            document.close();
+            return;
+          }
+
+          // Если не HTML (или пусто) — fallback на reload текущей страницы заявки
+          window.location.reload();
         })
         .catch(() => tryPost(i + 1));
     };
