@@ -188,7 +188,7 @@ class RequestsService:
         - здесь не делаем fallback логики
         """
 
-        # Грузим заявку вместе с авто, чтобы formatter мог красиво собрать текст
+        # Грузим заявку вместе с авто (без lazy-load)
         stmt = select(Request).options(selectinload(Request.car)).where(Request.id == request_id)
         res = await db.execute(stmt)
         req = res.scalar_one_or_none()
@@ -208,7 +208,22 @@ class RequestsService:
         )
 
         if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
-            # formatter подключаем локально + с безопасным fallback
+            # 🔒 ВАЖНО: НИКАКИХ sc.owner (relationship) — иначе MissingGreenlet
+            user_ids: list[int] = []
+            for sc in (service_centers or []):
+                uid = getattr(sc, "user_id", None)
+                if uid:
+                    user_ids.append(int(uid))
+            user_ids = sorted(set(user_ids))
+
+            tg_map: dict[int, int] = {}
+            if user_ids:
+                users_res = await db.execute(select(User.id, User.telegram_id).where(User.id.in_(user_ids)))
+                for uid, tg_id in users_res.all():
+                    if tg_id:
+                        tg_map[int(uid)] = int(tg_id)
+
+            # formatter подключаем безопасно
             try:
                 from backend.app.core.notify_formatters import build_sc_new_request_message
             except Exception:
@@ -218,14 +233,14 @@ class RequestsService:
                 if not sc:
                     continue
 
-                owner = getattr(sc, "owner", None)
-                owner_tg = getattr(owner, "telegram_id", None) if owner else None
+                uid = getattr(sc, "user_id", None)
+                owner_tg = tg_map.get(int(uid)) if uid else None
                 if not owner_tg:
                     continue
 
                 url = f"{WEBAPP_PUBLIC_URL}/sc/{sc.id}/requests/{request_id}"
 
-                # Fallback по умолчанию (старое поведение, но без падений)
+                # fallback (старый стиль) — чтобы ничего не ломать при ошибках форматтера
                 message = f"📩 Вам отправлена заявка №{request_id}"
                 buttons = [_btn_webapp("Открыть заявку", url)]
                 extra = {
@@ -234,7 +249,7 @@ class RequestsService:
                     "kind": "send_to_all",
                 }
 
-                # Пытаемся собрать “человеческое” сообщение через formatter
+                # новый “человеческий” формат
                 if build_sc_new_request_message:
                     try:
                         fmt_message, fmt_buttons, fmt_extra = build_sc_new_request_message(
@@ -243,9 +258,12 @@ class RequestsService:
                             car=getattr(req, "car", None),
                             webapp_public_url=WEBAPP_PUBLIC_URL,
                         )
-                        message = fmt_message or message
-                        buttons = fmt_buttons or buttons
-                        extra.update(fmt_extra or {})
+                        if fmt_message:
+                            message = fmt_message
+                        if fmt_buttons:
+                            buttons = fmt_buttons
+                        if fmt_extra:
+                            extra.update(fmt_extra)
                         extra["kind"] = "send_to_all"
                     except Exception:
                         logger.exception(
