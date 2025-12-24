@@ -393,6 +393,9 @@ async def sc_edit_get(
         "service_center/edit.html",
         {
             "request": request,
+            # ✅ совместимость с шаблоном edit.html (он использует sc.*)
+            "sc": sc,
+            # ✅ оставляем как было (может использоваться в других местах/шаблонах)
             "service_center": sc,
             "error_message": None,
             "success": False,
@@ -478,6 +481,7 @@ async def sc_edit_post(
             "service_center/edit.html",
             {
                 "request": request,
+                "sc": sc,
                 "service_center": sc,
                 "error_message": "Выберите минимум одну специализацию.",
                 "success": False,
@@ -507,6 +511,7 @@ async def sc_edit_post(
                 "service_center/edit.html",
                 {
                     "request": request,
+                    "sc": sc,
                     "service_center": sc,
                     "error_message": "Широта должна быть числом.",
                     "success": False,
@@ -522,6 +527,7 @@ async def sc_edit_post(
                 "service_center/edit.html",
                 {
                     "request": request,
+                    "sc": sc,
                     "service_center": sc,
                     "error_message": "Долгота должна быть числом.",
                     "success": False,
@@ -559,13 +565,13 @@ async def sc_edit_post(
         "service_center/edit.html",
         {
             "request": request,
+            "sc": sc,
             "service_center": sc,
             "error_message": error_message,
             "success": success,
             "specialization_options": specialization_options,
         },
     )
-
 
 # ---------------------------------------------------------------------------
 # СПИСОК ЗАЯВОК ДЛЯ КОНКРЕТНОГО СТО
