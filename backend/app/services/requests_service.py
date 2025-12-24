@@ -188,7 +188,10 @@ class RequestsService:
         - здесь не делаем fallback логики
         """
 
-        req = await RequestsService.get_request_by_id(db, request_id)
+        # Грузим заявку вместе с авто, чтобы formatter мог красиво собрать текст
+        stmt = select(Request).options(selectinload(Request.car)).where(Request.id == request_id)
+        res = await db.execute(stmt)
+        req = res.scalar_one_or_none()
         if not req:
             return None
 
@@ -205,36 +208,59 @@ class RequestsService:
         )
 
         if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
-            from backend.app.core.catalogs.service_categories import SERVICE_CATEGORY_LABELS
-
-            cat_code = req.service_category or "—"
-            cat_label = SERVICE_CATEGORY_LABELS.get(cat_code, cat_code)
+            # formatter подключаем локально + с безопасным fallback
+            try:
+                from backend.app.core.notify_formatters import build_sc_new_request_message
+            except Exception:
+                build_sc_new_request_message = None  # type: ignore
 
             for sc in service_centers:
                 if not sc:
                     continue
+
                 owner = getattr(sc, "owner", None)
                 owner_tg = getattr(owner, "telegram_id", None) if owner else None
                 if not owner_tg:
                     continue
 
                 url = f"{WEBAPP_PUBLIC_URL}/sc/{sc.id}/requests/{request_id}"
-                message = (
-                    f"📩 Вам отправлена заявка №{request_id}\n"
-                    f"Категория: {cat_label}"
-                )
+
+                # Fallback по умолчанию (старое поведение, но без падений)
+                message = f"📩 Вам отправлена заявка №{request_id}"
+                buttons = [_btn_webapp("Открыть заявку", url)]
+                extra = {
+                    "request_id": request_id,
+                    "service_center_id": int(sc.id),
+                    "kind": "send_to_all",
+                }
+
+                # Пытаемся собрать “человеческое” сообщение через formatter
+                if build_sc_new_request_message:
+                    try:
+                        fmt_message, fmt_buttons, fmt_extra = build_sc_new_request_message(
+                            request_obj=req,
+                            service_center=sc,
+                            car=getattr(req, "car", None),
+                            webapp_public_url=WEBAPP_PUBLIC_URL,
+                        )
+                        message = fmt_message or message
+                        buttons = fmt_buttons or buttons
+                        extra.update(fmt_extra or {})
+                        extra["kind"] = "send_to_all"
+                    except Exception:
+                        logger.exception(
+                            "notify formatter failed (request_id=%s, service_center_id=%s)",
+                            request_id,
+                            getattr(sc, "id", None),
+                        )
 
                 try:
                     await notifier.send_notification(
                         recipient_type="service_center",
                         telegram_id=int(owner_tg),
                         message=message,
-                        buttons=[_btn_webapp("Открыть заявку", url)],
-                        extra={
-                            "request_id": request_id,
-                            "service_center_id": int(sc.id),
-                            "kind": "send_to_all",
-                        },
+                        buttons=buttons,
+                        extra=extra,
                     )
                 except Exception:
                     logger.exception(
