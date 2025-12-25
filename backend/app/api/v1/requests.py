@@ -85,7 +85,12 @@ async def send_request_to_all_service_centers(
             detail="Нужно выбрать радиус поиска, чтобы разослать всем СТО.",
         )
 
-    specializations = [request_obj.service_category] if request_obj.service_category else None
+    # ✅ ВАЖНО: категория заявки может быть агрегирующей (wash_combo / road_* и т.д.)
+    # поэтому подбираем список специализаций через каталог
+    specializations = None
+    if request_obj.service_category:
+        mapped = list(get_specializations_for_category(request_obj.service_category) or [])
+        specializations = mapped if mapped else [request_obj.service_category]
 
     service_centers = await ServiceCentersService.search_service_centers(
         db,
@@ -94,7 +99,7 @@ async def send_request_to_all_service_centers(
         radius_km=request_obj.radius_km,
         specializations=specializations,
         is_active=True,
-        fallback_to_category=False,  # 👈 важно
+        fallback_to_category=False,  # 👈 строго: рассылка только по радиусу
     )
 
     if not service_centers:

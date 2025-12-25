@@ -26,10 +26,6 @@
 {% set req_lon = request_obj.longitude or request_obj.lon %}
 {% set has_geo = true if (req_lat and req_lon) else false %}
 
-{# Радиус (если нет радиуса — backend даст 400, поэтому кнопку "всем" не показываем) #}
-{% set req_radius = request_obj.radius_km or 0 %}
-{% set has_radius = true if (req_radius and (req_radius|float > 0)) else false %}
-
 <div class="max-w-4xl mx-auto px-4 py-6">
 
   <div class="flex items-center justify-between gap-3 mb-4">
@@ -101,7 +97,7 @@
   </div>
 
   {# ------------------------------------------------------------
-     ✅ БЛОК ДЕЙСТВИЙ ДЛЯ НОВОЙ ЗАЯВКИ (чего сейчас не хватает)
+     ✅ БЛОК ДЕЙСТВИЙ ДЛЯ НОВОЙ ЗАЯВКИ
      ------------------------------------------------------------ #}
   {% if request_obj.status == "new" %}
     <div class="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 mb-5">
@@ -119,21 +115,17 @@
             📋 Выбрать СТО из списка
           </a>
 
-          {% if has_geo and has_radius %}
-            <button type="button"
-                    onclick="sendToAllWithFallback({{ request_obj.id }})"
-                    class="inline-flex items-center gap-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 text-xs font-semibold transition">
-              📨 Разослать всем подходящим
-            </button>
+          {% if has_geo %}
+            <form method="post" action="/me/requests/{{ request_obj.id }}/send-to-all">
+              <button id="btn-send-to-all" type="submit"
+                      class="inline-flex items-center gap-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 text-xs font-semibold transition"
+                      onclick="this.disabled=true; this.textContent='⏳ Отправляем...';">
+                📨 Разослать всем подходящим
+              </button>
+            </form>
           {% else %}
             <span class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-slate-400 border border-slate-700">
-              {% if not has_geo and not has_radius %}
-                📍📏 Чтобы разослать всем — укажите геолокацию и радиус при создании заявки
-              {% elif not has_geo %}
-                📍 Чтобы разослать всем — укажите геолокацию при создании заявки
-              {% else %}
-                📏 Чтобы разослать всем — выберите радиус при создании заявки
-              {% endif %}
+              📍 Чтобы разослать всем — укажите геолокацию при создании заявки
             </span>
           {% endif %}
         </div>
@@ -322,50 +314,6 @@
         }
       })
       .catch(() => alert("Не удалось отправить ссылку. Попробуйте позже."));
-  }
-
-  // POST "send to all" — с фолбэком на альтернативный URL (у тебя в проекте встречались оба варианта)
-  // ВАЖНО: webapp может вернуть HTML-страницу (даже при backend 400) => НЕЛЬЗЯ просто reload().
-  function sendToAllWithFallback(requestId) {
-    const urls = [
-      `/me/requests/${requestId}/send-to-all`,
-      `/me/requests/${requestId}/send-all`
-    ];
-
-    const tryPost = (i) => {
-      if (i >= urls.length) {
-        alert("Не удалось разослать заявку. Проверь роуты send-to-all/send-all в webapp.");
-        return;
-      }
-
-      fetch(urls[i], { method: "POST" })
-        .then(async (r) => {
-          // Если сервер реально сделал редирект (fetch его уже последовал) — покажем конечный URL
-          // (на всякий случай, чтобы не застревать на detail странице)
-          if (r.url && r.url !== window.location.href) {
-            window.location.href = r.url;
-            return;
-          }
-
-          const ct = (r.headers.get("content-type") || "").toLowerCase();
-          const body = await r.text();
-
-          // Если пришёл HTML — подменяем страницу этим HTML,
-          // чтобы пользователь увидел ошибку/баннер/страницу выбора сервиса.
-          if (ct.includes("text/html") || body.includes("<html") || body.includes("<!doctype")) {
-            document.open();
-            document.write(body);
-            document.close();
-            return;
-          }
-
-          // Если не HTML (или пусто) — fallback на reload текущей страницы заявки
-          window.location.reload();
-        })
-        .catch(() => tryPost(i + 1));
-    };
-
-    tryPost(0);
   }
 </script>
 

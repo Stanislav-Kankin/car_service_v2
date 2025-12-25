@@ -393,9 +393,9 @@ async def sc_edit_get(
         "service_center/edit.html",
         {
             "request": request,
-            # ✅ совместимость с шаблоном edit.html (он использует sc.*)
+            # ✅ алиас для шаблона (edit.html ожидает `sc`)
             "sc": sc,
-            # ✅ оставляем как было (может использоваться в других местах/шаблонах)
+            # оставляем как было (может использоваться где-то ещё)
             "service_center": sc,
             "error_message": None,
             "success": False,
@@ -481,7 +481,7 @@ async def sc_edit_post(
             "service_center/edit.html",
             {
                 "request": request,
-                "sc": sc,
+                "sc": sc,  # ✅
                 "service_center": sc,
                 "error_message": "Выберите минимум одну специализацию.",
                 "success": False,
@@ -511,7 +511,7 @@ async def sc_edit_post(
                 "service_center/edit.html",
                 {
                     "request": request,
-                    "sc": sc,
+                    "sc": sc,  # ✅
                     "service_center": sc,
                     "error_message": "Широта должна быть числом.",
                     "success": False,
@@ -527,7 +527,7 @@ async def sc_edit_post(
                 "service_center/edit.html",
                 {
                     "request": request,
-                    "sc": sc,
+                    "sc": sc,  # ✅
                     "service_center": sc,
                     "error_message": "Долгота должна быть числом.",
                     "success": False,
@@ -565,7 +565,7 @@ async def sc_edit_post(
         "service_center/edit.html",
         {
             "request": request,
-            "sc": sc,
+            "sc": sc,  # ✅
             "service_center": sc,
             "error_message": error_message,
             "success": success,
