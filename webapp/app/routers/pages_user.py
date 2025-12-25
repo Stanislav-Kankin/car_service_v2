@@ -1056,7 +1056,7 @@ async def request_create_post(
     Создание заявки (WebApp).
     Важно: мягкая валидация без 422, чтобы не пугать пользователей.
     """
-    user_id = await get_current_user_id(request, client)
+    user_id = get_current_user_id(request)
 
     car_id: int | None = None
     if car_id_raw.strip():
@@ -1219,74 +1219,6 @@ async def request_create_post(
         url=f"/me/requests/{created_request['id']}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
-
-@router.post("/requests/{request_id}/send-to-selected", response_class=HTMLResponse)
-async def request_send_selected_post(
-    request_id: int,
-    request: Request,
-    client: AsyncClient = Depends(get_backend_client),
-    service_center_ids: list[int] = Form([]),
-) -> HTMLResponse:
-    _ = get_current_user_id(request)
-    templates = get_templates()
-
-    selected = [int(x) for x in (service_center_ids or []) if x]
-    selected = sorted(set(selected))
-
-    if not selected:
-        # перерисуем страницу выбора с ошибкой
-        error_message = "Выберите хотя бы один сервис."
-        service_centers: list[dict[str, Any]] = []
-
-        # подтянем координаты заявки (для distance/maps)
-        req_data: dict[str, Any] = {}
-        try:
-            r = await client.get(f"/api/v1/requests/{request_id}")
-            if r.status_code == 200:
-                req_data = r.json() or {}
-        except Exception:
-            req_data = {}
-
-        request_lat = req_data.get("latitude") if isinstance(req_data, dict) else None
-        request_lon = req_data.get("longitude") if isinstance(req_data, dict) else None
-
-        try:
-            sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
-            sc_resp.raise_for_status()
-            raw = sc_resp.json() or []
-            if isinstance(raw, list):
-                service_centers = raw
-        except Exception:
-            error_message = "Не удалось загрузить список подходящих СТО."
-            service_centers = []
-
-        service_centers = _enrich_service_centers_with_distance_and_maps(
-            request_lat=request_lat,
-            request_lon=request_lon,
-            service_centers=service_centers,
-        )
-
-        return templates.TemplateResponse(
-            "user/request_choose_service.html",
-            {
-                "request": request,
-                "request_id": request_id,
-                "service_centers": service_centers,
-                "error_message": error_message,
-                "bot_username": BOT_USERNAME,
-            },
-        )
-
-    try:
-        resp = await client.post(
-            f"/api/v1/requests/{request_id}/send_to_selected",
-            json={"service_center_ids": selected},
-        )
-        resp.raise_for_status()
-    except Exception:
-        return await request_detail(request_id, request, client, sent_all=False)
-
-    return await request_detail(request_id, request, client, sent_all=True)
 
 
 @router.get("/requests/{request_id}/view", response_class=HTMLResponse)
