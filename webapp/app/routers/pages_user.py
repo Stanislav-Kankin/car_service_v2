@@ -1052,9 +1052,12 @@ async def request_create_post(
     latitude: float | None = Form(None),
     longitude: float | None = Form(None),
 ) -> HTMLResponse:
-    user_id = get_current_user_id(request)
+    """
+    Создание заявки (WebApp).
+    Важно: мягкая валидация без 422, чтобы не пугать пользователей.
+    """
+    user_id = await get_current_user_id(request, client)
 
-    # car_id может быть пустым (если пользователь не выбрал авто)
     car_id: int | None = None
     if car_id_raw.strip():
         try:
@@ -1064,9 +1067,17 @@ async def request_create_post(
 
     primary_categories, extra_categories = _build_service_categories()
 
-    # ✅ Если авто не выбрано — подгружаем список авто (чтобы при ошибке не был тупик)
+    # Подгружаем авто (если есть)
+    car: dict[str, Any] | None = None
+    if car_id is not None:
+        try:
+            car = await _load_car_for_owner(request, client, car_id)
+        except Exception:
+            car = None
+
+    # ✅ Если авто не выбрано ИЛИ авто не загрузилось — подгружаем список авто (чтобы при ошибке не был тупик)
     cars: list[dict[str, Any]] = []
-    if car_id is None:
+    if car_id is None or car is None:
         try:
             resp = await client.get(f"/api/v1/cars/by-user/{user_id}")
             if resp.status_code == 200:
@@ -1076,14 +1087,6 @@ async def request_create_post(
         except Exception:
             cars = []
 
-    # Подгружаем авто (если есть)
-    car: dict[str, Any] | None = None
-    if car_id is not None:
-        try:
-            car = await _load_car_for_owner(request, client, car_id)
-        except Exception:
-            car = None
-
     # На случай ошибки — сохраняем введённые данные
     description_clean = (description or "").strip()
 
@@ -1092,13 +1095,49 @@ async def request_create_post(
         "is_car_movable": is_car_movable,
         "radius_km": radius_km,
         "service_category": service_category,
-        "description": description_clean,
+        "description": description,
         "hide_phone": hide_phone,
         "latitude": latitude,
         "longitude": longitude,
     }
 
-    # ✅ Мягкая валидация (без 422)
+    # ✅ Мягкая валидация (без 422): авто обязательно
+    if car is None:
+        return templates.TemplateResponse(
+            "user/request_create.html",
+            {
+                "request": request,
+                "car_id": car_id,
+                "car": car,
+                "cars": cars,  # ✅ важно: не теряем список авто
+                "car_missing": True,
+                "created_request": None,
+                "error_message": "Сначала выберите автомобиль (из гаража) — без этого нельзя отправить заявку.",
+                "primary_categories": primary_categories,
+                "extra_categories": extra_categories,
+                "form_data": form_data,
+            },
+        )
+
+    # ✅ Мягкая валидация (без 422): геолокация обязательна
+    if latitude is None or longitude is None:
+        return templates.TemplateResponse(
+            "user/request_create.html",
+            {
+                "request": request,
+                "car_id": car_id,
+                "car": car,
+                "cars": cars,
+                "car_missing": False,
+                "created_request": None,
+                "error_message": "Укажите геолокацию на карте — без неё нельзя подобрать СТО.",
+                "primary_categories": primary_categories,
+                "extra_categories": extra_categories,
+                "form_data": form_data,
+            },
+        )
+
+    # ✅ Мягкая валидация (без 422): описание обязательно
     if not description_clean:
         return templates.TemplateResponse(
             "user/request_create.html",
@@ -1107,7 +1146,7 @@ async def request_create_post(
                 "car_id": car_id,
                 "car": car,
                 "cars": cars,  # ✅ важно: не теряем список авто
-                "car_missing": car is None,
+                "car_missing": False,
                 "created_request": None,
                 "error_message": "Опишите проблему — это обязательное поле.",
                 "primary_categories": primary_categories,
@@ -1131,30 +1170,55 @@ async def request_create_post(
 
     try:
         resp = await client.post("/api/v1/requests/", json=payload)
-        resp.raise_for_status()
-        created_request = resp.json()
-    except Exception:
+    except Exception as e:
         return templates.TemplateResponse(
             "user/request_create.html",
             {
                 "request": request,
                 "car_id": car_id,
                 "car": car,
-                "cars": cars,  # ✅ и тут тоже не теряем
-                "car_missing": car is None,
+                "cars": cars,
+                "car_missing": False,
                 "created_request": None,
-                "error_message": "Не удалось создать заявку. Попробуйте позже.",
+                "error_message": f"Не удалось создать заявку. Попробуйте ещё раз. ({type(e).__name__})",
                 "primary_categories": primary_categories,
                 "extra_categories": extra_categories,
                 "form_data": form_data,
             },
         )
 
+    if resp.status_code not in (200, 201):
+        # пытаемся показать читаемую ошибку
+        msg = "Не удалось создать заявку. Попробуйте ещё раз."
+        try:
+            data = resp.json()
+            if isinstance(data, dict) and "detail" in data:
+                msg = "Не удалось создать заявку. Проверьте данные и попробуйте ещё раз."
+        except Exception:
+            pass
+
+        return templates.TemplateResponse(
+            "user/request_create.html",
+            {
+                "request": request,
+                "car_id": car_id,
+                "car": car,
+                "cars": cars,
+                "car_missing": False,
+                "created_request": None,
+                "error_message": msg,
+                "primary_categories": primary_categories,
+                "extra_categories": extra_categories,
+                "form_data": form_data,
+            },
+        )
+
+    created_request = resp.json()
+
     return RedirectResponse(
         url=f"/me/requests/{created_request['id']}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
-
 
 @router.post("/requests/{request_id}/send-to-selected", response_class=HTMLResponse)
 async def request_send_selected_post(

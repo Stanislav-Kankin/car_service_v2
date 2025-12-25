@@ -4,102 +4,154 @@
 
 {% block content %}
 
-{# --- Локальные словари, чтобы шаблон НЕ ПАДАЛ если роутер не передал переменные --- #}
-{% set request_status_labels = {
+{# --- Локальные словари, чтобы шаблон НЕ ПАДАЛ если роутер не передал переменные -- #}
+{% set status_labels = {
   "new": "Новая",
-  "sent": "Отправлена СТО",
-  "accepted_by_service": "Принята сервисом",
+  "sent": "Разослана СТО",
+  "accepted_by_service": "Принята СТО",
   "in_work": "В работе",
   "done": "Завершена",
   "cancelled": "Отменена",
-  "rejected_by_service": "Отклонена сервисом"
+  "rejected_by_service": "Отклонена СТО"
 } %}
 
-{% set offer_status_labels = {
-  "new": "Новый",
-  "accepted": "Принят",
-  "rejected": "Отклонён"
+{% set status_badges = {
+  "new": "bg-slate-700/60 text-slate-100 border-slate-600",
+  "sent": "bg-blue-900/30 text-blue-200 border-blue-700/40",
+  "accepted_by_service": "bg-emerald-900/30 text-emerald-200 border-emerald-700/40",
+  "in_work": "bg-amber-900/30 text-amber-200 border-amber-700/40",
+  "done": "bg-emerald-900/40 text-emerald-200 border-emerald-700/50",
+  "cancelled": "bg-red-900/30 text-red-200 border-red-700/40",
+  "rejected_by_service": "bg-red-900/30 text-red-200 border-red-700/40"
 } %}
 
-{# Координаты заявки (в разных версиях поля могли называться по-разному) #}
+{% set service_category_labels = {
+  "mechanic": "Автомеханика",
+  "tire": "Шиномонтаж",
+  "body": "Кузовной ремонт",
+  "electric": "Автоэлектрика",
+  "diagnostic": "Диагностика",
+  "aggregates": "Агрегаты",
+  "carwash_detailing": "Мойка, детейлинг, химчистка",
+  "maintenance": "ТО / обслуживание",
+  "road_help": "Помощь на дороге",
+  "evacuation": "Эвакуация",
+  "fuel_delivery": "Подвоз топлива",
+  "car_lockout": "Вскрытие автомобиля",
+  "jump_start": "Прикурить автомобиль"
+} %}
+
 {% set req_lat = request_obj.latitude or request_obj.lat %}
 {% set req_lon = request_obj.longitude or request_obj.lon %}
 {% set has_geo = true if (req_lat and req_lon) else false %}
 
-<div class="max-w-4xl mx-auto px-4 py-6">
+{# Авто может приходить как request_obj.car_id, так и отдельным объектом car #}
+{% set req_car_id = request_obj.car_id %}
+{% if not req_car_id and car and car.id is defined %}
+  {% set req_car_id = car.id %}
+{% endif %}
+{% set has_car = true if req_car_id else false %}
 
-  <div class="flex items-center justify-between gap-3 mb-4">
+<div class="max-w-4xl mx-auto p-4">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
     <a href="/me/requests" class="text-sm text-slate-300 hover:text-slate-100 transition">← Назад к заявкам</a>
     <div class="text-xs text-slate-400">
-      Заявка №<span class="text-slate-200 font-semibold">{{ request_obj.id }}</span>
+      Заявка №<span class="font-semibold text-slate-200">{{ request_obj.id }}</span>
     </div>
   </div>
 
-  <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 mb-5">
-    <div class="flex items-start justify-between gap-3">
+  <div class="rounded-3xl border border-slate-800 bg-slate-950/60 p-5 shadow-xl shadow-black/20">
+    <div class="flex items-start justify-between gap-4">
       <div>
-        <h1 class="text-lg font-semibold text-slate-100">Заявка №{{ request_obj.id }}</h1>
-        <div class="mt-1 text-xs text-slate-400">
-          Статус:
-          <span class="text-slate-200 font-semibold">
-            {{ request_status_labels.get(request_obj.status, request_obj.status) }}
-          </span>
+        <div class="text-lg font-bold text-slate-100 mb-1">
+          {{ service_category_labels.get(request_obj.service_category, request_obj.service_category) }}
+        </div>
+        <div class="text-xs text-slate-400">
+          Создано: {{ request_obj.created_at or "" }}
         </div>
       </div>
 
-      {% if car %}
-        <div class="text-right">
-          <div class="text-xs text-slate-400">Автомобиль</div>
-          <div class="text-sm text-slate-100 font-semibold">
-            {{ car.brand }} {{ car.model }} {% if car.year %}({{ car.year }}){% endif %}
-          </div>
-          {% if car.plate_number %}
-            <div class="text-xs text-slate-400 mt-0.5">{{ car.plate_number }}</div>
-          {% endif %}
-        </div>
-      {% endif %}
+      {% set st = request_obj.status or "new" %}
+      <span class="text-xs px-3 py-1 rounded-full border {{ status_badges.get(st, 'bg-slate-800 text-slate-200 border-slate-700') }}">
+        {{ status_labels.get(st, st) }}
+      </span>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-800/70">
-      <div>
-        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Категория</p>
-        <p class="text-sm text-slate-200 mt-1">{{ request_obj.service_category_label or request_obj.service_category or "—" }}</p>
-      </div>
-      <div>
-        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Радиус</p>
-        <p class="text-sm text-slate-200 mt-1">{{ request_obj.radius_km or "—" }} км</p>
+    <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 mb-1">Категория</div>
+        <div class="text-sm font-semibold text-slate-100">
+          {{ service_category_labels.get(request_obj.service_category, request_obj.service_category) }}
+        </div>
       </div>
 
-      <div class="sm:col-span-2">
-        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Описание</p>
-        <p class="text-sm text-slate-200 mt-1 whitespace-pre-wrap break-words">{{ request_obj.description or "—" }}</p>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 mb-1">Радиус</div>
+        <div class="text-sm font-semibold text-slate-100">
+          {{ request_obj.radius_km }} км
+        </div>
       </div>
 
-      <div>
-        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Локация</p>
-        <p class="text-sm text-slate-200 mt-1 break-words">
-          {{ request_obj.address_text or request_obj.address or "—" }}
-        </p>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:col-span-2">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 mb-1">Описание</div>
+        <div class="text-sm text-slate-100 whitespace-pre-line">
+          {{ request_obj.description or "—" }}
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:col-span-2">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 mb-1">Локация</div>
         {% if has_geo %}
-          <p class="text-[11px] text-slate-500 mt-1">
-            Координаты: {{ req_lat }}, {{ req_lon }}
-          </p>
+          <div class="text-sm text-slate-100">
+            {{ request_obj.address_text or "Точка на карте" }}
+          </div>
+          <a class="text-xs text-blue-300 hover:text-blue-200 underline"
+             target="_blank"
+             href="https://maps.google.com/?q={{ req_lat }},{{ req_lon }}">
+            Открыть на карте
+          </a>
+        {% else %}
+          <div class="text-sm text-slate-100">—</div>
         {% endif %}
       </div>
 
-      <div>
-        <p class="text-xs uppercase tracking-[0.25em] text-slate-400">Эвакуация / Выезд</p>
-        <p class="text-sm text-slate-200 mt-1">
-          {% if request_obj.need_tow_truck or request_obj.need_mobile_master or request_obj.need_tow %}Да{% else %}Нет{% endif %}
-        </p>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 mb-1">Эвакуация / выезд</div>
+        <div class="text-sm font-semibold text-slate-100">
+          {% if request_obj.is_car_movable is not none %}
+            {% if request_obj.is_car_movable %}Нет{% else %}Да{% endif %}
+          {% else %}
+            —
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 mb-1">Телефон</div>
+        <div class="text-sm font-semibold text-slate-100">
+          {% if request_obj.hide_phone %}Скрыт{% else %}Показывается{% endif %}
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:col-span-2">
+        <div class="text-[11px] uppercase tracking-wider text-slate-400 mb-1">Автомобиль</div>
+        {% if has_car and car %}
+          <div class="text-sm font-semibold text-slate-100">
+            {{ car.brand or "" }} {{ car.model or "" }}
+            {% if car.plate_number %}• {{ car.plate_number }}{% endif %}
+          </div>
+        {% elif has_car %}
+          <div class="text-sm text-slate-100">Авто выбрано</div>
+        {% else %}
+          <div class="text-sm text-slate-100">Авто не выбрано</div>
+          <a href="/me/garage" class="text-xs text-blue-300 hover:text-blue-200 underline">Открыть гараж</a>
+        {% endif %}
       </div>
     </div>
   </div>
 
-  {# ------------------------------------------------------------
-     ✅ БЛОК ДЕЙСТВИЙ ДЛЯ НОВОЙ ЗАЯВКИ
-     ------------------------------------------------------------ #}
-  {% if request_obj.status == "new" %}
+  {# --- КНОПКИ ДЕЙСТВИЙ --- #}
+  {% if (request_obj.status or "new") == "new" %}
     <div class="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 mb-5">
       <div class="flex flex-col gap-2">
         <div class="text-sm font-semibold text-slate-100">
@@ -109,25 +161,57 @@
           Можно выбрать СТО из списка или разослать всем подходящим в радиусе.
         </div>
 
-        <div class="mt-3 flex flex-wrap gap-2">
+        {# Блок-предупреждение: без авто и/или гео не даём идти дальше #}
+        {% if not has_car or not has_geo %}
+          <div class="mt-3 rounded-xl border border-amber-500/30 bg-amber-900/10 p-4">
+            <div class="text-sm font-semibold text-amber-200 mb-1">Нужно заполнить заявку</div>
+            <div class="text-xs text-slate-300">
+              {% if not has_car %}• Выберите автомобиль (из гаража)<br>{% endif %}
+              {% if not has_geo %}• Укажите геолокацию (точка на карте){% endif %}
+            </div>
+
+            <div class="mt-3 flex flex-col sm:flex-row gap-2">
+              {% if not has_car %}
+                <a href="/me/garage"
+                   class="inline-flex items-center justify-center rounded-xl bg-slate-100 text-slate-900 px-4 py-2 text-sm font-semibold">
+                  🚗 Открыть гараж
+                </a>
+              {% endif %}
+
+              <a href="/me/requests"
+                 class="inline-flex items-center justify-center rounded-xl bg-slate-800 text-slate-100 px-4 py-2 text-sm font-semibold border border-slate-700">
+                ← Назад к заявкам
+              </a>
+            </div>
+
+            <div class="mt-3 text-[11px] text-slate-400">
+              Если эта заявка создана без авто/гео — удобнее вернуться назад и создать корректно (иначе СТО не смогут её получить).
+            </div>
+          </div>
+        {% endif %}
+
+        <div class="mt-4 flex flex-col gap-2">
           <a href="/me/requests/{{ request_obj.id }}/choose-service"
-             class="inline-flex items-center gap-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-100 px-5 py-2 text-xs font-semibold border border-slate-700 transition">
-            📋 Выбрать СТО из списка
+             class="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold border border-slate-700
+                    {% if has_car and has_geo %}bg-slate-900 text-slate-100 hover:bg-slate-800{% else %}bg-slate-900/40 text-slate-500 pointer-events-none{% endif %}">
+            🧾 Выбрать СТО из списка
           </a>
 
-          {% if has_geo %}
-            <form method="post" action="/me/requests/{{ request_obj.id }}/send-to-all">
-              <button id="btn-send-to-all" type="submit"
-                      class="inline-flex items-center gap-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 text-xs font-semibold transition"
-                      onclick="this.disabled=true; this.textContent='⏳ Отправляем...';">
-                📨 Разослать всем подходящим
-              </button>
-            </form>
-          {% else %}
-            <span class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-slate-400 border border-slate-700">
-              📍 Чтобы разослать всем — укажите геолокацию при создании заявки
-            </span>
-          {% endif %}
+          {# Разослать всем (POST с JS, чтобы Telegram WebView не подвисал) #}
+          <button type="button"
+                  data-request-id="{{ request_obj.id }}"
+                  class="send-to-all-btn inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold border border-slate-700
+                         {% if has_car and has_geo %}bg-slate-900 text-slate-100 hover:bg-slate-800{% else %}bg-slate-900/40 text-slate-500 pointer-events-none{% endif %}">
+            📤 Разослать всем подходящим
+          </button>
+
+          <div class="text-[11px] text-slate-500">
+            {% if has_car and has_geo %}
+              СТО получат заявку по вашим фильтрам и смогут отправить отклик.
+            {% else %}
+              Сначала заполните авто и геолокацию — тогда появится отправка.
+            {% endif %}
+          </div>
         </div>
       </div>
     </div>
@@ -135,186 +219,125 @@
 
   {% if sent_all %}
     <div class="rounded-2xl border border-emerald-500/30 bg-emerald-900/10 p-4 mb-4">
-      <p class="text-sm text-emerald-200 font-semibold">✅ Заявка разослана всем подходящим СТО</p>
-      <p class="mt-1 text-xs text-emerald-200/70">
-        Ожидайте отклики — они появятся в списке ниже.
-      </p>
+      <p class="text-sm text-emerald-200 font-semibold mb-1">✅ Заявка разослана</p>
+      <p class="text-xs text-slate-300">Ожидайте откликов от подходящих СТО. Они появятся ниже.</p>
     </div>
   {% endif %}
 
-  {# --- Вычисляем выбранный сервис для чата --- #}
-  {% set chat_sc_id = None %}
-  {% if request_obj.service_center_id %}
-    {% set chat_sc_id = request_obj.service_center_id %}
-  {% endif %}
-  {% if offers %}
-    {% for off in offers %}
-      {% if off.status == "accepted" %}
-        {% set chat_sc_id = off.service_center_id %}
-      {% endif %}
-    {% endfor %}
-  {% endif %}
-
-  {% if chat_sc_id %}
-    {# ✅ ВАЖНО: service_centers_by_id хранится по int-ключам (роутер складывает int(sc_id)) #}
-    {% set chosen_sc = service_centers_by_id.get(chat_sc_id|int) if chat_sc_id else None %}
-
-    <div class="rounded-2xl border border-emerald-500/30 bg-emerald-900/10 p-4 mb-4">
-      <p class="text-sm text-emerald-200 font-semibold">✅ Сервис выбран</p>
-
-      <div class="mt-2 text-[11px] text-emerald-200/80">
-        {% if chosen_sc %}
-          <div class="text-sm text-slate-100 font-semibold">
-            {{ chosen_sc.get("name") or ("Сервис #" ~ (chat_sc_id|string)) }}
-          </div>
-          {% if chosen_sc.get("address") %}
-            <div class="text-xs text-slate-300 mt-0.5">
-              <span class="text-slate-400">Адрес сервиса:</span> {{ chosen_sc.get("address") or chosen_sc.get("address_text") or chosen_sc.get("address_full") }}
-            </div>
-          {% endif %}
-            {% set sc_lat = chosen_sc.get("latitude") or chosen_sc.get("lat") %}
-            {% set sc_lon = chosen_sc.get("longitude") or chosen_sc.get("lon") %}
-            {% if sc_lat and sc_lon %}
-              <div class="text-xs text-slate-400 mt-1">
-                <a class="underline underline-offset-2 hover:text-slate-200" target="_blank" rel="noopener noreferrer"
-                   href="https://www.google.com/maps?q={{ sc_lat }},{{ sc_lon }}">🗺 Открыть на карте</a>
-              </div>
-            {% endif %}
-          {% if chosen_sc.get("phone") %}
-            <div class="text-xs text-slate-400 mt-0.5">
-              Телефон: {{ chosen_sc.get("phone") }}
-            </div>
-          {% endif %}
-        {% else %}
-          Выбран сервис #{{ chat_sc_id }}.
-        {% endif %}
-
-        <div class="mt-1 text-[11px] text-emerald-200/70">
-          Кнопки принятия скрыты, чтобы не было повторного выбора.
-        </div>
-      </div>
-
-      <div class="mt-3">
-        <button type="button"
-                onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ chat_sc_id }}', '{{ bot_username }}')"
-                class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-5 py-2 text-xs font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-          💬 Написать в Telegram
-        </button>
-        <p class="mt-2 text-[11px] text-slate-400">
-          Мы отправим вам сообщение в боте с кнопкой, которая откроет прямой чат.
-        </p>
-      </div>
+  {# --- ОТКЛИКИ --- #}
+  <div class="rounded-3xl border border-slate-800 bg-slate-950/60 p-5">
+    <div class="flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-100">Отклики СТО</div>
+      <div class="text-xs text-slate-400">{{ offers|length }} шт.</div>
     </div>
-  {% endif %}
 
-  {% if offers %}
-    <div class="space-y-3">
-      {% for offer in offers %}
-        {% set sc = service_centers_by_id.get(offer.service_center_id|int) %}
-        <div class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div class="space-y-2 min-w-0">
-            <p class="text-sm font-semibold text-slate-100">
-              {% if sc %}
-                {{ sc.get("name") or ("Сервис #" ~ (offer.service_center_id|string)) }}
-              {% else %}
-                Сервис #{{ offer.service_center_id }}
+    {% if offers %}
+      <div class="mt-4 space-y-3">
+        {% for offer in offers %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold text-slate-100">
+                  {{ offer.service_center_name or ("СТО #" ~ offer.service_center_id) }}
+                </div>
+                <div class="text-xs text-slate-400">
+                  {% if offer.price is not none %}Цена: <span class="text-slate-200 font-semibold">{{ offer.price }}</span>{% endif %}
+                  {% if offer.days is not none %} • Срок: <span class="text-slate-200 font-semibold">{{ offer.days }}</span> дн.{% endif %}
+                </div>
+              </div>
+
+              {% if offer.status %}
+                <span class="text-[11px] px-2 py-1 rounded-full border border-slate-700 bg-slate-800/60 text-slate-200">
+                  {{ offer.status }}
+                </span>
               {% endif %}
-            </p>
-
-            {% if sc and sc.get("address") %}
-              <p class="text-xs text-slate-400 break-words">
-                <span class="text-slate-500">Адрес сервиса:</span> {{ sc.get("address") or sc.get("address_text") or sc.get("address_full") }}
-              </p>
-            {% endif %}
-              {% set sc_lat = sc.get("latitude") or sc.get("lat") %}
-              {% set sc_lon = sc.get("longitude") or sc.get("lon") %}
-              {% if sc_lat and sc_lon %}
-                <p class="text-xs text-slate-400 break-words">
-                  <a class="underline underline-offset-2 hover:text-slate-200" target="_blank" rel="noopener noreferrer"
-                     href="https://www.google.com/maps?q={{ sc_lat }},{{ sc_lon }}">🗺 Открыть на карте</a>
-                </p>
-              {% endif %}
-
-            <div class="text-xs text-slate-300 space-y-1">
-              <div>
-                <span class="text-slate-400">Цена:</span>
-                {% if offer.price_text %} {{ offer.price_text }}
-                {% elif offer.price is not none %} {{ offer.price }}
-                {% else %} не указана
-                {% endif %}
-              </div>
-
-              <div>
-                <span class="text-slate-400">Срок:</span>
-                {% if offer.eta_text %} {{ offer.eta_text }}
-                {% elif offer.eta_hours is not none %} ~{{ offer.eta_hours }} ч.
-                {% else %} не указан
-                {% endif %}
-              </div>
-
-              <div>
-                <span class="text-slate-400">Статус:</span>
-                {{ offer_status_labels.get(offer.status, offer.status) }}
-              </div>
             </div>
 
             {% if offer.comment %}
-              <p class="text-xs text-slate-400 whitespace-pre-wrap">{{ offer.comment }}</p>
+              <div class="mt-3 text-sm text-slate-100 whitespace-pre-line">{{ offer.comment }}</div>
             {% endif %}
 
-            {% if offer.status == "accepted" %}
-              <span class="inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-200 border border-emerald-500/30">
-                ✅ Выбранный оффер
-              </span>
-            {% endif %}
-          </div>
-
-          <div class="flex flex-wrap gap-2 text-xs">
-            <button type="button"
-                    onclick="sendChatLinkAndClose('/me/requests/{{ request_obj.id }}/send-chat-link?service_center_id={{ offer.service_center_id }}', '{{ bot_username }}')"
-                    class="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 font-semibold text-slate-100 border border-slate-700 hover:bg-slate-700 transition">
-              💬 Написать в Telegram
-            </button>
-
-            {% if offer.status != "accepted" and not chat_sc_id %}
-              <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/accept">
+            {% if (request_obj.status in ["sent", "new"]) and (offer.status != "accepted") %}
+              <form method="post" action="/me/offers/{{ offer.id }}/accept" class="mt-4">
                 <button type="submit"
-                        class="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500 transition">
-                  ✅ Принять
-                </button>
-              </form>
-
-              <form method="post" action="/me/requests/{{ request_obj.id }}/offers/{{ offer.id }}/reject">
-                <button type="submit"
-                        class="inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 font-semibold text-white hover:bg-rose-500 transition">
-                  ✖ Отклонить
+                        class="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-sm font-semibold">
+                  ✅ Принять предложение
                 </button>
               </form>
             {% endif %}
           </div>
-        </div>
-      {% endfor %}
-    </div>
-  {% else %}
-    <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-slate-200">
-      Откликов пока нет.
-    </div>
-  {% endif %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-4 text-sm text-slate-300">
+        Пока нет откликов. Если вы ещё не отправили заявку СТО — сделайте это выше.
+      </div>
+    {% endif %}
+  </div>
 
 </div>
 
 <script>
-  function sendChatLinkAndClose(url, botUsername) {
-    fetch(url, { method: "POST" })
-      .then(() => {
-        if (window.Telegram && window.Telegram.WebApp) {
-          window.Telegram.WebApp.close();
-        } else {
-          alert("Мы отправили сообщение в Telegram с кнопкой для открытия чата.");
-        }
-      })
-      .catch(() => alert("Не удалось отправить ссылку. Попробуйте позже."));
+  async function sendToAllWithFallback(requestId, btn) {
+    if (!requestId) return;
+
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "⏳ Отправляем...";
+
+    try {
+      const resp = await fetch(`/me/requests/${requestId}/send-to-all`, {
+        method: "POST",
+        headers: { "X-Requested-With": "fetch" },
+        credentials: "same-origin",
+      });
+
+      if (!resp.ok) {
+        // fallback: обычный submit через скрытую форму
+        const form = document.createElement("form");
+        form.method = "post";
+        form.action = `/me/requests/${requestId}/send-to-all`;
+        document.body.appendChild(form);
+        form.submit();
+        return;
+      }
+
+      // успешный fetch — просто обновляем страницу
+      window.location.reload();
+    } catch (e) {
+      // fallback: обычный submit
+      const form = document.createElement("form");
+      form.method = "post";
+      form.action = `/me/requests/${requestId}/send-to-all`;
+      document.body.appendChild(form);
+      form.submit();
+    } finally {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }, 1500);
+    }
   }
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".send-to-all-btn");
+    if (!btn) return;
+
+    const requestId = btn.getAttribute("data-request-id");
+    sendToAllWithFallback(requestId, btn);
+  });
 </script>
+
+{# Sticky footer: чтобы в Telegram WebView всегда был путь "назад" #}
+<div class="fixed bottom-0 left-0 right-0 z-50">
+  <div class="max-w-4xl mx-auto px-4 pb-4">
+    <div class="rounded-2xl border border-slate-800 bg-slate-950/80 backdrop-blur px-4 py-3 flex items-center justify-between">
+      <a href="/me/requests" class="text-sm font-semibold text-slate-100 hover:text-white">← Назад</a>
+      <a href="/me/dashboard" class="text-sm font-semibold text-slate-300 hover:text-white">🏠 В меню</a>
+    </div>
+  </div>
+</div>
+
+<div class="h-20"></div>
 
 {% endblock %}
