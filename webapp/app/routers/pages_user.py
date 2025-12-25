@@ -1399,57 +1399,73 @@ async def request_reject_offer(
 @router.post("/requests/{request_id}/send-to-all", response_class=HTMLResponse)
 @router.post("/requests/{request_id}/send-all", response_class=HTMLResponse)
 async def request_send_all_post(
-    request: Request,
     request_id: int,
-    current_user_id: int = Depends(get_user_id_from_request),
-):
-    # Если вызов пришёл из fetch() (AJAX) — отдаём JSON и корректные HTTP-коды,
-    # чтобы фронт мог показать ошибку и не "вис" на кнопке.
-    is_ajax = request.headers.get("x-requested-with") == "fetch"
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    _ = get_current_user_id(request)
+    templates = get_templates()
 
-    async with AsyncClient(timeout=20.0) as client:
-        resp = await client.post(f"{BACKEND_URL}/api/v1/requests/{request_id}/send_to_all")
+    # 1) пробуем отправить всем
+    error_message: str | None = None
+    try:
+        resp = await client.post(f"/api/v1/requests/{request_id}/send_to_all")
+        if resp.status_code >= 400:
+            # пытаемся вытащить detail из backend
+            try:
+                data = resp.json() or {}
+                if isinstance(data, dict) and data.get("detail"):
+                    error_message = str(data.get("detail"))
+                else:
+                    error_message = "Не удалось отправить заявку всем СТО. Проверьте геолокацию и радиус."
+            except Exception:
+                error_message = "Не удалось отправить заявку всем СТО. Проверьте геолокацию и радиус."
+        else:
+            # ок — покажем страницу заявки с sent_all=True
+            return await request_detail(request_id, request, client, sent_all=True)
+    except Exception:
+        error_message = "Не удалось отправить заявку всем СТО. Попробуйте позже."
 
-    if resp.status_code >= 400:
-        error_message = "Не удалось разослать заявку."
-        try:
-            data = resp.json()
-            if isinstance(data, dict) and data.get("detail"):
-                error_message = str(data["detail"])
-        except Exception:
-            pass
+    # 2) ошибка — остаёмся на choose-service и показываем причину
+    # Подтянем координаты заявки (для distance/maps)
+    req_data: dict[str, Any] = {}
+    try:
+        r = await client.get(f"/api/v1/requests/{request_id}")
+        if r.status_code == 200:
+            req_data = r.json() or {}
+    except Exception:
+        req_data = {}
 
-        if is_ajax:
-            return JSONResponse({"detail": error_message}, status_code=resp.status_code)
+    request_lat = req_data.get("latitude") if isinstance(req_data, dict) else None
+    request_lon = req_data.get("longitude") if isinstance(req_data, dict) else None
 
-        # HTML-ветка: рисуем страницу выбора СТО с человеческой ошибкой
-        async with AsyncClient(timeout=20.0) as client:
-            r = await client.get(f"{BACKEND_URL}/api/v1/requests/{request_id}")
-            if r.status_code >= 400:
-                raise HTTPException(status_code=404, detail="Заявка не найдена")
-            request_obj = r.json()
+    # Список подходящих СТО
+    service_centers: list[dict[str, Any]] = []
+    try:
+        sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
+        if sc_resp.status_code == 200:
+            raw = sc_resp.json() or []
+            if isinstance(raw, list):
+                service_centers = raw
+    except Exception:
+        service_centers = []
 
-            sc = await client.get(f"{BACKEND_URL}/api/v1/service-centers/for-request/{request_id}")
-            service_centers = sc.json() if sc.status_code == 200 else []
+    service_centers = _enrich_service_centers_with_distance_and_maps(
+        request_lat=request_lat,
+        request_lon=request_lon,
+        service_centers=service_centers,
+    )
 
-        return templates.TemplateResponse(
-            "user/request_choose_service.html",
-            {
-                "request": request,
-                "user_id": current_user_id,
-                "request_id": request_id,
-                "request_obj": request_obj,
-                "service_centers": service_centers,
-                "error_message": error_message,
-            },
-            status_code=resp.status_code,
-        )
-
-    if is_ajax:
-        return JSONResponse({"ok": True}, status_code=200)
-
-    return await request_detail(request, request_id, sent_all=True, current_user_id=current_user_id)
-
+    return templates.TemplateResponse(
+        "user/request_choose_service.html",
+        {
+            "request": request,
+            "request_id": request_id,
+            "service_centers": service_centers,
+            "error_message": error_message,
+            "bot_username": BOT_USERNAME,
+        },
+    )
 
 # --------------------------------------------------------------------
 # Страница выбора СТО
