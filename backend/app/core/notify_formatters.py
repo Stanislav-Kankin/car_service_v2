@@ -13,51 +13,52 @@ def webapp_button(text: str, url: str) -> Dict[str, str]:
     return {"text": text, "type": "web_app", "url": url}
 
 
+def url_button(text: str, url: str) -> Dict[str, str]:
+    """
+    Унифицированная URL-кнопка (открывает ссылку в браузере/карте).
+    Бот интерпретирует все кнопки, кроме type=web_app, как обычные URL.
+    """
+    return {"text": text, "type": "url", "url": url}
+
+
 def format_category(code: Optional[str]) -> str:
     if not code:
         return "—"
     return SERVICE_CATEGORY_LABELS.get(code, code)
 
 
-def format_specializations(codes: Optional[Sequence[str]]) -> str:
-    if not codes:
-        return "—"
-    labels = [SERVICE_CATEGORY_LABELS.get(c, c) for c in codes if c]
-    return ", ".join(labels) if labels else "—"
-
-
-def map_link(latitude: Optional[float], longitude: Optional[float]) -> Optional[str]:
-    if latitude is None or longitude is None:
-        return None
-    # нейтральная ссылка (откроется на устройстве в картах)
-    return f"https://maps.google.com/?q={latitude},{longitude}"
-
-
 def format_car(car: Any) -> str:
     """
     car ожидается как ORM-модель Car (или объект с похожими атрибутами).
-    Используем только то, что реально есть в модели: brand, model, year, license_plate.
+    Формат: Brand Model / Year / Plate (если есть)
     """
     if not car:
         return "—"
 
-    brand = getattr(car, "brand", None)
-    model = getattr(car, "model", None)
+    brand = getattr(car, "brand", None) or ""
+    model = getattr(car, "model", None) or ""
     year = getattr(car, "year", None)
-    plate = getattr(car, "license_plate", None)
+    plate = getattr(car, "plate_number", None) or getattr(car, "plate", None) or ""
 
     parts: List[str] = []
-    title = " ".join([p for p in [brand, model] if p])
-    if title:
-        parts.append(title)
-
+    name = (f"{brand} {model}").strip()
+    if name:
+        parts.append(name)
     if year:
         parts.append(f"{year} г.")
-
     if plate:
         parts.append(f"🚘 {plate}")
 
     return " / ".join(parts) if parts else "—"
+
+
+def map_link(lat: Any, lon: Any) -> Optional[str]:
+    try:
+        if lat is None or lon is None:
+            return None
+        return f"https://maps.google.com/?q={float(lat)},{float(lon)}"
+    except Exception:
+        return None
 
 
 def format_location(req: Any) -> str:
@@ -84,34 +85,17 @@ def format_location(req: Any) -> str:
 
 
 def format_service_center(sc: Any) -> str:
-    """
-    sc ожидается как ORM-модель ServiceCenter (или объект с похожими атрибутами).
-    Используем: name, address, specializations.
-    """
     if not sc:
         return "—"
-
-    name = getattr(sc, "name", None)
-    address = getattr(sc, "address", None)
-    specs = getattr(sc, "specializations", None)
-
-    lines: List[str] = []
+    name = (getattr(sc, "name", None) or "").strip()
+    address = (getattr(sc, "address", None) or getattr(sc, "address_text", None) or "").strip()
+    parts = []
     if name:
-        lines.append(f"🏁 {name}")
+        parts.append(f"🏁 СТО: {name}")
     if address:
-        lines.append(f"📍 {address}")
+        parts.append(f"📍 {address}")
+    return "\n".join(parts) if parts else "—"
 
-    spec_line = format_specializations(specs if isinstance(specs, list) else None)
-    if spec_line != "—":
-        lines.append(f"🧰 {spec_line}")
-
-    return "\n".join(lines) if lines else "—"
-
-
-# =========================
-# Готовые шаблоны событий
-# (возвращают: message, buttons, extra)
-# =========================
 
 def build_sc_new_request_message(
     request_obj: Any,
@@ -120,24 +104,47 @@ def build_sc_new_request_message(
     webapp_public_url: str,
 ) -> Tuple[str, List[Dict[str, str]], Dict[str, Any]]:
     request_id = getattr(request_obj, "id", None)
+
+    # клиент (владелец авто)
+    user = getattr(request_obj, "user", None)
+    owner_name = (
+        (getattr(user, "full_name", None) or getattr(user, "name", None) or "").strip()
+        if user
+        else ""
+    )
+
     cat = format_category(getattr(request_obj, "service_category", None))
     desc = (getattr(request_obj, "description", "") or "").strip()
-    loc = format_location(request_obj)
+
+    address_text = getattr(request_obj, "address_text", None) or getattr(request_obj, "address", None)
+    lat = getattr(request_obj, "latitude", None)
+    lon = getattr(request_obj, "longitude", None)
+    map_url = map_link(lat, lon)
 
     msg_lines: List[str] = [
         "📩 Новая заявка",
         f"🧾 Категория: {cat}",
-        f"🚗 Авто: {format_car(car)}",
     ]
+
+    if owner_name:
+        msg_lines.append(f"👤 Клиент: {owner_name}")
+
+    msg_lines.append(f"🚗 Авто: {format_car(car)}")
 
     if desc:
         msg_lines.append(f"💬 Описание: {desc}")
 
-    if loc != "—":
-        msg_lines.append(loc)
+    if address_text:
+        msg_lines.append(f"📍 {address_text}")
+    elif map_url:
+        msg_lines.append("📍 Текущее местоположение")
 
     url = f"{webapp_public_url.rstrip('/')}/sc/{getattr(service_center, 'id', '')}/requests/{request_id}"
-    buttons = [webapp_button("Открыть заявку", url)]
+
+    buttons: List[Dict[str, str]] = [webapp_button("Открыть заявку", url)]
+    if map_url:
+        buttons.append(url_button("🗺 Показать на карте", map_url))
+
     extra = {"request_id": request_id, "service_center_id": getattr(service_center, "id", None)}
     return "\n".join([x for x in msg_lines if x]), buttons, extra
 
@@ -149,17 +156,15 @@ def build_client_in_work_message(
     webapp_public_url: str,
 ) -> Tuple[str, List[Dict[str, str]], Dict[str, Any]]:
     request_id = getattr(request_obj, "id", None)
-
     msg_lines: List[str] = [
-        "🛠 Заявка взята в работу",
+        "🛠 Заявка переведена в работу",
         f"🚗 Авто: {format_car(car)}",
         format_service_center(service_center),
     ]
-
     url = f"{webapp_public_url.rstrip('/')}/me/requests/{request_id}"
     buttons = [webapp_button("Открыть заявку", url)]
     extra = {"request_id": request_id, "status": "IN_WORK"}
-    return "\n".join([x for x in msg_lines if x and x != "—"]), buttons, extra
+    return "\n".join([x for x in msg_lines if x]), buttons, extra
 
 
 def build_client_done_message(
@@ -170,24 +175,19 @@ def build_client_done_message(
 ) -> Tuple[str, List[Dict[str, str]], Dict[str, Any]]:
     request_id = getattr(request_obj, "id", None)
 
-    final_price_text = getattr(request_obj, "final_price_text", None)
+    price_text = (getattr(request_obj, "final_price_text", None) or "").strip()
     final_price = getattr(request_obj, "final_price", None)
 
-    price_line = ""
-    if final_price_text:
-        price_line = f"💰 Итоговая цена: {final_price_text}"
-    elif final_price is not None:
-        try:
-            price_line = f"💰 Итоговая цена: {float(final_price):.0f}"
-        except Exception:
-            price_line = f"💰 Итоговая цена: {final_price}"
-
     msg_lines: List[str] = [
-        "✅ Заявка выполнена",
+        "✅ Заявка завершена",
         f"🚗 Авто: {format_car(car)}",
         format_service_center(service_center),
-        price_line,
     ]
+
+    if price_text:
+        msg_lines.append(f"💰 Итог: {price_text}")
+    elif final_price is not None:
+        msg_lines.append(f"💰 Итог: {final_price} ₽")
 
     url = f"{webapp_public_url.rstrip('/')}/me/requests/{request_id}"
     buttons = [webapp_button("Открыть заявку", url)]
@@ -195,7 +195,64 @@ def build_client_done_message(
     return "\n".join([x for x in msg_lines if x]), buttons, extra
 
 
-def build_client_rejected_message(
+def build_sc_offer_selected_message(
+    request_obj: Any,
+    service_center: Any,
+    car: Any,
+    webapp_public_url: str,
+) -> Tuple[str, List[Dict[str, str]], Dict[str, Any]]:
+    request_id = getattr(request_obj, "id", None)
+
+    msg_lines: List[str] = [
+        "🎉 Ваш отклик выбрал клиент!",
+        f"🚗 Авто: {format_car(car)}",
+        "Откройте заявку и переведите её в работу.",
+    ]
+
+    url = f"{webapp_public_url.rstrip('/')}/sc/{getattr(service_center, 'id', '')}/requests/{request_id}"
+    buttons = [webapp_button("Открыть заявку", url)]
+    extra = {"request_id": request_id, "service_center_id": getattr(service_center, "id", None), "status": "SELECTED"}
+    return "\n".join([x for x in msg_lines if x]), buttons, extra
+
+
+def build_client_service_selected_message(
+    request_obj: Any,
+    service_center: Any,
+    car: Any,
+    webapp_public_url: str,
+) -> Tuple[str, List[Dict[str, str]], Dict[str, Any]]:
+    request_id = getattr(request_obj, "id", None)
+
+    msg_lines: List[str] = [
+        "✅ Вы выбрали сервис по заявке",
+        f"🚗 Авто: {format_car(car)}",
+        format_service_center(service_center),
+    ]
+
+    url = f"{webapp_public_url.rstrip('/')}/me/requests/{request_id}"
+    buttons = [webapp_button("Открыть заявку", url)]
+    extra = {"request_id": request_id, "status": "ACCEPTED_BY_SERVICE"}
+    return "\n".join([x for x in msg_lines if x]), buttons, extra
+
+
+def build_client_request_cancelled_message(
+    request_obj: Any,
+    webapp_public_url: str,
+) -> Tuple[str, List[Dict[str, str]], Dict[str, Any]]:
+    request_id = getattr(request_obj, "id", None)
+
+    msg_lines: List[str] = [
+        "🚫 Заявка отменена",
+        f"Заявка №{request_id}",
+    ]
+
+    url = f"{webapp_public_url.rstrip('/')}/me/requests/{request_id}"
+    buttons = [webapp_button("Открыть заявку", url)]
+    extra = {"request_id": request_id, "status": "CANCELLED"}
+    return "\n".join([x for x in msg_lines if x]), buttons, extra
+
+
+def build_client_service_rejected_message(
     request_obj: Any,
     service_center: Any,
     car: Any,

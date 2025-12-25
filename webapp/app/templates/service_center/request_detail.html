@@ -70,6 +70,7 @@
 } %}
 
 {% set st = req.status if req else None %}
+{% set cat_code = (req.service_category or req.category) if req else None %}
 {% set badge = status_badges.get(st, ("—", "border-slate-700", "bg-slate-900/40", "text-slate-200")) %}
 {% set is_done = st in ["done", "cancelled", "rejected_by_service"] %}
 {% set is_closed = st in ["done", "cancelled", "rejected_by_service"] %}
@@ -128,14 +129,14 @@
                 <div class="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
                     <p class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Категория</p>
                     <p class="text-sm text-slate-100 font-semibold">
-                        {{ category_labels.get(req.category, req.category) if req else "—" }}
+                        {{ category_labels.get(cat_code, cat_code) if cat_code else "—" }}
                     </p>
                 </div>
 
                 <div class="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
                     <p class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Радиус</p>
                     <p class="text-sm text-slate-100 font-semibold">
-                        {{ req.radius_km }} км
+                        {{ (req.radius_km ~ ' км') if req and req.radius_km else '—' }}
                     </p>
                 </div>
             </div>
@@ -151,10 +152,24 @@
                 <div class="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
                     <p class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Локация</p>
                     <p class="text-sm text-slate-200">
-                        {% if req.address %}
-                            {{ req.address }}
+                        {% set addr = (req.address_text or req.address) if req else None %}
+                        {% set lat = req.latitude if req else None %}
+                        {% set lon = req.longitude if req else None %}
+                        {% set map_url = ('https://maps.google.com/?q=' ~ lat ~ ',' ~ lon) if (lat is not none and lon is not none) else None %}
+
+                        {% if addr %}
+                            {{ addr }}
+                        {% elif map_url %}
+                            Координаты: {{ lat }}, {{ lon }}
                         {% else %}
-                            Текущее местоположение
+                            —
+                        {% endif %}
+
+                        {% if map_url %}
+                            <a href="{{ map_url }}" target="_blank"
+                               class="ml-2 text-xs text-emerald-300 hover:text-emerald-200 underline underline-offset-2">
+                                Показать на карте
+                            </a>
                         {% endif %}
                     </p>
                 </div>
@@ -194,7 +209,7 @@
                         </p>
 
                         <ul class="text-xs text-slate-300 space-y-1">
-                            <li>Текущий: <span class="font-semibold">{{ st }}</span></li>
+                            <li>Текущий: <span class="font-semibold">{{ badge[0] }}</span> <span class="opacity-70">({{ st }})</span></li>
                             {% if req.rejected_reason %}
                             <li>Причина отказа: <span class="font-semibold">{{ req.rejected_reason }}</span></li>
                             {% endif %}

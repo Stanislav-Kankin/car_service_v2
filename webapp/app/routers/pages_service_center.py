@@ -692,6 +692,7 @@ async def sc_request_detail(
 
     sc = await _load_sc_for_owner(request, client, sc_id)
 
+    # 1) Заявка
     try:
         r = await client.get(f"/api/v1/requests/{request_id}")
         r.raise_for_status()
@@ -699,38 +700,45 @@ async def sc_request_detail(
     except Exception:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
 
-    try:
-        car_id = request_data.get("car_id")
-        if car_id:
-            car_resp = await client.get(f"/api/v1/cars/{int(car_id)}")
-            if car_resp.status_code == 200:
-                request_data["car"] = car_resp.json()
-            else:
-                request_data["car"] = None
-    except Exception:
-        request_data["car"] = None
+    # 2) Параллельно подтягиваем связанные данные (ускоряем страницу)
+    car_id = request_data.get("car_id")
+    client_user_id = request_data.get("user_id")
 
+    tasks: list[tuple[str, Any]] = []
+    tasks.append(("offers", client.get(f"/api/v1/offers/by-request/{request_id}")))
+    if car_id:
+        tasks.append(("car", client.get(f"/api/v1/cars/{int(car_id)}")))
+    if client_user_id:
+        tasks.append(("user", client.get(f"/api/v1/users/{int(client_user_id)}")))
+
+    results = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
+
+    # defaults
+    request_data["car"] = None
     client_telegram_id: int | None = None
-    try:
-        client_user_id = request_data.get("user_id")
-        if client_user_id:
-            u = await client.get(f"/api/v1/users/{int(client_user_id)}")
-            if u.status_code == 200:
-                user_data = u.json() or {}
-                tg_id = user_data.get("telegram_id")
-                if tg_id is not None:
-                    client_telegram_id = int(tg_id)
-    except Exception:
-        client_telegram_id = None
-
     offers: list[dict[str, Any]] = []
-    try:
-        offers_resp = await client.get(f"/api/v1/offers/by-request/{request_id}")
-        if offers_resp.status_code == 200:
-            offers = offers_resp.json() or []
-    except Exception:
-        offers = []
 
+    for (kind, _), res in zip(tasks, results):
+        if isinstance(res, Exception):
+            continue
+
+        try:
+            if kind == "car":
+                if res.status_code == 200:
+                    request_data["car"] = res.json()
+            elif kind == "user":
+                if res.status_code == 200:
+                    user_data = res.json() or {}
+                    tg_id = user_data.get("telegram_id")
+                    if tg_id is not None:
+                        client_telegram_id = int(tg_id)
+            elif kind == "offers":
+                if res.status_code == 200:
+                    offers = res.json() or []
+        except Exception:
+            continue
+
+    # 3) Мой отклик
     my_offer: dict[str, Any] | None = None
     try:
         for o in offers:
