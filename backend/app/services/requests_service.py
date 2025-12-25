@@ -75,8 +75,18 @@ class RequestsService:
     # Получение по ID
     # ------------------------------------------------------------------
     @staticmethod
-    async def get_request_by_id(db: AsyncSession, request_id: int) -> Optional[Request]:
-        stmt = select(Request).where(Request.id == request_id)
+    async def get_request_by_id(db: AsyncSession, request_id: int) -> Request | None:
+        # ВАЖНО: подгружаем связи, которые используются дальше в уведомлениях/рендере.
+        # Иначе при обращении к req.car / req.user может случиться MissingGreenlet (lazy-load в async).
+        stmt = (
+            select(Request)
+            .where(Request.id == request_id)
+            .options(
+                selectinload(Request.car),
+                selectinload(Request.user),
+                selectinload(Request.service_center),
+            )
+        )
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
 
