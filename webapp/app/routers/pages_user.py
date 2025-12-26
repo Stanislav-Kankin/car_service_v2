@@ -1463,6 +1463,127 @@ async def request_send_all_post(
         },
     )
 
+
+@router.post("/requests/{request_id}/send-to-selected", response_class=HTMLResponse)
+async def request_send_selected_post(
+    request_id: int,
+    request: Request,
+    service_center_ids: list[int] | None = Form(default=None),
+    client: AsyncClient = Depends(get_backend_client),
+) -> HTMLResponse:
+    _ = get_current_user_id(request)
+    templates = get_templates()
+
+    ids = service_center_ids or []
+    ids = [int(x) for x in ids if x is not None]
+
+    if not ids:
+        # покажем ту же страницу выбора с ошибкой
+        error_message = "Выберите хотя бы один СТО."
+        req_data: dict[str, Any] = {}
+        try:
+            r = await client.get(f"/api/v1/requests/{request_id}")
+            if r.status_code == 200:
+                req_data = r.json() or {}
+        except Exception:
+            req_data = {}
+
+        request_lat = req_data.get("latitude") if isinstance(req_data, dict) else None
+        request_lon = req_data.get("longitude") if isinstance(req_data, dict) else None
+
+        service_centers: list[dict[str, Any]] = []
+        try:
+            sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
+            if sc_resp.status_code == 200:
+                raw = sc_resp.json() or []
+                if isinstance(raw, list):
+                    service_centers = raw
+        except Exception:
+            service_centers = []
+
+        service_centers = _enrich_service_centers_with_distance_and_maps(
+            request_lat=request_lat,
+            request_lon=request_lon,
+            service_centers=service_centers,
+        )
+
+        return templates.TemplateResponse(
+            "user/request_choose_service.html",
+            {
+                "request": request,
+                "request_id": request_id,
+                "service_centers": service_centers,
+                "error_message": error_message,
+                "bot_username": BOT_USERNAME,
+            },
+        )
+
+    # 1) отправляем выбранным в backend
+    error_message: str | None = None
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/send_to_selected",
+            json={"service_center_ids": ids},
+        )
+        if resp.status_code >= 400:
+            try:
+                data = resp.json() or {}
+                if isinstance(data, dict) and data.get("detail"):
+                    error_message = str(data.get("detail"))
+                else:
+                    error_message = "Не удалось отправить выбранным СТО."
+            except Exception:
+                error_message = "Не удалось отправить выбранным СТО."
+    except Exception:
+        error_message = "Не удалось отправить выбранным СТО. Попробуйте позже."
+
+    # 2) если ошибка — остаёмся на choose-service и показываем причину
+    if error_message:
+        req_data: dict[str, Any] = {}
+        try:
+            r = await client.get(f"/api/v1/requests/{request_id}")
+            if r.status_code == 200:
+                req_data = r.json() or {}
+        except Exception:
+            req_data = {}
+
+        request_lat = req_data.get("latitude") if isinstance(req_data, dict) else None
+        request_lon = req_data.get("longitude") if isinstance(req_data, dict) else None
+
+        service_centers: list[dict[str, Any]] = []
+        try:
+            sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
+            if sc_resp.status_code == 200:
+                raw = sc_resp.json() or []
+                if isinstance(raw, list):
+                    service_centers = raw
+        except Exception:
+            service_centers = []
+
+        service_centers = _enrich_service_centers_with_distance_and_maps(
+            request_lat=request_lat,
+            request_lon=request_lon,
+            service_centers=service_centers,
+        )
+
+        return templates.TemplateResponse(
+            "user/request_choose_service.html",
+            {
+                "request": request,
+                "request_id": request_id,
+                "service_centers": service_centers,
+                "error_message": error_message,
+                "bot_username": BOT_USERNAME,
+            },
+        )
+
+    # 3) успех — на детальную заявку
+    return RedirectResponse(
+        url=f"/me/requests/{request_id}?sent_all=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 # --------------------------------------------------------------------
 # Страница выбора СТО
 # --------------------------------------------------------------------
