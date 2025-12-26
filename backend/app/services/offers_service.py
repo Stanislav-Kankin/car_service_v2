@@ -92,93 +92,51 @@ class OffersService:
     @staticmethod
     async def create_offer(db: AsyncSession, data: dict) -> Offer:
         """
-        Создаёт отклик СТО по заявке.
+        Создаёт отклик СТО по заявке + шлёт уведомление клиенту.
 
         Важно:
-        - BONUS_HIDDEN_MODE берём из ENV (по умолчанию включён, если BONUS_HIDDEN_MODE=1/true/yes/on)
-        - если бонусы скрыты — cashback_percent принудительно None (заглушка)
+        - BONUS_HIDDEN_MODE: если включён — cashback_percent не сохраняем (None)
+        - уведомления не должны ломать создание оффера
         """
-        import os
+        price_text = data.get("price_text")
+        eta_text = data.get("eta_text")
 
-        def _env_bool(name: str, default: bool = False) -> bool:
-            v = os.getenv(name)
-            if v is None:
-                return default
-            return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
+        # старые поля (fallback / совместимость)
+        price = data.get("price")
+        eta_hours = data.get("eta_hours")
 
-        bonus_hidden_mode = _env_bool("BONUS_HIDDEN_MODE", default=False)
+        if price is None and price_text:
+            parsed_price = _parse_price_to_float(price_text)
+            if parsed_price is not None:
+                price = parsed_price
+
+        if eta_hours is None and eta_text:
+            parsed_eta = _parse_eta_to_hours(eta_text)
+            if parsed_eta is not None:
+                eta_hours = parsed_eta
 
         cashback_percent = data.get("cashback_percent")
-        if bonus_hidden_mode:
+        if settings.BONUS_HIDDEN_MODE:
             cashback_percent = None
 
-        offer = Offer(
-            request_id=data.get("request_id"),
-            service_center_id=data.get("service_center_id"),
-            price=data.get("price"),
-            eta_hours=data.get("eta_hours"),
-            comment=data.get("comment"),
-            cashback_percent=cashback_percent,
-            status=OfferStatus.NEW,
-        )
+        data_clean = {
+            "request_id": data["request_id"],
+            "service_center_id": data["service_center_id"],
+            "price": price,
+            "eta_hours": eta_hours,
+            "price_text": price_text,
+            "eta_text": eta_text,
+            "comment": data.get("comment"),
+            "cashback_percent": cashback_percent,
+            "status": OfferStatus.NEW,
+        }
 
+        offer = Offer(**data_clean)
         db.add(offer)
         await db.commit()
         await db.refresh(offer)
 
-        # уведомление клиента о новом отклике (как было раньше в твоём файле)
-        # НИЧЕГО не меняю тут — оставляем текущую логику из файла
-        try:
-            offer_full = await OffersService.get_offer_by_id(db, offer.id)
-            if offer_full and offer_full.request and offer_full.request.user:
-                client = offer_full.request.user
-                if getattr(client, "telegram_id", None) and notifier.is_enabled():
-                    await notifier.send_notification(
-                        recipient_type="client",
-                        telegram_id=int(client.telegram_id),
-                        message=f"📩 Новый отклик по заявке №{offer_full.request_id}!",
-                        buttons=[_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{offer_full.request_id}")],
-                        extra={"request_id": offer_full.request_id, "offer_id": offer_full.id, "event": "offer_created"},
-                    )
-        except Exception:
-            # уведомления не должны ломать создание оффера
-            pass
-
-        return offer
-
-    @staticmethod
-    async def update_offer(db: AsyncSession, offer_id: int, data: dict) -> Optional[Offer]:
-        from backend.app.core.config import settings
-
-        offer = await OffersService.get_offer_by_id(db, offer_id)
-        if not offer:
-            return None
-
-        # BONUS_HIDDEN_MODE: запрещаем менять cashback_percent (и любую бонусную историю)
-        if settings.BONUS_HIDDEN_MODE and "cashback_percent" in data:
-            data["cashback_percent"] = None
-
-        changed: dict[str, tuple[object, object]] = {}
-
-        for field, value in data.items():
-            if value is None:
-                continue
-            if field == "status":
-                continue
-
-            old_val = getattr(offer, field, None)
-            if old_val != value:
-                changed[field] = (old_val, value)
-                setattr(offer, field, value)
-
-        # Если изменений нет — без коммита и без лишних уведомлений
-        if not changed:
-            return offer
-
-        await db.commit()
-        await db.refresh(offer)
-
-        # --- Уведомление клиента об обновлении оффера ---
+        # --- Уведомление клиента о новом оффере (best-effort) ---
         try:
             offer_full = await OffersService.get_offer_by_id(db, offer.id)
             if offer_full and offer_full.request and offer_full.request.user:
@@ -187,52 +145,40 @@ class OffersService:
                     request_id = offer_full.request.id
                     url = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
 
-                    sc_name = None
-                    if offer_full.service_center:
-                        sc_name = getattr(offer_full.service_center, "name", None)
+                    # По умолчанию — коротко, чтобы гарантированно работало.
+                    message = f"📩 Новый отклик по заявке №{request_id}!"
+                    buttons = [{"text": "Открыть заявку", "type": "web_app", "url": url}]
+                    extra = {"request_id": request_id, "offer_id": offer.id, "event": "offer_created"}
 
-                    price_line = None
-                    if getattr(offer_full, "price_text", None):
-                        price_line = f"💰 Стоимость: {offer_full.price_text}"
-                    elif getattr(offer_full, "price", None) is not None:
-                        price_line = f"💰 Стоимость: {offer_full.price}"
+                    # Если форматтер есть — используем красивый (не ломаемся, если его нет)
+                    try:
+                        from backend.app.core.notify_formatters import build_client_new_offer_message  # type: ignore
 
-                    eta_line = None
-                    if getattr(offer_full, "eta_text", None):
-                        eta_line = f"⏱ Срок: {offer_full.eta_text}"
-                    elif getattr(offer_full, "eta_hours", None) is not None:
-                        eta_line = f"⏱ Срок: ~{offer_full.eta_hours} ч."
-
-                    comment = getattr(offer_full, "comment", None)
-                    if comment:
-                        comment = str(comment).strip()
-                        if len(comment) > 220:
-                            comment = comment[:220] + "…"
-
-                    lines = [
-                        f"✏️ Отклик по заявке №{request_id} обновлён.",
-                    ]
-                    if sc_name:
-                        lines.append(f"🏁 Сервис: {sc_name}")
-                    if price_line:
-                        lines.append(price_line)
-                    if eta_line:
-                        lines.append(eta_line)
-                    if comment:
-                        lines.append(f"💬 Комментарий: {comment}")
+                        fmt_msg, fmt_buttons, fmt_extra = build_client_new_offer_message(
+                            offer_obj=offer_full,
+                            request_obj=offer_full.request,
+                            service_center=offer_full.service_center,
+                            webapp_public_url=WEBAPP_PUBLIC_URL,
+                        )
+                        if fmt_msg:
+                            message = fmt_msg
+                        if fmt_buttons:
+                            buttons = fmt_buttons
+                        if fmt_extra:
+                            extra.update(fmt_extra)
+                    except Exception:
+                        pass
 
                     await notifier.send_notification(
                         recipient_type="client",
                         telegram_id=int(client.telegram_id),
-                        message="\n".join(lines),
-                        buttons=[
-                            {"text": "Открыть заявку", "type": "web_app", "url": url},
-                        ],
-                        extra={"request_id": request_id, "offer_id": offer.id, "event": "offer_updated"},
+                        message=message,
+                        buttons=buttons,
+                        extra=extra,
                     )
         except Exception:
-            # уведомления не должны ломать основной сценарий
-            pass
+            import logging
+            logging.getLogger(__name__).exception("create_offer: failed to notify client (offer_id=%s)", offer.id)
 
         return offer
 
