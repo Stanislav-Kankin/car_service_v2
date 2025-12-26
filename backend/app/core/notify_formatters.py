@@ -203,15 +203,51 @@ def build_sc_offer_selected_message(
 ) -> Tuple[str, List[Dict[str, str]], Dict[str, Any]]:
     request_id = getattr(request_obj, "id", None)
 
+    # клиент
+    user = getattr(request_obj, "user", None)
+    client_name = (
+        (getattr(user, "full_name", None) or getattr(user, "name", None) or "").strip()
+        if user
+        else ""
+    )
+
+    cat = format_category(getattr(request_obj, "service_category", None))
+    desc = (getattr(request_obj, "description", "") or "").strip()
+
+    address_text = getattr(request_obj, "address_text", None) or getattr(request_obj, "address", None)
+    lat = getattr(request_obj, "latitude", None)
+    lon = getattr(request_obj, "longitude", None)
+    map_url = map_link(lat, lon)
+
+    # коротко режем описание, чтобы не превращать уведомление в простыню
+    if desc and len(desc) > 220:
+        desc = desc[:217].rstrip() + "…"
+
     msg_lines: List[str] = [
-        "🎉 Ваш отклик выбрал клиент!",
-        f"🚗 Авто: {format_car(car)}",
-        "Откройте заявку и переведите её в работу.",
+        f"🎉 Ваш отклик по заявке №{request_id} выбран клиентом!" if request_id else "🎉 Ваш отклик выбран клиентом!",
+        f"👤 Клиент: {client_name}" if client_name else "",
+        f"🧾 Категория: {cat}" if cat else "",
+        f"🚗 Авто: {format_car(car)}" if car else "",
+        f"💬 Описание: {desc}" if desc else "",
     ]
+
+    # адрес/карта
+    if address_text:
+        msg_lines.append(f"📍 {address_text}")
+    elif map_url:
+        msg_lines.append("📍 Местоположение: см. карту")
+        msg_lines.append(f"🗺 {map_url}")
+
+    msg_lines.append("Откройте заявку и переведите её в работу.")
 
     url = f"{webapp_public_url.rstrip('/')}/sc/{getattr(service_center, 'id', '')}/requests/{request_id}"
     buttons = [webapp_button("Открыть заявку", url)]
-    extra = {"request_id": request_id, "service_center_id": getattr(service_center, "id", None), "status": "SELECTED"}
+    extra = {
+        "request_id": request_id,
+        "service_center_id": getattr(service_center, "id", None),
+        "status": "SELECTED",
+        "event": "offer_selected",
+    }
     return "\n".join([x for x in msg_lines if x]), buttons, extra
 
 
@@ -223,15 +259,63 @@ def build_client_service_selected_message(
 ) -> Tuple[str, List[Dict[str, str]], Dict[str, Any]]:
     request_id = getattr(request_obj, "id", None)
 
+    cat = format_category(getattr(request_obj, "service_category", None))
+    address_text = getattr(request_obj, "address_text", None) or getattr(request_obj, "address", None)
+
     msg_lines: List[str] = [
-        "✅ Вы выбрали сервис по заявке",
-        f"🚗 Авто: {format_car(car)}",
+        f"✅ Вы выбрали сервис по заявке №{request_id}." if request_id else "✅ Вы выбрали сервис по заявке.",
+        f"🧾 Категория: {cat}" if cat else "",
+        f"🚗 Авто: {format_car(car)}" if car else "",
         format_service_center(service_center),
+        f"📍 {address_text}" if address_text else "",
     ]
 
     url = f"{webapp_public_url.rstrip('/')}/me/requests/{request_id}"
     buttons = [webapp_button("Открыть заявку", url)]
-    extra = {"request_id": request_id, "status": "ACCEPTED_BY_SERVICE"}
+    extra = {"request_id": request_id, "status": "ACCEPTED_BY_SERVICE", "event": "service_selected"}
+    return "\n".join([x for x in msg_lines if x]), buttons, extra
+
+
+def build_client_new_offer_message(
+    offer_obj: Any,
+    request_obj: Any,
+    service_center: Any,
+    webapp_public_url: str,
+) -> Tuple[str, List[Dict[str, str]], Dict[str, Any]]:
+    request_id = getattr(request_obj, "id", None)
+    offer_id = getattr(offer_obj, "id", None)
+
+    price_text = (getattr(offer_obj, "price_text", None) or "").strip()
+    eta_text = (getattr(offer_obj, "eta_text", None) or "").strip()
+    comment = (getattr(offer_obj, "comment", None) or "").strip()
+
+    # fallback на старые поля, если текстовых нет
+    price = getattr(offer_obj, "price", None)
+    eta_hours = getattr(offer_obj, "eta_hours", None)
+
+    if not price_text and price is not None:
+        try:
+            price_text = f"{float(price):g}"
+        except Exception:
+            price_text = str(price)
+
+    if not eta_text and eta_hours is not None:
+        try:
+            eta_text = f"{int(eta_hours)} ч."
+        except Exception:
+            eta_text = str(eta_hours)
+
+    msg_lines: List[str] = [
+        f"📩 Новый отклик по заявке №{request_id}!" if request_id else "📩 Новый отклик по вашей заявке!",
+        format_service_center(service_center),
+        f"💰 Цена: {price_text}" if price_text else "",
+        f"⏱ Срок: {eta_text}" if eta_text else "",
+        f"💬 Комментарий: {comment}" if comment else "",
+    ]
+
+    url = f"{webapp_public_url.rstrip('/')}/me/requests/{request_id}"
+    buttons = [webapp_button("Открыть заявку", url)]
+    extra = {"request_id": request_id, "offer_id": offer_id, "event": "offer_created"}
     return "\n".join([x for x in msg_lines if x]), buttons, extra
 
 

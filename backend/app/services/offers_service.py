@@ -115,21 +115,16 @@ class OffersService:
                 eta_hours = parsed_eta
 
         cashback_percent = data.get("cashback_percent")
-        if settings.BONUS_HIDDEN_MODE:
+        if BONUS_HIDDEN_MODE:
             cashback_percent = None
 
         data_clean = {
-            "request_id": data["request_id"],
-            "service_center_id": data["service_center_id"],
-
-            # новые поля
-            "price_text": price_text,
-            "eta_text": eta_text,
-
-            # старые поля
+            "request_id": data.get("request_id"),
+            "service_center_id": data.get("service_center_id"),
             "price": price,
             "eta_hours": eta_hours,
-
+            "price_text": price_text,
+            "eta_text": eta_text,
             "comment": data.get("comment"),
             "cashback_percent": cashback_percent,
             "status": OfferStatus.NEW,
@@ -140,22 +135,36 @@ class OffersService:
         await db.commit()
         await db.refresh(offer)
 
-        # --- Уведомление клиента о новом оффере ---
+        # --- Уведомление клиента о новом оффере (УЛУЧШЕННОЕ) ---
         offer_full = await OffersService.get_offer_by_id(db, offer.id)
         if offer_full and offer_full.request and offer_full.request.user:
             client = offer_full.request.user
-            if notifier.is_enabled() and getattr(client, "telegram_id", None):
-                request_id = offer_full.request.id
-                url = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
-                await notifier.send_notification(
-                    recipient_type="client",
-                    telegram_id=int(client.telegram_id),
-                    message=f"📩 Новый отклик по заявке №{request_id}!",
-                    buttons=[
-                        {"text": "Открыть заявку", "type": "web_app", "url": url},
-                    ],
-                    extra={"request_id": request_id, "offer_id": offer.id},
-                )
+            try:
+                if client.telegram_id and notifier.is_enabled():
+                    from backend.app.core.notify_formatters import build_client_new_offer_message
+
+                    request_id = offer_full.request.id
+                    msg, buttons, extra = build_client_new_offer_message(
+                        offer_obj=offer_full,
+                        request_obj=offer_full.request,
+                        service_center=offer_full.service_center,
+                        webapp_public_url=WEBAPP_PUBLIC_URL,
+                    )
+                    # гарантируем совместимость
+                    extra = extra or {}
+                    extra.setdefault("request_id", request_id)
+                    extra.setdefault("offer_id", offer.id)
+
+                    await notifier.send_notification(
+                        recipient_type="client",
+                        telegram_id=int(client.telegram_id),
+                        message=msg,
+                        buttons=buttons,
+                        extra=extra,
+                    )
+            except Exception:
+                # уведомления не должны ломать основной сценарий
+                pass
 
         return offer
 
@@ -267,7 +276,7 @@ class OffersService:
             - winner = WINNER
             - остальные = DECLINED
         6) Уведомить:
-            - выбранному СТО: "ваше предложение выбрано"
+            - выбранному СТО: "ваш отклик выбран"
             - остальным СТО: "клиент выбрал другой сервис"
             - клиенту: подтверждение
         """
@@ -302,57 +311,60 @@ class OffersService:
         try:
             dist_stmt = select(RequestDistribution).where(RequestDistribution.request_id == request_id)
             dist_res = await db.execute(dist_stmt)
-            dists = list(dist_res.scalars().all())
+            dist_rows = list(dist_res.scalars().all())
 
-            for d in dists:
-                if int(d.service_center_id) == winner_sc_id:
-                    d.status = RequestDistributionStatus.WINNER
+            for row in dist_rows:
+                if int(row.service_center_id) == winner_sc_id:
+                    row.status = RequestDistributionStatus.WINNER
                 else:
-                    d.status = RequestDistributionStatus.DECLINED
-                    other_sc_ids.append(int(d.service_center_id))
+                    row.status = RequestDistributionStatus.DECLINED
+                    other_sc_ids.append(int(row.service_center_id))
         except Exception:
-            # distribution — вспомогательная часть, не должна ломать принятие оффера
-            other_sc_ids = []
+            # не критично
+            pass
 
         await db.commit()
         await db.refresh(offer)
 
-        # --- уведомления ---
+        # --- уведомления (УЛУЧШЕННОЕ) ---
         offer_full = await OffersService.get_offer_by_id(db, offer.id)
         if offer_full and notifier.is_enabled():
-            # 1) победителю (как было)
             try:
+                from backend.app.core.notify_formatters import (
+                    build_sc_offer_selected_message,
+                    build_client_service_selected_message,
+                )
+
+                # car может быть не подгружен — не ломаемся
+                try:
+                    car_obj = getattr(offer_full.request, "car", None)
+                except Exception:
+                    car_obj = None
+
+                # 1) победителю СТО (информативно)
                 if (
                     offer_full.service_center
                     and offer_full.service_center.owner
                     and getattr(offer_full.service_center.owner, "telegram_id", None)
                 ):
                     sc_owner_tg = int(offer_full.service_center.owner.telegram_id)
-                    url_sc = f"{WEBAPP_PUBLIC_URL}/sc/{winner_sc_id}/requests/{request_id}"
+                    msg_sc, buttons_sc, extra_sc = build_sc_offer_selected_message(
+                        request_obj=offer_full.request,
+                        service_center=offer_full.service_center,
+                        car=car_obj,
+                        webapp_public_url=WEBAPP_PUBLIC_URL,
+                    )
                     await notifier.send_notification(
                         recipient_type="service_center",
                         telegram_id=sc_owner_tg,
-                        message=(
-                            f"🎉 Ваше предложение по заявке №{request_id} выбрано клиентом!\n"
-                            f"Откройте заявку и переведите её в работу."
-                        ),
-                        buttons=[
-                            {"text": "Открыть заявку", "type": "web_app", "url": url_sc},
-                        ],
-                        extra={"request_id": request_id, "offer_id": offer_id, "event": "offer_accepted_winner"},
+                        message=msg_sc,
+                        buttons=buttons_sc,
+                        extra=extra_sc,
                     )
-            except Exception:
-                pass
 
-            # 2) остальным СТО — отбивка
-            # Берём СТО + владельцев пачкой, чтобы не делать N запросов
-            try:
+                # 2) остальным СТО (можно тоже позже “раскрасить”, но пока оставим коротко и понятно)
                 if other_sc_ids:
-                    sc_stmt = (
-                        select(ServiceCenter)
-                        .where(ServiceCenter.id.in_(other_sc_ids))
-                        .options(selectinload(ServiceCenter.owner))
-                    )
+                    sc_stmt = select(ServiceCenter).where(ServiceCenter.id.in_(other_sc_ids))
                     sc_res = await db.execute(sc_stmt)
                     other_scs = list(sc_res.scalars().all())
 
@@ -366,39 +378,30 @@ class OffersService:
                         await notifier.send_notification(
                             recipient_type="service_center",
                             telegram_id=int(owner_tg),
-                            message=(
-                                f"ℹ️ Клиент выбрал другой сервис по заявке №{request_id}.\n"
-                                f"Спасибо за отклик!"
-                            ),
-                            buttons=[
-                                {"text": "Открыть заявку", "type": "web_app", "url": url_sc},
-                            ],
-                            extra={
-                                "request_id": request_id,
-                                "offer_id": offer_id,
-                                "event": "offer_accepted_declined",
-                                "winner_service_center_id": winner_sc_id,
-                                "service_center_id": int(sc.id),
-                            },
+                            message=f"ℹ️ Клиент выбрал другой сервис по заявке №{request_id}.",
+                            buttons=[{"text": "Открыть заявку", "type": "web_app", "url": url_sc}],
+                            extra={"request_id": request_id, "service_center_id": int(sc.id), "event": "offer_not_selected"},
                         )
-            except Exception:
-                pass
 
-            # 3) клиенту (как было)
-            try:
+                # 3) клиенту (информативно)
                 if offer_full.request and offer_full.request.user and getattr(offer_full.request.user, "telegram_id", None):
                     client_tg = int(offer_full.request.user.telegram_id)
-                    url_me = f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}"
+                    msg_c, buttons_c, extra_c = build_client_service_selected_message(
+                        request_obj=offer_full.request,
+                        service_center=offer_full.service_center,
+                        car=car_obj,
+                        webapp_public_url=WEBAPP_PUBLIC_URL,
+                    )
                     await notifier.send_notification(
                         recipient_type="client",
                         telegram_id=client_tg,
-                        message=f"✅ Вы выбрали сервис по заявке №{request_id}.",
-                        buttons=[
-                            {"text": "Открыть заявку", "type": "web_app", "url": url_me},
-                        ],
-                        extra={"request_id": request_id, "offer_id": offer_id, "event": "offer_accepted_client"},
+                        message=msg_c,
+                        buttons=buttons_c,
+                        extra=extra_c,
                     )
+
             except Exception:
+                # уведомления не должны ломать основной сценарий
                 pass
 
         return offer
