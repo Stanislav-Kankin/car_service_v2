@@ -125,6 +125,8 @@
                 <input type="hidden" name="car_id" value="{{ car_id or '' }}"/>
                 <input type="hidden" id="geo-lat" name="latitude" value="{{ fd.latitude or '' }}"/>
                 <input type="hidden" id="geo-lon" name="longitude" value="{{ fd.longitude or '' }}"/>
+                <!-- NEW: адрес, который определим по lat/lon -->
+                <input type="hidden" id="geo-address" name="address_text" value="{{ fd.address_text or '' }}"/>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="space-y-1.5">
@@ -148,11 +150,20 @@
                                     {% endif %}
                                 </span>
                             </div>
-                            <p id="geo-coords" class="text-[11px] text-slate-500 mt-2">
+
+                            <!-- NEW: отображение адреса -->
+                            <p id="geo-address-text" class="text-[11px] text-slate-400 mt-2">
+                                {% if fd.address_text %}
+                                    Адрес: {{ fd.address_text }}
+                                {% endif %}
+                            </p>
+
+                            <p id="geo-coords" class="text-[11px] text-slate-500 mt-1">
                                 {% if fd.latitude and fd.longitude %}
                                     Координаты: {{ fd.latitude }}, {{ fd.longitude }}
                                 {% endif %}
                             </p>
+
                         <p class="text-[11px] text-slate-500">
                             Без геолокации рассылка "всем СТО" будет недоступна.
                         </p>
@@ -313,9 +324,7 @@
         const range = document.getElementById("radius-range");
         const label = document.getElementById("radius-value");
         if (range && label) {
-            const update = () => {
-                label.textContent = range.value;
-            };
+            const update = () => { label.textContent = range.value; };
             range.addEventListener("input", update);
             update();
         }
@@ -324,8 +333,11 @@
         const btnMap = document.getElementById("btn-map");
         const status = document.getElementById("geo-status");
         const coords = document.getElementById("geo-coords");
+        const addressEl = document.getElementById("geo-address-text");
+
         const latInput = document.getElementById("geo-lat");
         const lonInput = document.getElementById("geo-lon");
+        const addressInput = document.getElementById("geo-address");
 
         // --- modal/map elements ---
         const modal = document.getElementById("map-modal");
@@ -347,14 +359,76 @@
             if (coords) coords.textContent = `Координаты: ${lat}, ${lon}`;
         };
 
+        const setAddress = (addressText) => {
+            const t = (addressText || "").trim();
+            if (addressInput) addressInput.value = t;
+            if (addressEl) addressEl.textContent = t ? `Адрес: ${t}` : "";
+        };
+
+        const detectLang = () => {
+            try {
+                const l = (navigator.language || "ru").toLowerCase();
+                if (l.startsWith("ru")) return "ru";
+                if (l.startsWith("en")) return "en";
+                return "ru";
+            } catch (e) {
+                return "ru";
+            }
+        };
+
+        const reverseGeocode = async (lat, lon) => {
+            // серверный прокси: backend -> Nominatim
+            const lang = detectLang();
+            const url = `/api/v1/geo/reverse?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&lang=${encodeURIComponent(lang)}`;
+            try {
+                const resp = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+                if (!resp.ok) throw new Error("bad status");
+                const data = await resp.json();
+                return (data && data.address_text) ? String(data.address_text) : "";
+            } catch (e) {
+                return "";
+            }
+        };
+
+        const setGeoWithAddress = async (lat, lon, statusTextOk) => {
+            setCoords(lat, lon);
+            setStatus(statusTextOk, true);
+
+            setAddress(""); // очистим перед запросом
+            if (addressEl) addressEl.textContent = "Адрес: определяем…";
+
+            const addr = await reverseGeocode(lat, lon);
+            if (addr) {
+                setAddress(addr);
+            } else {
+                // не блокируем создание заявки, просто показываем что адрес не смогли получить
+                if (addressEl) addressEl.textContent = "Адрес: не удалось определить (останутся координаты)";
+                if (addressInput) addressInput.value = "";
+            }
+        };
+
         const getCurrentCoords = () => {
             const lat = latInput && latInput.value ? parseFloat(latInput.value) : null;
             const lon = lonInput && lonInput.value ? parseFloat(lonInput.value) : null;
-            if (Number.isFinite(lat) && Number.isFinite(lon)) {
-                return { lat, lon };
-            }
+            if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon };
             return null;
         };
+
+        // если уже есть coords при открытии — попробуем подтянуть адрес (мягко)
+        const bootstrap = async () => {
+            const current = getCurrentCoords();
+            if (!current) return;
+            if (addressInput && addressInput.value && addressInput.value.trim()) {
+                // уже есть адрес из form_data
+                setAddress(addressInput.value);
+                return;
+            }
+            const lat = Number(current.lat.toFixed(6));
+            const lon = Number(current.lon.toFixed(6));
+            const addr = await reverseGeocode(lat, lon);
+            if (addr) setAddress(addr);
+        };
+        bootstrap();
 
         if (btn) {
             btn.addEventListener("click", () => {
@@ -364,13 +438,13 @@
                 }
 
                 setStatus("Определяем местоположение…", false);
+                if (addressEl) addressEl.textContent = "";
 
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => {
+                    async (pos) => {
                         const lat = pos.coords.latitude.toFixed(6);
                         const lon = pos.coords.longitude.toFixed(6);
-                        setCoords(lat, lon);
-                        setStatus("Геолокация сохранена ✅", true);
+                        await setGeoWithAddress(lat, lon, "Геолокация сохранена ✅");
                     },
                     (err) => {
                         setStatus("Не удалось получить геолокацию: " + (err && err.message ? err.message : "ошибка"), false);
@@ -390,11 +464,7 @@
 
         const loadLeaflet = () => {
             return new Promise((resolve, reject) => {
-                if (window.L && window.L.map) {
-                    resolve();
-                    return;
-                }
-
+                if (window.L && window.L.map) { resolve(); return; }
                 const script = document.createElement("script");
                 script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
                 script.integrity = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
@@ -426,25 +496,17 @@
             const startLon = current ? current.lon : 37.618423;
             const startZoom = current ? 15 : 11;
 
-            // Инициализируем карту 1 раз, дальше только setView
             if (!mapInstance) {
-                mapInstance = L.map("pick-map", {
-                    zoomControl: true,
-                }).setView([startLat, startLon], startZoom);
+                mapInstance = L.map("pick-map", { zoomControl: true }).setView([startLat, startLon], startZoom);
 
-                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                    maxZoom: 19,
-                }).addTo(mapInstance);
+                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(mapInstance);
 
                 mapInstance.on("click", (e) => {
                     const lat = Number(e.latlng.lat.toFixed(6));
                     const lon = Number(e.latlng.lng.toFixed(6));
                     picked = { lat, lon };
-                    if (!marker) {
-                        marker = L.marker([lat, lon]).addTo(mapInstance);
-                    } else {
-                        marker.setLatLng([lat, lon]);
-                    }
+                    if (!marker) marker = L.marker([lat, lon]).addTo(mapInstance);
+                    else marker.setLatLng([lat, lon]);
                     if (mapHint) mapHint.textContent = `Выбрано: ${lat}, ${lon}`;
                     if (modalApply) modalApply.disabled = false;
                 });
@@ -452,22 +514,16 @@
                 mapInstance.setView([startLat, startLon], startZoom);
             }
 
-            // Если координаты уже есть — ставим маркер
             if (current) {
                 picked = { lat: Number(current.lat.toFixed(6)), lon: Number(current.lon.toFixed(6)) };
-                if (!marker) {
-                    marker = L.marker([picked.lat, picked.lon]).addTo(mapInstance);
-                } else {
-                    marker.setLatLng([picked.lat, picked.lon]);
-                }
+                if (!marker) marker = L.marker([picked.lat, picked.lon]).addTo(mapInstance);
+                else marker.setLatLng([picked.lat, picked.lon]);
                 if (mapHint) mapHint.textContent = `Текущая точка: ${picked.lat}, ${picked.lon}`;
                 if (modalApply) modalApply.disabled = false;
             } else {
                 picked = null;
                 if (modalApply) modalApply.disabled = true;
                 if (mapHint) mapHint.textContent = "Выберите точку — и нажмите «Сохранить».";
-
-                // Пытаемся центрировать по текущему местоположению (без автозаписи)
                 if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
                         (pos) => {
@@ -483,10 +539,7 @@
                 }
             }
 
-            // Важно: Leaflet в модалке может отрисоваться криво без invalidateSize
-            setTimeout(() => {
-                try { mapInstance.invalidateSize(); } catch (e) {}
-            }, 150);
+            setTimeout(() => { try { mapInstance.invalidateSize(); } catch (e) {} }, 150);
         };
 
         const closeModal = () => {
@@ -496,21 +549,16 @@
         };
 
         if (btnMap) {
-            btnMap.addEventListener("click", () => {
-                openModal();
-            });
+            btnMap.addEventListener("click", () => { openModal(); });
         }
 
         const closeHandlers = [modalBg, modalCloseX, modalCancel].filter(Boolean);
-        closeHandlers.forEach((el) => {
-            el.addEventListener("click", () => closeModal());
-        });
+        closeHandlers.forEach((el) => { el.addEventListener("click", () => closeModal()); });
 
         if (modalApply) {
-            modalApply.addEventListener("click", () => {
+            modalApply.addEventListener("click", async () => {
                 if (!picked) return;
-                setCoords(picked.lat.toFixed(6), picked.lon.toFixed(6));
-                setStatus("Геолокация выбрана на карте ✅", true);
+                await setGeoWithAddress(picked.lat.toFixed(6), picked.lon.toFixed(6), "Геолокация выбрана на карте ✅");
                 closeModal();
             });
         }
