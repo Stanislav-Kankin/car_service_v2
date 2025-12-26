@@ -1468,22 +1468,13 @@ async def request_send_all_post(
 async def request_send_selected_post(
     request_id: int,
     request: Request,
-    service_center_ids: str | list[str] | None = Form(default=None),
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
     _ = get_current_user_id(request)
     templates = get_templates()
 
-    # Нормализация формы:
-    # - если выбран 1 чекбокс => приходит str "3"
-    # - если выбрано несколько => приходит list[str] ["3","5"]
-    raw = service_center_ids
-    if raw is None:
-        raw_list: list[str] = []
-    elif isinstance(raw, str):
-        raw_list = [raw]
-    else:
-        raw_list = list(raw)
+    form = await request.form()
+    raw_list = form.getlist("service_center_ids")  # всегда список, даже если выбран 1 чекбокс
 
     ids: list[int] = []
     for x in raw_list:
@@ -1493,10 +1484,9 @@ async def request_send_selected_post(
             continue
 
     if not ids:
-        # покажем ту же страницу выбора с понятной ошибкой
         error_message = "Выберите хотя бы один СТО."
 
-        # берём список СТО так же, как в choose_service_get
+        # подгружаем данные заявки + список СТО заново (как в choose_service_get)
         req_data: dict[str, Any] | None = None
         try:
             r = await client.get(f"/api/v1/requests/{request_id}")
@@ -1512,11 +1502,8 @@ async def request_send_selected_post(
         try:
             sc_resp = await client.get(f"/api/v1/service-centers/for-request/{request_id}")
             if sc_resp.status_code == 200:
-                service_centers = sc_resp.json() or []
-                if not isinstance(service_centers, list):
-                    service_centers = []
-            else:
-                service_centers = []
+                raw = sc_resp.json() or []
+                service_centers = raw if isinstance(raw, list) else []
         except Exception:
             service_centers = []
 
@@ -1537,7 +1524,7 @@ async def request_send_selected_post(
             },
         )
 
-    # Отправляем выбранным в backend
+    # отправляем выбранным в backend
     try:
         resp = await client.post(
             f"/api/v1/requests/{request_id}/send_to_selected",
@@ -1545,7 +1532,7 @@ async def request_send_selected_post(
         )
         resp.raise_for_status()
     except Exception:
-        # fallback: просто вернём детальную страницу заявки
+        # если что-то пошло не так — вернём детальную страницу заявки
         return await request_detail(
             request_id, request, client, chosen_service_id=None,
         )
