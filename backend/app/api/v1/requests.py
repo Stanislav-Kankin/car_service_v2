@@ -142,42 +142,57 @@ async def send_to_one_service(
             detail="Service center not found or inactive",
         )
 
-    request = await RequestsService.distribute_request_to_service_centers(
+    distributed = await RequestsService.distribute_request_to_service_centers(
         db,
         request_id=request_id,
-        service_center_ids=[sc_id],
+        service_center_ids=[int(sc_id)],
     )
-    if not request:
+    if not distributed:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Request not found",
         )
 
+    # Перечитаем заявку с связями (car/user), чтобы formatter работал стабильно
+    request_obj = await RequestsService.get_request_by_id(db, request_id)
+
     owner = service_center.owner
     if notifier.is_enabled() and WEBAPP_PUBLIC_URL and owner and getattr(owner, "telegram_id", None):
-        cat_code = request.service_category or "—"
-        cat_label = SERVICE_CATEGORY_LABELS.get(cat_code, cat_code)
-
         url = f"{WEBAPP_PUBLIC_URL}/sc/{service_center.id}/requests/{request_id}"
-        message = (
-            f"📩 Вам отправлена заявка №{request_id}\n"
-            f"Категория: {cat_label}"
-        )
+
+        message = f"📩 Вам отправлена заявка №{request_id}"
+        buttons = [{"text": "Открыть заявку", "type": "web_app", "url": url}]
+        extra = {"request_id": request_id, "service_center_id": service_center.id, "kind": "send_to_one"}
+
+        try:
+            from backend.app.core.notify_formatters import build_sc_new_request_message
+
+            fmt_message, fmt_buttons, fmt_extra = build_sc_new_request_message(
+                request_obj=request_obj,
+                service_center=service_center,
+                car=getattr(request_obj, "car", None) if request_obj else None,
+                webapp_public_url=WEBAPP_PUBLIC_URL,
+            )
+            if fmt_message:
+                message = fmt_message
+            if fmt_buttons:
+                buttons = fmt_buttons
+            if fmt_extra:
+                extra.update(fmt_extra)
+            extra["kind"] = "send_to_one"
+        except Exception:
+            # форматтер не должен ломать отправку
+            pass
 
         await notifier.send_notification(
             recipient_type="service_center",
-            telegram_id=owner.telegram_id,
+            telegram_id=int(owner.telegram_id),
             message=message,
-            buttons=[
-                {"text": "Открыть заявку", "type": "web_app", "url": url},
-            ],
-            extra={
-                "request_id": request_id,
-                "service_center_id": service_center.id,
-            },
+            buttons=buttons,
+            extra=extra,
         )
 
-    return request
+    return distributed
 
 
 # ---------------------------------------------------------------------------
@@ -539,11 +554,12 @@ async def send_request_to_selected_service_centers(
 ):
     """
     Отправка заявки выбранным СТО (списком).
-    Важно: распределение делаем ОДИН раз (иначе distribute будет затирать прошлые записи).
+    Важно: распределение делаем ОДИН раз (иначе distribute будет
+    затирать прошлые записи).
     Уведомления отправляем каждому выбранному СТО.
     """
-    request = await RequestsService.get_request_by_id(db, request_id)
-    if not request:
+    request_obj = await RequestsService.get_request_by_id(db, request_id)
+    if not request_obj:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Request not found",
@@ -572,7 +588,7 @@ async def send_request_to_selected_service_centers(
             detail="No active service centers found in selection",
         )
 
-    final_ids = [sc.id for sc in service_centers]
+    final_ids = [int(sc.id) for sc in service_centers]
 
     distributed_request = await RequestsService.distribute_request_to_service_centers(
         db,
@@ -580,33 +596,47 @@ async def send_request_to_selected_service_centers(
         service_center_ids=final_ids,
     )
 
+    # Перечитаем заявку с актуальным статусом + связями
+    request_obj = await RequestsService.get_request_by_id(db, request_id)
+
     # уведомления
     if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
-        cat_code = request.service_category or "—"
-        cat_label = SERVICE_CATEGORY_LABELS.get(cat_code, cat_code)
-
         for sc in service_centers:
             owner = sc.owner
             if not owner or not getattr(owner, "telegram_id", None):
                 continue
 
             url = f"{WEBAPP_PUBLIC_URL}/sc/{sc.id}/requests/{request_id}"
-            message = (
-                f"📩 Вам отправлена заявка №{request_id}\n"
-                f"Категория: {cat_label}"
-            )
+
+            message = f"📩 Вам отправлена заявка №{request_id}"
+            buttons = [{"text": "Открыть заявку", "type": "web_app", "url": url}]
+            extra = {"request_id": request_id, "service_center_id": sc.id, "kind": "send_to_selected"}
+
+            try:
+                from backend.app.core.notify_formatters import build_sc_new_request_message
+
+                fmt_message, fmt_buttons, fmt_extra = build_sc_new_request_message(
+                    request_obj=request_obj,
+                    service_center=sc,
+                    car=getattr(request_obj, "car", None) if request_obj else None,
+                    webapp_public_url=WEBAPP_PUBLIC_URL,
+                )
+                if fmt_message:
+                    message = fmt_message
+                if fmt_buttons:
+                    buttons = fmt_buttons
+                if fmt_extra:
+                    extra.update(fmt_extra)
+                extra["kind"] = "send_to_selected"
+            except Exception:
+                pass
 
             await notifier.send_notification(
                 recipient_type="service_center",
-                telegram_id=owner.telegram_id,
+                telegram_id=int(owner.telegram_id),
                 message=message,
-                buttons=[
-                    {"text": "Открыть заявку", "type": "web_app", "url": url},
-                ],
-                extra={
-                    "request_id": request_id,
-                    "service_center_id": sc.id,
-                },
+                buttons=buttons,
+                extra=extra,
             )
 
     return distributed_request

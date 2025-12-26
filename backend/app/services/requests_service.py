@@ -331,12 +331,34 @@ class RequestsService:
             tg_id = getattr(client, "telegram_id", None) if client else None
 
         if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
+            message = f"🛠 Заявка №{request_id} взята в работу сервисом."
+            buttons = [_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")]
+            extra = {"request_id": request_id, "status": "IN_WORK"}
+
+            try:
+                from backend.app.core.notify_formatters import build_client_in_work_message
+
+                fmt_message, fmt_buttons, fmt_extra = build_client_in_work_message(
+                    request_obj=req,
+                    service_center=getattr(req, "service_center", None),
+                    car=getattr(req, "car", None),
+                    webapp_public_url=WEBAPP_PUBLIC_URL,
+                )
+                if fmt_message:
+                    message = fmt_message
+                if fmt_buttons:
+                    buttons = fmt_buttons
+                if fmt_extra:
+                    extra.update(fmt_extra)
+            except Exception:
+                pass
+
             await notifier.send_notification(
                 recipient_type="client",
                 telegram_id=int(tg_id),
-                message=f"🛠 Заявка №{request_id} взята в работу сервисом.",
-                buttons=[_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")],
-                extra={"request_id": request_id, "status": "IN_WORK"},
+                message=message,
+                buttons=buttons,
+                extra=extra,
             )
 
         return req
@@ -454,7 +476,6 @@ class RequestsService:
         if final_price_text is not None:
             req.final_price_text = final_price_text
 
-        # backward compat: если число можно вытащить из текста — кладём в старое final_price
         if final_price is None and final_price_text:
             parsed = _parse_first_number(final_price_text)
             if parsed is not None:
@@ -466,31 +487,45 @@ class RequestsService:
         await db.commit()
         await db.refresh(req)
 
-        # ✅ начисляем кэшбек (внутри есть BONUS_HIDDEN_MODE guard)
         try:
             await RequestsService._award_cashback_if_needed(db, req)
         except Exception:
             logger.exception("cashback award failed for request_id=%s", request_id)
 
-        # --- уведомление клиенту ---
         tg_id = notify_client_telegram_id
         if tg_id is None:
             client = await UsersService.get_by_id(db, req.user_id)
             tg_id = getattr(client, "telegram_id", None) if client else None
 
         if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
-            text_price = ""
-            if getattr(req, "final_price_text", None):
-                text_price = f"\n💰 Итоговая цена: {req.final_price_text}"
-            elif req.final_price is not None:
-                text_price = f"\n💰 Итоговая цена: {req.final_price:.0f}"
+            message = f"✅ Заявка №{request_id} завершена сервисом."
+            buttons = [_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")]
+            extra = {"request_id": request_id, "status": "DONE"}
+
+            try:
+                from backend.app.core.notify_formatters import build_client_done_message
+
+                fmt_message, fmt_buttons, fmt_extra = build_client_done_message(
+                    request_obj=req,
+                    service_center=getattr(req, "service_center", None),
+                    car=getattr(req, "car", None),
+                    webapp_public_url=WEBAPP_PUBLIC_URL,
+                )
+                if fmt_message:
+                    message = fmt_message
+                if fmt_buttons:
+                    buttons = fmt_buttons
+                if fmt_extra:
+                    extra.update(fmt_extra)
+            except Exception:
+                pass
 
             await notifier.send_notification(
                 recipient_type="client",
                 telegram_id=int(tg_id),
-                message=f"✅ Заявка №{request_id} завершена сервисом.{text_price}",
-                buttons=[_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")],
-                extra={"request_id": request_id, "status": "DONE"},
+                message=message,
+                buttons=buttons,
+                extra=extra,
             )
 
         return req
@@ -507,11 +542,9 @@ class RequestsService:
         if not req:
             return None
 
-        # Закрывать может только назначенное СТО
         if req.service_center_id != service_center_id:
             raise PermissionError("No access to this request")
 
-        # Нельзя закрывать, если уже закрыта
         if req.status in [RequestStatus.DONE, RequestStatus.CANCELLED, RequestStatus.REJECTED_BY_SERVICE]:
             raise ValueError("Invalid status transition")
 
@@ -522,20 +555,40 @@ class RequestsService:
         await db.commit()
         await db.refresh(req)
 
-        # уведомление клиенту (не должно ломать основной сценарий)
         try:
             client = await UsersService.get_by_id(db, req.user_id)
             tg_id = getattr(client, "telegram_id", None) if client else None
             if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
-                msg = f"⛔ Сервис закрыл заявку №{request_id}."
-                if req.reject_reason:
-                    msg += f"\nПричина: {req.reject_reason}"
+                message = f"⛔ Сервис закрыл заявку №{request_id}."
+                buttons = [_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")]
+                extra = {"request_id": request_id, "status": "REJECTED_BY_SERVICE"}
+
+                try:
+                    from backend.app.core.notify_formatters import build_client_service_rejected_message
+
+                    fmt_message, fmt_buttons, fmt_extra = build_client_service_rejected_message(
+                        request_obj=req,
+                        service_center=getattr(req, "service_center", None),
+                        car=getattr(req, "car", None),
+                        webapp_public_url=WEBAPP_PUBLIC_URL,
+                    )
+                    if fmt_message:
+                        message = fmt_message
+                    if fmt_buttons:
+                        buttons = fmt_buttons
+                    if fmt_extra:
+                        extra.update(fmt_extra)
+                except Exception:
+                    # fallback + добавим причину вручную
+                    if req.reject_reason:
+                        message += f"\nПричина: {req.reject_reason}"
+
                 await notifier.send_notification(
                     recipient_type="client",
                     telegram_id=int(tg_id),
-                    message=msg,
-                    buttons=[_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")],
-                    extra={"request_id": request_id, "status": "REJECTED_BY_SERVICE"},
+                    message=message,
+                    buttons=buttons,
+                    extra=extra,
                 )
         except Exception:
             logger.exception("reject_by_service notify failed (request_id=%s)", request_id)
