@@ -15,6 +15,7 @@ from backend.app.api.v1 import (
     offers,
     bonus,
     auth,
+    geo,
 )
 
 
@@ -22,23 +23,23 @@ def setup_logging(service_name: str) -> None:
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     log_dir = os.getenv("LOG_DIR", "/app/logs")
     log_to_file = os.getenv("LOG_TO_FILE", "1").lower() in ("1", "true", "yes", "on")
-    max_bytes = int(os.getenv("LOG_MAX_BYTES", "10485760"))  # 10 MB
-    backup_count = int(os.getenv("LOG_BACKUP_COUNT", "10"))
 
-    Path(log_dir).mkdir(parents=True, exist_ok=True)
+    max_bytes = int(os.getenv("LOG_MAX_BYTES", "10485760"))  # 10MB
+    backup_count = int(os.getenv("LOG_BACKUP_COUNT", "5"))
 
     handlers = {
         "console": {
             "class": "logging.StreamHandler",
             "level": log_level,
             "formatter": "default",
-            "stream": "ext://sys.stdout",
-        },
+        }
     }
 
     root_handlers = ["console"]
 
     if log_to_file:
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
+
         handlers["file"] = {
             "class": "logging.handlers.RotatingFileHandler",
             "level": log_level,
@@ -70,14 +71,6 @@ def setup_logging(service_name: str) -> None:
             },
             "handlers": handlers,
             "root": {"level": log_level, "handlers": root_handlers},
-            "loggers": {
-                # ✅ ошибки/старт uvicorn — в файлы
-                "uvicorn": {"level": log_level, "handlers": root_handlers, "propagate": False},
-                "uvicorn.error": {"level": log_level, "handlers": root_handlers, "propagate": False},
-
-                # ✅ access (каждый запрос) — только в stdout, чтобы не раздувать файлы
-                "uvicorn.access": {"level": log_level, "handlers": ["console"], "propagate": False},
-            },
         }
     )
 
@@ -94,7 +87,7 @@ async def on_startup():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -108,6 +101,7 @@ app.include_router(requests.router, prefix="/api/v1")
 app.include_router(offers.router, prefix="/api/v1")
 app.include_router(bonus.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(geo.router, prefix="/api/v1")
 
 
 @app.get("/health")
