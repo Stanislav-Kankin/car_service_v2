@@ -192,150 +192,183 @@ class OffersService:
     async def accept_offer_by_client(
         db: AsyncSession,
         offer_id: int,
-        client_user_id: int,
-    ) -> Offer:
-        from backend.app.core.notifier import notifier
-        from backend.app.core.notify_formatters import (
-            build_client_offer_accepted_message,
-            build_sc_offer_selected_message,
-        )
+        client_user_id: int | None = None,
+    ) -> Optional[Offer]:
+        """
+        Клиент выбрал оффер.
+
+        Совместимость:
+        - client_user_id optional (старый API вызывал без него)
+
+        Действия:
+        1) Этот = ACCEPTED
+        2) Остальные по заявке = REJECTED
+        3) request.service_center_id = offer.service_center_id
+        4) request.status = ACCEPTED_BY_SERVICE (временно)
+        5) Обновить RequestDistribution:
+            - winner = WINNER
+            - остальные = DECLINED
+        6) Уведомить:
+            - выбранному СТО: "ваш отклик выбран"
+            - остальным СТО: "к сожалению, клиент выбрал другой сервис" (БЕЗ раскрытия кого)
+            - клиенту: подтверждение
+        """
         from backend.app.models.request_distribution import RequestDistribution, RequestDistributionStatus
 
-        WEBAPP_PUBLIC_URL = settings.WEBAPP_PUBLIC_URL
+        offer = await OffersService.get_offer_by_id(db, offer_id)
+        if not offer:
+            return None
 
-        offer_full = await OffersService.get_offer_by_id(db, offer_id)
-        if not offer_full:
-            raise ValueError("Offer not found")
+        req = offer.request
+        if not req:
+            return None
 
-        if offer_full.request.user_id != client_user_id:
+        # Если можем — проверим, что действие делает владелец заявки
+        if client_user_id is not None and int(req.user_id) != int(client_user_id):
             raise PermissionError("No access to this offer")
 
-        # принимаем отклик
-        offer_full.status = "accepted"
-        offer_full.request.status = RequestStatus.ACCEPTED_BY_SERVICE
-        offer_full.request.service_center_id = offer_full.service_center_id
+        # Идемпотентность: если уже принято — не рассылаем повторно
+        if offer.status == OfferStatus.ACCEPTED:
+            return offer
 
-        await db.commit()
-        await db.refresh(offer_full)
+        request_id = req.id
+        winner_sc_id = int(offer.service_center_id)
 
-        request_id = offer_full.request_id
+        # --- проставим всем офферам статус ---
+        stmt = select(Offer).where(Offer.request_id == request_id)
+        res = await db.execute(stmt)
+        offers = list(res.scalars().all())
 
-        # обновляем distribution: победитель/остальные declined
-        dist_stmt = select(RequestDistribution).where(RequestDistribution.request_id == request_id)
-        dist_res = await db.execute(dist_stmt)
-        dist_rows = dist_res.scalars().all()
+        for o in offers:
+            o.status = OfferStatus.REJECTED
+        offer.status = OfferStatus.ACCEPTED
 
+        # --- request -> выбранный сервис ---
+        req.service_center_id = winner_sc_id
+        req.status = RequestStatus.ACCEPTED_BY_SERVICE
+
+        # --- обновим RequestDistribution (если записи есть) ---
         other_sc_ids: list[int] = []
-        for dr in dist_rows:
-            if dr.service_center_id == offer_full.service_center_id:
-                dr.status = RequestDistributionStatus.WINNER
-            else:
-                dr.status = RequestDistributionStatus.DECLINED
-                other_sc_ids.append(int(dr.service_center_id))
+        try:
+            dist_stmt = select(RequestDistribution).where(RequestDistribution.request_id == request_id)
+            dist_res = await db.execute(dist_stmt)
+            dist_rows = list(dist_res.scalars().all())
+
+            for row in dist_rows:
+                if int(row.service_center_id) == winner_sc_id:
+                    row.status = RequestDistributionStatus.WINNER
+                else:
+                    row.status = RequestDistributionStatus.DECLINED
+                    other_sc_ids.append(int(row.service_center_id))
+        except Exception:
+            # не критично
+            pass
 
         await db.commit()
+        await db.refresh(offer)
 
-        # данные для форматтеров
-        car_obj = None
-        try:
-            from backend.app.services.cars_service import CarsService
-
-            car_obj = await CarsService.get_car_by_id(db, offer_full.request.car_id)
-        except Exception:
-            car_obj = None
-
-        # Уведомления
-        try:
-            if notifier.is_enabled() and WEBAPP_PUBLIC_URL:
-                # 1) победителю СТО (информативно)
-                # ⚠️ Важно: не используем ленивые relationship (owner), чтобы уведомления
-                # не “падали” молча из-за MissingGreenlet и доходили до ВСЕХ СТО.
+        # --- уведомления (best-effort) ---
+        offer_full = await OffersService.get_offer_by_id(db, offer.id)
+        if offer_full and notifier.is_enabled():
+            try:
+                from backend.app.core.notify_formatters import (
+                    build_sc_offer_selected_message,
+                    build_client_service_selected_message,
+                )
                 from backend.app.models.user import User
 
-                sc_pairs: list[tuple[int, int]] = []
-                sc_user_ids: list[int] = []
+                # car может быть не подгружен — не ломаемся
+                car_obj = None
+                try:
+                    if offer_full.request and offer_full.request.car:
+                        car_obj = offer_full.request.car
+                except Exception:
+                    car_obj = None
 
-                # победитель
-                if offer_full.service_center and getattr(offer_full.service_center, "user_id", None):
-                    sc_user_ids.append(int(offer_full.service_center.user_id))
+                # 1) выбранному СТО (telegram владельца через явный запрос)
+                sc_owner_tg = None
+                try:
+                    if offer_full.service_center and offer_full.service_center.user_id:
+                        u_res = await db.execute(
+                            select(User.telegram_id).where(User.id == int(offer_full.service_center.user_id))
+                        )
+                        sc_owner_tg = u_res.scalar_one_or_none()
+                except Exception:
+                    sc_owner_tg = None
 
-                # остальные СТО
+                if sc_owner_tg:
+                    msg_sc, buttons_sc, extra_sc = build_sc_offer_selected_message(
+                        request_obj=offer_full.request,
+                        service_center=offer_full.service_center,
+                        car=car_obj,
+                        webapp_public_url=WEBAPP_PUBLIC_URL,
+                    )
+                    await notifier.send_notification(
+                        recipient_type="service_center",
+                        telegram_id=int(sc_owner_tg),
+                        message=msg_sc,
+                        buttons=buttons_sc,
+                        extra=extra_sc,
+                    )
+
+                # 2) остальным СТО — БЕЗ раскрытия победителя
                 if other_sc_ids:
                     sc_stmt = select(ServiceCenter.id, ServiceCenter.user_id).where(ServiceCenter.id.in_(other_sc_ids))
                     sc_res = await db.execute(sc_stmt)
-                    for sc_id, user_id in sc_res.all():
+                    sc_rows = list(sc_res.all())
+
+                    user_ids = sorted({int(uid) for _, uid in sc_rows if uid is not None})
+                    tg_by_user_id: dict[int, int] = {}
+                    if user_ids:
+                        users_res = await db.execute(select(User.id, User.telegram_id).where(User.id.in_(user_ids)))
+                        for uid, tg_id in users_res.all():
+                            if tg_id is not None:
+                                tg_by_user_id[int(uid)] = int(tg_id)
+
+                    for sc_id, user_id in sc_rows:
                         if user_id is None:
                             continue
-                        sc_pairs.append((int(sc_id), int(user_id)))
-                        sc_user_ids.append(int(user_id))
-
-                telegram_by_user_id: dict[int, int] = {}
-                if sc_user_ids:
-                    u_stmt = select(User.id, User.telegram_id).where(User.id.in_(list(set(sc_user_ids))))
-                    u_res = await db.execute(u_stmt)
-                    for u_id, tg in u_res.all():
-                        if tg is None:
-                            continue
-                        telegram_by_user_id[int(u_id)] = int(tg)
-
-                # 1) победителю СТО (информативно)
-                if offer_full.service_center:
-                    sc_user_id = getattr(offer_full.service_center, "user_id", None)
-                    sc_owner_tg = telegram_by_user_id.get(int(sc_user_id)) if sc_user_id is not None else None
-                    if sc_owner_tg:
-                        msg_sc, buttons_sc, extra_sc = build_sc_offer_selected_message(
-                            request_obj=offer_full.request,
-                            service_center=offer_full.service_center,
-                            car=car_obj,
-                            webapp_public_url=WEBAPP_PUBLIC_URL,
-                        )
-                        await notifier.send_notification(
-                            recipient_type="service_center",
-                            telegram_id=int(sc_owner_tg),
-                            message=msg_sc,
-                            buttons=buttons_sc,
-                            extra=extra_sc,
-                        )
-
-                # 2) остальным СТО (без раскрытия, кого выбрали)
-                if sc_pairs:
-                    for sc_id, user_id in sc_pairs:
-                        owner_tg = telegram_by_user_id.get(int(user_id))
+                        owner_tg = tg_by_user_id.get(int(user_id))
                         if not owner_tg:
                             continue
 
                         url_sc = f"{WEBAPP_PUBLIC_URL}/sc/{int(sc_id)}/requests/{request_id}"
+                        msg_other = f"ℹ️ К сожалению, клиент выбрал другой сервис по заявке №{request_id}."
+
                         await notifier.send_notification(
                             recipient_type="service_center",
                             telegram_id=int(owner_tg),
-                            message=f"ℹ️ К сожалению, клиент выбрал другой сервис по заявке №{request_id}.",
+                            message=msg_other,
                             buttons=[{"text": "Открыть заявку", "type": "web_app", "url": url_sc}],
-                            extra={"request_id": request_id, "service_center_id": int(sc_id), "event": "offer_not_selected"},
+                            extra={
+                                "request_id": request_id,
+                                "service_center_id": int(sc_id),
+                                "event": "offer_not_selected",
+                            },
                         )
 
                 # 3) клиенту (информативно)
-                try:
-                    msg_client, buttons_client, extra_client = build_client_offer_accepted_message(
+                if offer_full.request and offer_full.request.user and getattr(offer_full.request.user, "telegram_id", None):
+                    client_tg = int(offer_full.request.user.telegram_id)
+                    msg_c, buttons_c, extra_c = build_client_service_selected_message(
                         request_obj=offer_full.request,
-                        offer=offer_full,
                         service_center=offer_full.service_center,
                         car=car_obj,
                         webapp_public_url=WEBAPP_PUBLIC_URL,
                     )
                     await notifier.send_notification(
                         recipient_type="client",
-                        telegram_id=int(offer_full.request.user.telegram_id),
-                        message=msg_client,
-                        buttons=buttons_client,
-                        extra=extra_client,
+                        telegram_id=client_tg,
+                        message=msg_c,
+                        buttons=buttons_c,
+                        extra=extra_c,
                     )
-                except Exception:
-                    pass
 
-        except Exception:
-            logger.exception("accept_offer_by_client: notification failed (offer_id=%s)", offer_id)
+            except Exception:
+                # уведомления не должны ломать основной сценарий
+                pass
 
-        return offer_full
+        return offer
 
     @staticmethod
     async def reject_offer_by_client(db: AsyncSession, offer_id: int) -> Optional[Offer]:
