@@ -456,6 +456,28 @@ async def reject_by_service(
         raise HTTPException(status_code=400, detail="Invalid status transition")
 
 
+@router.post("/{request_id}/decline_by_service", response_model=RequestRead)
+async def decline_by_service(
+    request_id: int,
+    payload: ScRejectIn,  # используем существующую модель: service_center_id + reason
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        req = await RequestsService.decline_by_service(
+            db,
+            request_id,
+            payload.service_center_id,
+            reason=payload.reason,
+        )
+        if not req:
+            raise HTTPException(status_code=404, detail="Request not found")
+        return req
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="No access to this request")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e) or "Invalid status transition")
+
+
 class SendChatLinkIn(BaseModel):
     service_center_id: int
     recipient: str  # "client" | "service_center"

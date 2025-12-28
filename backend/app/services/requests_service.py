@@ -123,10 +123,12 @@ class RequestsService:
             select(Request)
             .join(RequestDistribution, RequestDistribution.request_id == Request.id)
             .where(RequestDistribution.service_center_id == service_center_id)
+            .where(RequestDistribution.status != RequestDistributionStatus.DECLINED)  # ✅ скрываем отказанные
             .order_by(Request.created_at.desc())
         )
         res = await db.execute(stmt)
         return list(res.scalars().all())
+
 
     # ------------------------------------------------------------------
     # Обновление
@@ -593,5 +595,107 @@ class RequestsService:
                 )
         except Exception:
             logger.exception("reject_by_service notify failed (request_id=%s)", request_id)
+
+        return req
+
+    @staticmethod
+    async def decline_by_service(
+        db: AsyncSession,
+        request_id: int,
+        service_center_id: int,
+        *,
+        reason: str | None = None,
+    ) -> Optional[Request]:
+        """
+        СТО отказывается от заявки на этапе рассылки (RequestDistribution),
+        не закрывая заявку целиком.
+
+        Меняем:
+        - RequestDistribution.status -> DECLINED (только для этого СТО)
+        - (best-effort) если был оффер от этого СТО и он не accepted -> ставим rejected
+        - уведомляем клиента
+        """
+        req = await RequestsService.get_request_by_id(db, request_id)
+        if not req:
+            return None
+
+        # Отказаться можно только пока заявка разослана
+        if req.status != RequestStatus.SENT:
+            raise ValueError("Отказ возможен только для заявок в статусе 'sent'.")
+
+        # Если уже назначена конкретному СТО — это другой сценарий (reject_by_service)
+        if req.service_center_id is not None:
+            raise ValueError("Заявка уже назначена сервису — отказ через 'закрыть заявку'.")
+
+        # Проверяем, что заявка действительно была отправлена этому СТО
+        dist_res = await db.execute(
+            select(RequestDistribution).where(
+                RequestDistribution.request_id == request_id,
+                RequestDistribution.service_center_id == service_center_id,
+            )
+        )
+        dist: RequestDistribution | None = dist_res.scalar_one_or_none()
+        if not dist:
+            raise PermissionError("No access to this request")
+
+        # Идемпотентность: если уже отказались — ничего не шлём повторно
+        if dist.status == RequestDistributionStatus.DECLINED:
+            return req
+
+        dist.status = RequestDistributionStatus.DECLINED
+
+        # best-effort: если был оффер от этого СТО — переводим в rejected (если не accepted)
+        offer_res = await db.execute(
+            select(Offer).where(
+                Offer.request_id == request_id,
+                Offer.service_center_id == service_center_id,
+            )
+        )
+        offer: Offer | None = offer_res.scalar_one_or_none()
+        if offer and offer.status != OfferStatus.accepted:
+            offer.status = OfferStatus.rejected
+
+        await db.commit()
+        await db.refresh(req)
+
+        # best-effort notify client
+        try:
+            client = await UsersService.get_by_id(db, req.user_id)
+            tg_id = getattr(client, "telegram_id", None) if client else None
+
+            if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
+                sc_res = await db.execute(select(ServiceCenter).where(ServiceCenter.id == service_center_id))
+                sc_obj: ServiceCenter | None = sc_res.scalar_one_or_none()
+
+                sc_name = (getattr(sc_obj, "name", None) or "").strip() if sc_obj else ""
+                sc_addr = (getattr(sc_obj, "address", None) or "").strip() if sc_obj else ""
+                sc_name = sc_name or f"СТО #{service_center_id}"
+                sc_addr = sc_addr or "—"
+
+                clean_reason = (reason or "").strip()
+
+                message_lines = [
+                    f"⛔ Сервис отказался от заявки №{request_id}.",
+                    f"🏁 СТО: {sc_name}",
+                    f"📍 Адрес СТО: {sc_addr}",
+                ]
+                if clean_reason:
+                    message_lines.append(f"Причина: {clean_reason}")
+                message_lines.append("Заявка остаётся активной — вы можете выбрать другой сервис или дождаться откликов.")
+
+                await notifier.send_notification(
+                    recipient_type="client",
+                    telegram_id=int(tg_id),
+                    message="\n".join(message_lines),
+                    buttons=[_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")],
+                    extra={
+                        "request_id": request_id,
+                        "service_center_id": int(service_center_id),
+                        "kind": "decline_by_service",
+                        "reason": clean_reason or None,
+                    },
+                )
+        except Exception:
+            logger.exception("decline_by_service notify failed (request_id=%s, sc_id=%s)", request_id, service_center_id)
 
         return req
