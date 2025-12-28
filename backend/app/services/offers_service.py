@@ -260,18 +260,26 @@ class OffersService:
                 )
 
                 # car может быть не подгружен — не ломаемся
+                car_obj = None
                 try:
-                    car_obj = getattr(offer_full.request, "car", None)
+                    if offer_full.request and offer_full.request.car:
+                        car_obj = offer_full.request.car
                 except Exception:
                     car_obj = None
 
-                # 1) победителю СТО (информативно)
-                if (
-                    offer_full.service_center
-                    and offer_full.service_center.owner
-                    and getattr(offer_full.service_center.owner, "telegram_id", None)
-                ):
-                    sc_owner_tg = int(offer_full.service_center.owner.telegram_id)
+                # 1) выбранному СТО
+                sc_owner_tg = None
+                try:
+                    if offer_full.service_center and offer_full.service_center.user_id:
+                        from backend.app.models.user import User
+                        u_res = await db.execute(
+                            select(User.telegram_id).where(User.id == int(offer_full.service_center.user_id))
+                        )
+                        sc_owner_tg = u_res.scalar_one_or_none()
+                except Exception:
+                    sc_owner_tg = None
+
+                if sc_owner_tg:
                     msg_sc, buttons_sc, extra_sc = build_sc_offer_selected_message(
                         request_obj=offer_full.request,
                         service_center=offer_full.service_center,
@@ -280,31 +288,55 @@ class OffersService:
                     )
                     await notifier.send_notification(
                         recipient_type="service_center",
-                        telegram_id=sc_owner_tg,
+                        telegram_id=int(sc_owner_tg),
                         message=msg_sc,
                         buttons=buttons_sc,
                         extra=extra_sc,
                     )
 
-                # 2) остальным СТО (можно тоже позже “раскрасить”, но пока оставим коротко и понятно)
+                # 2) остальным СТО — сообщаем, что заявку выбрали не у них.
+                # ВАЖНО: не используем sc.owner (lazy-load может падать в async). Берём telegram_id через User по user_id.
                 if other_sc_ids:
-                    sc_stmt = select(ServiceCenter).where(ServiceCenter.id.in_(other_sc_ids))
+                    from backend.app.models.user import User
+                    sc_stmt = select(ServiceCenter.id, ServiceCenter.user_id).where(ServiceCenter.id.in_(other_sc_ids))
                     sc_res = await db.execute(sc_stmt)
-                    other_scs = list(sc_res.scalars().all())
+                    sc_rows = list(sc_res.all())
 
-                    for sc in other_scs:
-                        owner = getattr(sc, "owner", None)
-                        owner_tg = getattr(owner, "telegram_id", None) if owner else None
+                    user_ids = sorted({int(uid) for _, uid in sc_rows if uid is not None})
+                    tg_by_user_id: dict[int, int] = {}
+                    if user_ids:
+                        users_res = await db.execute(select(User.id, User.telegram_id).where(User.id.in_(user_ids)))
+                        for uid, tg_id in users_res.all():
+                            if tg_id is not None:
+                                tg_by_user_id[int(uid)] = int(tg_id)
+
+                    winner_name = (getattr(offer_full.service_center, "name", None) or "").strip() if offer_full.service_center else ""
+                    winner_addr = (
+                        (getattr(offer_full.service_center, "address", None) or getattr(offer_full.service_center, "address_text", None) or "").strip()
+                        if offer_full.service_center
+                        else ""
+                    )
+
+                    for sc_id, user_id in sc_rows:
+                        if user_id is None:
+                            continue
+                        owner_tg = tg_by_user_id.get(int(user_id))
                         if not owner_tg:
                             continue
 
-                        url_sc = f"{WEBAPP_PUBLIC_URL}/sc/{int(sc.id)}/requests/{request_id}"
+                        url_sc = f"{WEBAPP_PUBLIC_URL}/sc/{int(sc_id)}/requests/{request_id}"
+                        msg_other_lines = [f"ℹ️ Клиент выбрал другой сервис по заявке №{request_id}."]
+                        if winner_name:
+                            msg_other_lines.append(f"🏁 Выбрано: {winner_name}")
+                        if winner_addr:
+                            msg_other_lines.append(f"📍 {winner_addr}")
+
                         await notifier.send_notification(
                             recipient_type="service_center",
                             telegram_id=int(owner_tg),
-                            message=f"ℹ️ Клиент выбрал другой сервис по заявке №{request_id}.",
+                            message="\n".join(msg_other_lines),
                             buttons=[{"text": "Открыть заявку", "type": "web_app", "url": url_sc}],
-                            extra={"request_id": request_id, "service_center_id": int(sc.id), "event": "offer_not_selected"},
+                            extra={"request_id": request_id, "service_center_id": int(sc_id), "event": "offer_not_selected"},
                         )
 
                 # 3) клиенту (информативно)

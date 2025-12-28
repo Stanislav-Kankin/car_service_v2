@@ -1308,6 +1308,21 @@ async def request_detail(
             except Exception:
                 continue
 
+    # Обогатим offers данными по СТО (название/адрес), чтобы в шаблоне не было "СТО #id".
+    # Никаких дополнительных запросов: данные уже собраны в service_centers_by_id выше.
+    for o in offers:
+        try:
+            sc_id = o.get("service_center_id")
+            if sc_id is None:
+                continue
+            sc = service_centers_by_id.get(int(sc_id))
+            if not sc:
+                continue
+            o.setdefault("service_center_name", sc.get("name"))
+            o.setdefault("service_center_address", sc.get("address") or sc.get("address_text"))
+        except Exception:
+            continue
+
     templates = get_templates()
     return templates.TemplateResponse(
         "user/request_detail.html",
