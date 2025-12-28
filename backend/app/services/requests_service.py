@@ -198,8 +198,9 @@ class RequestsService:
         - здесь не делаем fallback логики
         """
 
-        # Грузим заявку вместе с авто (без lazy-load)
-        stmt = select(Request).options(selectinload(Request.car)).where(Request.id == request_id)
+        # Грузим заявку вместе с авто и пользователем (без lazy-load)
+        # user нужен для красивых уведомлений (имя клиента) и не должен подгружаться лениво в async.
+        stmt = select(Request).options(selectinload(Request.car), selectinload(Request.user)).where(Request.id == request_id)
         res = await db.execute(stmt)
         req = res.scalar_one_or_none()
         if not req:

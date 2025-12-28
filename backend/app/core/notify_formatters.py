@@ -84,6 +84,14 @@ def format_location(req: Any) -> str:
     return "\n".join(lines) if lines else "—"
 
 
+def _location_block(req: Any) -> str:
+    """Вернёт блок локации или пустую строку, чтобы не засорять сообщение '—'."""
+    loc = format_location(req)
+    if not loc or loc == "—":
+        return ""
+    return loc
+
+
 def format_service_center(sc: Any) -> str:
     if not sc:
         return "—"
@@ -159,6 +167,7 @@ def build_client_in_work_message(
     msg_lines: List[str] = [
         "🛠 Заявка переведена в работу",
         f"🚗 Авто: {format_car(car)}",
+        _location_block(request_obj),
         format_service_center(service_center),
     ]
     url = f"{webapp_public_url.rstrip('/')}/me/requests/{request_id}"
@@ -181,6 +190,7 @@ def build_client_done_message(
     msg_lines: List[str] = [
         "✅ Заявка завершена",
         f"🚗 Авто: {format_car(car)}",
+        _location_block(request_obj),
         format_service_center(service_center),
     ]
 
@@ -260,14 +270,12 @@ def build_client_service_selected_message(
     request_id = getattr(request_obj, "id", None)
 
     cat = format_category(getattr(request_obj, "service_category", None))
-    address_text = getattr(request_obj, "address_text", None) or getattr(request_obj, "address", None)
-
     msg_lines: List[str] = [
         f"✅ Вы выбрали сервис по заявке №{request_id}." if request_id else "✅ Вы выбрали сервис по заявке.",
         f"🧾 Категория: {cat}" if cat else "",
         f"🚗 Авто: {format_car(car)}" if car else "",
+        _location_block(request_obj),
         format_service_center(service_center),
-        f"📍 {address_text}" if address_text else "",
     ]
 
     url = f"{webapp_public_url.rstrip('/')}/me/requests/{request_id}"
@@ -305,8 +313,12 @@ def build_client_new_offer_message(
         except Exception:
             eta_text = str(eta_hours)
 
+    cat = format_category(getattr(request_obj, "service_category", None))
+
     msg_lines: List[str] = [
         f"📩 Новый отклик по заявке №{request_id}!" if request_id else "📩 Новый отклик по вашей заявке!",
+        f"🧾 Категория: {cat}" if cat else "",
+        _location_block(request_obj),
         format_service_center(service_center),
         f"💰 Цена: {price_text}" if price_text else "",
         f"⏱ Срок: {eta_text}" if eta_text else "",
@@ -328,6 +340,7 @@ def build_client_request_cancelled_message(
     msg_lines: List[str] = [
         "🚫 Заявка отменена",
         f"Заявка №{request_id}",
+        _location_block(request_obj),
     ]
 
     url = f"{webapp_public_url.rstrip('/')}/me/requests/{request_id}"
@@ -348,6 +361,7 @@ def build_client_service_rejected_message(
     msg_lines: List[str] = [
         "⛔ Сервис закрыл заявку",
         f"🚗 Авто: {format_car(car)}",
+        _location_block(request_obj),
         format_service_center(service_center),
     ]
     if reason:
