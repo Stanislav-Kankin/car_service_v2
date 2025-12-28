@@ -687,3 +687,30 @@ async def send_request_to_selected_service_centers(
             )
 
     return distributed_request
+
+
+class ScDeclineIn(BaseModel):
+    service_center_id: int
+    reason: str | None = None
+
+
+@router.post("/{request_id}/decline_by_service_center", response_model=RequestRead)
+async def decline_by_service_center(
+    request_id: int,
+    payload: ScDeclineIn,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        req = await RequestsService.decline_by_service_center(
+            db,
+            request_id,
+            payload.service_center_id,
+            reason=payload.reason,
+        )
+        if not req:
+            raise HTTPException(status_code=404, detail="Request not found")
+        return req
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="No access to this request")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status transition")

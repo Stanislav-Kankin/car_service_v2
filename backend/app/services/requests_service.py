@@ -118,17 +118,121 @@ class RequestsService:
     async def list_requests_for_service_center(
         db: AsyncSession,
         service_center_id: int,
-    ) -> List[Request]:
+    ) -> list[Request]:
         stmt = (
             select(Request)
             .join(RequestDistribution, RequestDistribution.request_id == Request.id)
             .where(RequestDistribution.service_center_id == service_center_id)
-            .where(RequestDistribution.status != RequestDistributionStatus.DECLINED)  # ✅ скрываем отказанные
+            .where(RequestDistribution.status != RequestDistributionStatus.DECLINED)
+            .options(
+                selectinload(Request.car),
+                selectinload(Request.user),
+            )
             .order_by(Request.created_at.desc())
         )
         res = await db.execute(stmt)
-        return list(res.scalars().all())
+        return res.scalars().all()
 
+    @staticmethod
+    async def decline_by_service_center(
+        db: AsyncSession,
+        request_id: int,
+        service_center_id: int,
+        *,
+        reason: str | None = None,
+    ) -> Optional[Request]:
+        """
+        СТО отклоняет заявку на этапе получения (до того, как клиент выбрал сервис).
+
+        Логика:
+        - Проверяем, что заявка действительно была разослана этому СТО (RequestDistribution).
+        - Помечаем distribution как DECLINED (это скрывает заявку из списка СТО).
+        - Заявку (Request) НЕ закрываем: клиент может выбрать другой сервис / дождаться других откликов.
+        - Клиенту отправляем информативное уведомление (через bot notify API).
+        """
+
+        req = await RequestsService.get_request_by_id(db, request_id)
+        if not req:
+            return None
+
+        # Если заявка уже назначена этому СТО — это другой сценарий (закрытие заявки СТО),
+        # используем существующую логику reject_by_service.
+        if req.service_center_id == service_center_id:
+            return await RequestsService.reject_by_service(
+                db,
+                request_id,
+                service_center_id,
+                reason=reason,
+            )
+
+        dist_stmt = (
+            select(RequestDistribution)
+            .where(RequestDistribution.request_id == request_id)
+            .where(RequestDistribution.service_center_id == service_center_id)
+        )
+        dist_res = await db.execute(dist_stmt)
+        dist = dist_res.scalars().first()
+        if not dist:
+            raise PermissionError("No access to this request")
+
+        # идемпотентность
+        if dist.status == RequestDistributionStatus.DECLINED:
+            return req
+
+        if req.status in [RequestStatus.DONE, RequestStatus.CANCELLED, RequestStatus.REJECTED_BY_SERVICE]:
+            raise ValueError("Invalid status transition")
+
+        dist.status = RequestDistributionStatus.DECLINED
+
+        await db.commit()
+        await db.refresh(req)
+
+        # уведомление клиенту
+        try:
+            client = await UsersService.get_by_id(db, req.user_id)
+            tg_id = getattr(client, "telegram_id", None) if client else None
+
+            if notifier.is_enabled() and WEBAPP_PUBLIC_URL and tg_id:
+                clean_reason = (reason or "").strip()
+
+                message = f"❌ Сервис не сможет принять заявку №{request_id}."
+
+                # адрес (если есть) — показываем как в шаблонах
+                if getattr(req, "address_text", None):
+                    message += f"\n📍 {req.address_text}"
+                else:
+                    lat = getattr(req, "latitude", None)
+                    lon = getattr(req, "longitude", None)
+                    if lat is not None and lon is not None:
+                        try:
+                            lat_f = float(lat)
+                            lon_f = float(lon)
+                            message += f"\n📍 {lat_f:.6f}, {lon_f:.6f}"
+                            message += f"\n🗺 https://maps.google.com/?q={lat_f:.6f},{lon_f:.6f}"
+                        except Exception:
+                            pass
+
+                if clean_reason:
+                    message += f"\nПричина: {clean_reason}"
+
+                buttons = [_btn_webapp("Открыть заявку", f"{WEBAPP_PUBLIC_URL}/me/requests/{request_id}")]
+                extra = {
+                    "request_id": request_id,
+                    "service_center_id": int(service_center_id),
+                    "status": "DECLINED_BY_SERVICE_CENTER",
+                }
+
+                await notifier.send_notification(
+                    recipient_type="client",
+                    telegram_id=int(tg_id),
+                    message=message,
+                    buttons=buttons,
+                    extra=extra,
+                )
+        except Exception:
+            logger.exception("decline_by_service_center notify failed (request_id=%s)", request_id)
+
+        return req
 
     # ------------------------------------------------------------------
     # Обновление

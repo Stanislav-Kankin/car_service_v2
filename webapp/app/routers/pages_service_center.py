@@ -951,6 +951,35 @@ async def sc_set_done(
     )
 
 
+@router.post("/{sc_id}/requests/{request_id}/decline", response_class=HTMLResponse)
+async def sc_decline(
+    sc_id: int,
+    request_id: int,
+    request: Request,
+    client: AsyncClient = Depends(get_backend_client),
+    reason: str = Form(""),
+) -> HTMLResponse:
+    _ = await _load_sc_for_owner(request, client, sc_id)
+
+    try:
+        resp = await client.post(
+            f"/api/v1/requests/{request_id}/decline_by_service_center",
+            json={"service_center_id": sc_id, "reason": reason or None},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return RedirectResponse(
+            url=f"/sc/{sc_id}/requests/{request_id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    # После отклонения убираем заявку из списка СТО
+    return RedirectResponse(
+        url=f"/sc/{sc_id}/requests",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @router.post("/{sc_id}/requests/{request_id}/reject", response_class=HTMLResponse)
 async def sc_reject(
     sc_id: int,
