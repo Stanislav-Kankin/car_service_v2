@@ -42,7 +42,7 @@
 
         <div class="md:col-span-2">
           <label class="block text-sm font-medium text-slate-200 mb-1">Адрес *</label>
-          <input name="address" required
+          <input name="address" required id="address"
             value="{{ (form_data.address if form_data is defined else '') }}"
             class="w-full rounded-2xl border border-slate-700 bg-slate-950/40 px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             placeholder="Город, улица, дом" />
@@ -192,6 +192,13 @@
   const statusEl = document.getElementById("geo-status");
   const previewEl = document.getElementById("geo-preview");
 
+  const addressInput = document.getElementById("address");
+  if (addressInput) {
+    addressInput.addEventListener("input", () => {
+      addressInput.dataset.touched = "1";
+    });
+  }
+
   const btnCurrent = document.getElementById("btn-sc-geo-current");
   const btnMap = document.getElementById("btn-sc-geo-map");
 
@@ -213,6 +220,34 @@
     lonInput.value = String(lon);
     setPreview(lat, lon);
     if (statusEl) statusEl.textContent = "✅ координаты сохранены";
+    tryFillAddressFromCoords(lat, lon);
+  }
+
+  async function tryFillAddressFromCoords(lat, lon) {
+    const addressInput = document.getElementById("address");
+    if (!addressInput) return;
+
+    // если пользователь уже начал вводить адрес руками — не затираем
+    if (addressInput.dataset.touched === "1") return;
+
+    if (statusEl) statusEl.textContent = "⏳ Определяем адрес…";
+
+    try {
+      const url = `/api/v1/geo/reverse?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&lang=ru`;
+      const resp = await fetch(url, { credentials: "same-origin" });
+      if (!resp.ok) throw new Error("bad response");
+      const data = await resp.json();
+      const addr = (data && data.address_text) ? String(data.address_text).trim() : "";
+
+      if (addr) {
+        addressInput.value = addr;
+        if (statusEl) statusEl.textContent = "✅ координаты и адрес сохранены";
+      } else {
+        if (statusEl) statusEl.textContent = "✅ координаты сохранены (адрес не найден)";
+      }
+    } catch (e) {
+      if (statusEl) statusEl.textContent = "✅ координаты сохранены (адрес не удалось определить)";
+    }
   }
 
   function openModal() {
