@@ -210,6 +210,10 @@ class OffersService:
         if not offer:
             return None
 
+        # Идемпотентность: если уже принято — не рассылаем повторно уведомления
+        if offer.status == OfferStatus.ACCEPTED:
+            return offer
+
         req = offer.request
         if not req:
             return None
@@ -294,8 +298,7 @@ class OffersService:
                         extra=extra_sc,
                     )
 
-                # 2) остальным СТО — сообщаем, что заявку выбрали не у них.
-                # ВАЖНО: не используем sc.owner (lazy-load может падать в async). Берём telegram_id через User по user_id.
+                # 2) остальным СТО — коротко, без раскрытия выбранного сервиса
                 if other_sc_ids:
                     from backend.app.models.user import User
                     sc_stmt = select(ServiceCenter.id, ServiceCenter.user_id).where(ServiceCenter.id.in_(other_sc_ids))
@@ -310,12 +313,9 @@ class OffersService:
                             if tg_id is not None:
                                 tg_by_user_id[int(uid)] = int(tg_id)
 
-                    winner_name = (getattr(offer_full.service_center, "name", None) or "").strip() if offer_full.service_center else ""
-                    winner_addr = (
-                        (getattr(offer_full.service_center, "address", None) or getattr(offer_full.service_center, "address_text", None) or "").strip()
-                        if offer_full.service_center
-                        else ""
-                    )
+                    # Раньше мы сообщали имя/адрес победителя — теперь это запрещено по ТЗ.
+                    # winner_name = ...
+                    # winner_addr = ...
 
                     for sc_id, user_id in sc_rows:
                         if user_id is None:
@@ -325,16 +325,12 @@ class OffersService:
                             continue
 
                         url_sc = f"{WEBAPP_PUBLIC_URL}/sc/{int(sc_id)}/requests/{request_id}"
-                        msg_other_lines = [f"ℹ️ Клиент выбрал другой сервис по заявке №{request_id}."]
-                        if winner_name:
-                            msg_other_lines.append(f"🏁 Выбрано: {winner_name}")
-                        if winner_addr:
-                            msg_other_lines.append(f"📍 {winner_addr}")
+                        msg_other = f"ℹ️ К сожалению, клиент выбрал другой сервис по заявке №{request_id}."
 
                         await notifier.send_notification(
                             recipient_type="service_center",
                             telegram_id=int(owner_tg),
-                            message="\n".join(msg_other_lines),
+                            message=msg_other,
                             buttons=[{"text": "Открыть заявку", "type": "web_app", "url": url_sc}],
                             extra={"request_id": request_id, "service_center_id": int(sc_id), "event": "offer_not_selected"},
                         )
@@ -416,4 +412,3 @@ class OffersService:
                 pass
 
         return offer
-

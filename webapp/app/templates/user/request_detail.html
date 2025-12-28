@@ -245,10 +245,18 @@
                     📍 {{ offer.service_center_address }}
                   </div>
                 {% endif %}
-                <div class="text-xs text-slate-400">
-                  {% if offer.price is not none %}Цена: <span class="text-slate-200 font-semibold">{{ offer.price }}</span>{% endif %}
-                  {% if offer.days is not none %} • Срок: <span class="text-slate-200 font-semibold">{{ offer.days }}</span> дн.{% endif %}
-                </div>
+
+                {% set price = offer.price|default(none) %}
+                {% set days = offer.days|default(none) %}
+                {% if days is string and days|trim == "" %}
+                  {% set days = none %}
+                {% endif %}
+                {% if price is not none or days is not none %}
+                  <div class="text-xs text-slate-400">
+                    {% if price is not none %}Цена: <span class="text-slate-200 font-semibold">{{ price }}</span>{% endif %}
+                    {% if days is not none %}{% if price is not none %} • {% endif %}Срок: <span class="text-slate-200 font-semibold">{{ days }}</span> дн.{% endif %}
+                  </div>
+                {% endif %}
               </div>
 
               {% if offer.status %}
