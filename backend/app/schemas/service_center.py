@@ -35,6 +35,13 @@ class ServiceCenterBase(BaseModel):
         description="Тип организации: 'individual' (частник) или 'company' (юрлицо)",
     )
 
+    # Сегментация/плашка СТО
+    segment: str = Field(
+        default="unspecified",
+        max_length=32,
+        description="Сегмент СТО: prem_plus/official/multibrand/club/specialized/unspecified",
+    )
+
     # Флаги возможностей
     is_mobile_service: bool = False
     has_tow_truck: bool = False
@@ -63,6 +70,7 @@ class ServiceCenterUpdate(BaseModel):
 
     phone: Optional[str] = Field(default=None, max_length=32)
     website: Optional[str] = Field(default=None, max_length=255)
+
     social_links: Optional[Dict[str, str]] = None
     specializations: Optional[List[str]] = None
 
@@ -72,6 +80,8 @@ class ServiceCenterUpdate(BaseModel):
         description="Тип организации: 'individual' (частник) или 'company' (юрлицо)",
     )
 
+    segment: Optional[str] = Field(default=None, max_length=32)
+
     is_mobile_service: Optional[bool] = None
     has_tow_truck: Optional[bool] = None
     is_active: Optional[bool] = None
@@ -80,21 +90,6 @@ class ServiceCenterUpdate(BaseModel):
 class ServiceCenterRead(ServiceCenterBase):
     id: int
     user_id: int
-
-    address: str | None
-    latitude: float | None
-    longitude: float | None
-
-    phone: str | None
-    website: str | None
-    social_links: dict | None
-
-    specializations: list[str] | None
-    org_type: str | None
-
-    is_mobile_service: bool
-    has_tow_truck: bool
-    is_active: bool
 
     created_at: datetime
     updated_at: datetime | None

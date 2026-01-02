@@ -52,6 +52,15 @@
     "agg": "Агрегатный ремонт"
 } %}
 
+{% set segment_labels = {
+    "unspecified": "Не указано",
+    "prem_plus": "Прем+",
+    "official": "Официальный",
+    "multibrand": "Мультибренд",
+    "club": "Клубный",
+    "specialized": "Специализированный"
+} %}
+
 <div class="mt-8 space-y-6">
     <a href="/me/requests/{{ request_id }}" class="text-xs text-slate-400 hover:text-emerald-400 transition">
         ← Назад к заявке
@@ -162,6 +171,10 @@
                                     </div>
 
                                     <div class="flex flex-col items-end gap-2">
+                                        {% set seg = sc.segment or "unspecified" %}
+                                        <span class="inline-flex items-center rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1 text-[11px] font-semibold text-slate-200">
+                                            {{ segment_labels.get(seg, "Не указано") }}
+                                        </span>
                                         {% if sc.is_mobile_service %}
                                         <span class="inline-flex items-center rounded-full border border-sky-400/60 bg-sky-500/10 px-3 py-1 text-[11px] font-semibold text-sky-200">
                                             🚗 Выездной сервис
