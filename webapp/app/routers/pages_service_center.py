@@ -184,6 +184,10 @@ async def sc_create_get(
     _ = get_current_user_id(request)
 
     specialization_options = _get_sc_specialization_options()
+    segment_options = _get_sc_segment_options()
+    segment_options = _get_sc_segment_options()
+    segment_options = _get_sc_segment_options()
+    segment_options = _get_sc_segment_options()
 
     return templates.TemplateResponse(
         "service_center/create.html",
@@ -191,6 +195,7 @@ async def sc_create_get(
             "request": request,
             "error_message": None,
             "specialization_options": specialization_options,
+                    "segment_options": segment_options,
         },
     )
 
@@ -205,6 +210,7 @@ async def sc_create_post(
     longitude: str = Form(""),
     phone: str = Form(""),
     website: str = Form(""),
+    segment: str = Form("unspecified"),
     org_type: str = Form("company"),
     specializations: list[str] = Form([]),
     is_mobile_service: bool = Form(False),
@@ -214,6 +220,7 @@ async def sc_create_post(
     address = (address or "").strip()
 
     specialization_options = _get_sc_specialization_options()
+    segment_options = _get_sc_segment_options()
 
     if not address:
         return templates.TemplateResponse(
@@ -222,6 +229,7 @@ async def sc_create_post(
                 "request": request,
                 "error_message": "Укажите адрес СТО (обязательное поле).",
                 "specialization_options": specialization_options,
+                    "segment_options": segment_options,
                 "form_data": {
                     "name": name,
                     "address": "",
@@ -229,6 +237,7 @@ async def sc_create_post(
                     "longitude": longitude,
                     "phone": phone,
                     "website": website,
+                    "segment": _normalize_sc_segment(segment),
                     "org_type": org_type,
                     "is_mobile_service": bool(is_mobile_service),
                     "has_tow_truck": bool(has_tow_truck),
@@ -255,6 +264,7 @@ async def sc_create_post(
                 "request": request,
                 "error_message": "Укажите геолокацию СТО (📍 или 🗺) — без неё СТО не сможет участвовать в подборе.",
                 "specialization_options": specialization_options,
+                    "segment_options": segment_options,
                 "form_data": {
                     "name": name,
                     "address": address,
@@ -262,6 +272,7 @@ async def sc_create_post(
                     "longitude": longitude,
                     "phone": phone,
                     "website": website,
+                    "segment": _normalize_sc_segment(segment),
                     "org_type": org_type,
                     "is_mobile_service": bool(is_mobile_service),
                     "has_tow_truck": bool(has_tow_truck),
@@ -278,6 +289,7 @@ async def sc_create_post(
                 "request": request,
                 "error_message": "Выберите минимум одну специализацию.",
                 "specialization_options": specialization_options,
+                    "segment_options": segment_options,
                 "form_data": {
                     "name": name,
                     "address": address,
@@ -285,6 +297,7 @@ async def sc_create_post(
                     "longitude": longitude,
                     "phone": phone,
                     "website": website,
+                    "segment": _normalize_sc_segment(segment),
                     "org_type": org_type,
                     "is_mobile_service": bool(is_mobile_service),
                     "has_tow_truck": bool(has_tow_truck),
@@ -301,6 +314,7 @@ async def sc_create_post(
         "longitude": lon_value,
         "phone": phone or None,
         "website": website or None,
+        "segment": _normalize_sc_segment(segment),
         "org_type": org_type or None,
         "specializations": specs_clean,
         "is_mobile_service": bool(is_mobile_service),
@@ -325,6 +339,7 @@ async def sc_create_post(
             "success": success,
             "error_message": error_message,
             "specialization_options": specialization_options,
+                    "segment_options": segment_options,
             "form_data": {
                 "name": name,
                 "address": address,
@@ -388,6 +403,7 @@ async def sc_edit_get(
     sc = await _load_sc_for_owner(request, client, sc_id)
 
     specialization_options = _get_sc_specialization_options()
+    segment_options = _get_sc_segment_options()
 
     return templates.TemplateResponse(
         "service_center/edit.html",
@@ -400,8 +416,46 @@ async def sc_edit_get(
             "error_message": None,
             "success": False,
             "specialization_options": specialization_options,
+                    "segment_options": segment_options,
         },
     )
+
+
+def _get_sc_segment_options() -> list[tuple[str, str]]:
+    # Сегментация/категория СТО (плашка/фильтры)
+    return [
+        ("unspecified", "Не указано"),
+        ("premium_plus", "Прем+"),
+        ("official", "Официальный"),
+        ("multibrand", "Мультибренд"),
+        ("club", "Клубный"),
+        ("specialized", "Специализированный"),
+    ]
+
+
+def _normalize_sc_segment(value: str | None) -> str:
+    """Нормализуем сегмент, чтобы UI мог прислать как код, так и русское название."""
+    v = (value or "").strip()
+    if not v:
+        return "unspecified"
+
+    # Нормальные коды
+    allowed = {k for k, _ in _get_sc_segment_options()}
+    if v in allowed:
+        return v
+
+    # Русские/варианты
+    ru_map = {
+        "не указано": "unspecified",
+        "прем+": "premium_plus",
+        "прем": "premium_plus",
+        "официальный": "official",
+        "мультибренд": "multibrand",
+        "клубный": "club",
+        "специализированный": "specialized",
+    }
+    vv = v.lower()
+    return ru_map.get(vv, "unspecified")
 
 
 def _get_sc_specialization_options() -> list[tuple[str, str]]:
@@ -463,6 +517,7 @@ async def sc_edit_post(
     longitude: str = Form(""),
     phone: str = Form(""),
     website: str = Form(""),
+    segment: str = Form("unspecified"),
     org_type: str = Form("company"),
     specializations: list[str] = Form([]),
     is_mobile_service: bool = Form(False),
@@ -470,6 +525,7 @@ async def sc_edit_post(
     is_active: bool = Form(True),
 ) -> HTMLResponse:
     specialization_options = _get_sc_specialization_options()
+    segment_options = _get_sc_segment_options()
     known_codes = {code for code, _ in specialization_options}
 
     # Владелец/доступ + текущие данные (нужно для legacy-спеков)
@@ -486,6 +542,7 @@ async def sc_edit_post(
                 "error_message": "Выберите минимум одну специализацию.",
                 "success": False,
                 "specialization_options": specialization_options,
+                    "segment_options": segment_options,
             },
         )
 
@@ -516,6 +573,7 @@ async def sc_edit_post(
                     "error_message": "Широта должна быть числом.",
                     "success": False,
                     "specialization_options": specialization_options,
+                    "segment_options": segment_options,
                 },
             )
 
@@ -532,6 +590,7 @@ async def sc_edit_post(
                     "error_message": "Долгота должна быть числом.",
                     "success": False,
                     "specialization_options": specialization_options,
+                    "segment_options": segment_options,
                 },
             )
 
@@ -542,6 +601,7 @@ async def sc_edit_post(
         "longitude": lon_value,
         "phone": phone or None,
         "website": website or None,
+        "segment": _normalize_sc_segment(segment),
         "org_type": org_type or None,
         "specializations": specs_final,
         "is_mobile_service": is_mobile_service,
@@ -570,6 +630,7 @@ async def sc_edit_post(
             "error_message": error_message,
             "success": success,
             "specialization_options": specialization_options,
+                    "segment_options": segment_options,
         },
     )
 

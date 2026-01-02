@@ -115,7 +115,16 @@
             {% if service_centers %}
             <form method="post" action="/me/requests/{{ request_id }}/send-to-selected" class="space-y-4">
                 <div class="grid gap-4 md:grid-cols-2">
-                    {% for sc in service_centers %}
+                    
+                    {% set segment_labels = {
+                      "unspecified": "Не указано",
+                      "premium_plus": "Прем+",
+                      "official": "Официальный",
+                      "multibrand": "Мультибренд",
+                      "club": "Клубный",
+                      "specialized": "Специализированный",
+                    } %}
+{% for sc in service_centers %}
                     <label class="group block cursor-pointer rounded-2xl border border-slate-800 bg-slate-900/80 p-5 hover:border-sky-400/70 hover:bg-slate-900 transition transform hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(56,189,248,0.20)]">
                         <div class="flex items-start gap-3">
                             <div class="pt-1">
@@ -131,6 +140,14 @@
                                         <h2 class="text-lg font-semibold mb-1">
                                             {{ sc.name or ("Сервис #" ~ sc.id) }}
                                         </h2>
+
+                                        {% set seg = sc.segment or "unspecified" %}
+                                        <div class="mb-2">
+                                          <span class="inline-flex items-center rounded-full bg-slate-800/80 px-2.5 py-0.5 text-xs font-medium text-slate-200 border border-slate-700">
+                                            {{ segment_labels.get(seg, "Не указано") }}
+                                          </span>
+                                        </div>
+
 
                                         {% if sc.address %}
                                         <p class="text-sm text-slate-300 mb-1 break-words">

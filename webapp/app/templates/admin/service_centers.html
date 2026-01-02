@@ -24,6 +24,7 @@
                     <tr>
                         <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">ID</th>
                         <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Название</th>
+                        <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Категория</th>
                         <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Владелец (user_id)</th>
                         <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Адрес</th>
                         <th class="px-3 py-2 font-semibold text-slate-200 whitespace-nowrap">Телефон</th>
@@ -34,13 +35,25 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for sc in service_centers %}
+                    
+                {% set segment_labels = {
+                  "unspecified": "Не указано",
+                  "premium_plus": "Прем+",
+                  "official": "Официальный",
+                  "multibrand": "Мультибренд",
+                  "club": "Клубный",
+                  "specialized": "Специализированный",
+                } %}
+{% for sc in service_centers %}
                     <tr class="border-t border-slate-700/70 hover:bg-slate-700/40">
                         <td class="px-3 py-2 whitespace-nowrap text-slate-100 text-xs">
                             {{ sc.id }}
                         </td>
                         <td class="px-3 py-2 whitespace-nowrap text-slate-100 text-xs">
                             {{ sc.name }}
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-slate-200 text-xs">
+                            {{ segment_labels.get(sc.segment or "unspecified", "Не указано") }}
                         </td>
                         <td class="px-3 py-2 whitespace-nowrap text-slate-300 text-xs">
                             {{ sc.user_id }}

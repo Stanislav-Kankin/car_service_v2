@@ -51,6 +51,10 @@ class ServiceCenter(Base):
 
     org_type = Column(String(20), nullable=True)
 
+    # Сегментация/категория СТО (для фильтров/плашек в UI).
+    # Значения: premium_plus / official / multibrand / club / specialized / unspecified
+    segment = Column(String(20), nullable=False, server_default="unspecified")
+
     # выездной мастер/эвакуатор
     is_mobile_service = Column(Boolean, nullable=True, default=False)
     has_tow_truck = Column(Boolean, nullable=True, default=False)

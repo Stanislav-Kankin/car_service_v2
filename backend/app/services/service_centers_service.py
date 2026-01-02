@@ -33,6 +33,7 @@ class ServiceCentersService:
             social_links=data_in.social_links,
             specializations=data_in.specializations,
             org_type=data_in.org_type,
+            segment=getattr(data_in, 'segment', None) or 'unspecified',
             is_mobile_service=data_in.is_mobile_service,
             has_tow_truck=data_in.has_tow_truck,
             is_active=False,  # модерация
