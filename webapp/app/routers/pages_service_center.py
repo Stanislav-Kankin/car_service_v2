@@ -377,16 +377,22 @@ async def sc_edit_get(
 ) -> HTMLResponse:
     _ = get_current_user_id(request)
 
-    sc = await _load_service_center(client, sc_id)
-    if not sc:
-        return templates.TemplateResponse(
-            "service_center/dashboard.html",
-            {
-                "request": request,
-                "error_message": "СТО не найдена или недоступна.",
-                "service_centers": [],
-            },
-        )
+    try:
+        # ✅ правильный helper: и загрузит СТО, и проверит, что это СТО текущего владельца
+        sc = await _load_sc_for_owner(request, client, sc_id)
+    except HTTPException as e:
+        # дружелюбно возвращаем в кабинет, без падения 500
+        if e.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND):
+            return templates.TemplateResponse(
+                "service_center/dashboard.html",
+                {
+                    "request": request,
+                    "service_centers": [],
+                    "sc_counters": {},  # чтобы шаблон не упал
+                    "error_message": "СТО не найдена или недоступна.",
+                },
+            )
+        raise
 
     specialization_options = _get_sc_specialization_options()
     segment_options = _get_sc_segment_options()
