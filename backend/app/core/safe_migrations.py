@@ -51,8 +51,6 @@ async def _apply_postgres(conn: AsyncConnection) -> None:
         "ALTER TABLE cars ADD COLUMN IF NOT EXISTS engine_power_kw INTEGER;",
 
         # service_centers
-        "ALTER TABLE service_centers ADD COLUMN IF NOT EXISTS segment VARCHAR(32) DEFAULT 'unspecified';",
-        "UPDATE service_centers SET segment='unspecified' WHERE segment IS NULL;",
         # service_centers
         "ALTER TABLE service_centers ADD COLUMN IF NOT EXISTS segment VARCHAR(20) NOT NULL DEFAULT 'unspecified';",
         "UPDATE service_centers SET segment='unspecified' WHERE segment IS NULL OR segment='';",

@@ -52,15 +52,6 @@
 "agg": "Агрегатный ремонт"
 } %}
 
-{% set segment_labels = {
-"unspecified": "Не указано",
-"prem_plus": "Прем+",
-"official": "Официальный",
-"multibrand": "Мультибренд",
-"club": "Клубный",
-"specialized": "Специализированный"
-} %}
-
 <div class="mt-8 space-y-6">
     <div class="flex items-start justify-between gap-4">
         <div>
@@ -94,7 +85,16 @@
             </div>
 
             <div class="grid gap-4 md:grid-cols-2">
-                {% for sc in service_centers %}
+                
+              {% set segment_labels = {
+                "unspecified": "Не указано",
+                "premium_plus": "Прем+",
+                "official": "Официальный",
+                "multibrand": "Мультибренд",
+                "club": "Клубный",
+                "specialized": "Специализированный",
+              } %}
+{% for sc in service_centers %}
                 {% set c = (sc_counters or {}).get(sc.id, {"total": 0, "no_offer": 0, "in_work": 0, "done": 0}) %}
 
                 <div
@@ -106,6 +106,13 @@
                                 <h2 class="text-lg font-semibold text-slate-100 break-words">
                                     {{ sc.name or "Сервис без названия" }}
                                 </h2>
+
+                                {% set seg = sc.segment if sc.segment is not none else "unspecified" %}
+                                <span
+                                  class="inline-flex items-center rounded-full bg-slate-800/80 px-2.5 py-0.5 text-xs font-medium text-slate-200 border border-slate-700">
+                                  {{ segment_labels.get(seg, "Не указано") }}
+                                </span>
+
                                 {% if sc.is_active %}
                                 <span
                                     class="shrink-0 inline-flex items-center rounded-full border border-emerald-400/60 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
@@ -117,11 +124,6 @@
                                     ● Неактивный
                                 </span>
                                 {% endif %}
-                                {% set seg = sc.segment or "unspecified" %}
-                                <span
-                                    class="shrink-0 inline-flex items-center rounded-full border border-slate-600/60 bg-slate-800/30 px-2.5 py-1 text-[11px] font-semibold text-slate-200">
-                                    {{ segment_labels.get(seg, "Не указано") }}
-                                </span>
                             </div>
 
                             {% if sc.address %}

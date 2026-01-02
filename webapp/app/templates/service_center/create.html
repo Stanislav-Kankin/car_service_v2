@@ -96,37 +96,27 @@
             placeholder="https://..." />
         </div>
 
-        <div class="md:col-span-2">
+        
+        {% set _segment_options = segment_options if segment_options is defined else [
+          ("unspecified", "Не указано"),
+          ("premium_plus", "Прем+"),
+          ("official", "Официальный"),
+          ("multibrand", "Мультибренд"),
+          ("club", "Клубный"),
+          ("specialized", "Специализированный"),
+        ] %}
+        <div>
           <label class="block text-sm font-medium text-slate-200 mb-1">Категория СТО</label>
-
-          {# segment_options приходит из роутера; если вдруг не передали — не падаем #}
-          {% set segment_options_local = (segment_options if segment_options is defined else [
-            ("unspecified","Не указано"),
-            ("prem_plus","Прем+"),
-            ("official","Официальный"),
-            ("multibrand","Мультибренд"),
-            ("club","Клубный"),
-            ("specialized","Специализированный")
-          ]) %}
-
-          {% set current_segment = "unspecified" %}
-          {% if form_data is defined and form_data.segment is defined and form_data.segment %}
-            {% set current_segment = form_data.segment %}
-          {% endif %}
-
+          {% set current_segment = (form_data.segment if form_data is defined and form_data.segment else 'unspecified') %}
           <select name="segment"
-            class="w-full rounded-2xl border border-slate-700 bg-slate-950/40 px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500">
-            {% for key, label in segment_options_local %}
-              <option value="{{ key }}" {% if key == current_segment %}selected{% endif %}>{{ label }}</option>
+            class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {% for val, label in _segment_options %}
+              <option value="{{ val }}" {% if val == current_segment %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
-
-          <p class="mt-2 text-xs text-slate-400">
-            Можно оставить «Не указано», чтобы ничего не ломалось.
-          </p>
         </div>
 
-        <div class="md:col-span-2">
+<div class="md:col-span-2">
           <label class="block text-sm font-medium text-slate-200 mb-2">Специализации *</label>
           <div class="grid gap-2 sm:grid-cols-2">
             {% for key, label in specialization_options %}

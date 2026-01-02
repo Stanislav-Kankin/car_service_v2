@@ -184,6 +184,10 @@ async def sc_create_get(
     _ = get_current_user_id(request)
 
     specialization_options = _get_sc_specialization_options()
+    segment_options = _get_sc_segment_options()
+    segment_options = _get_sc_segment_options()
+    segment_options = _get_sc_segment_options()
+    segment_options = _get_sc_segment_options()
 
     return templates.TemplateResponse(
         "service_center/create.html",
@@ -191,6 +195,7 @@ async def sc_create_get(
             "request": request,
             "error_message": None,
             "specialization_options": specialization_options,
+                    "segment_options": segment_options,
         },
     )
 
@@ -205,33 +210,17 @@ async def sc_create_post(
     longitude: str = Form(""),
     phone: str = Form(""),
     website: str = Form(""),
-    org_type: str = Form("company"),
     segment: str = Form("unspecified"),
+    org_type: str = Form("company"),
     specializations: list[str] = Form([]),
     is_mobile_service: bool = Form(False),
     has_tow_truck: bool = Form(False),
 ) -> HTMLResponse:
     user_id = get_current_user_id(request)
     address = (address or "").strip()
-    segment = _normalize_sc_segment(segment)
 
     specialization_options = _get_sc_specialization_options()
     segment_options = _get_sc_segment_options()
-    known_codes = {code for code, _ in specialization_options}
-
-    # валидация специализаций: оставляем только известные
-    specs_clean = [s for s in (specializations or []) if s and s in known_codes]
-    specs_clean = sorted(set(specs_clean))
-
-    # нормализация координат (как было)
-    lat_value = None
-    lon_value = None
-    try:
-        lat_value = float(latitude) if latitude else None
-        lon_value = float(longitude) if longitude else None
-    except Exception:
-        lat_value = None
-        lon_value = None
 
     if not address:
         return templates.TemplateResponse(
@@ -240,7 +229,7 @@ async def sc_create_post(
                 "request": request,
                 "error_message": "Укажите адрес СТО (обязательное поле).",
                 "specialization_options": specialization_options,
-                "segment_options": segment_options,
+                    "segment_options": segment_options,
                 "form_data": {
                     "name": name,
                     "address": "",
@@ -248,23 +237,34 @@ async def sc_create_post(
                     "longitude": longitude,
                     "phone": phone,
                     "website": website,
+                    "segment": _normalize_sc_segment(segment),
                     "org_type": org_type,
-                    "segment": segment,
                     "is_mobile_service": bool(is_mobile_service),
                     "has_tow_truck": bool(has_tow_truck),
-                    "specializations": specs_clean,
+                    "specializations": specializations,
                 },
             },
         )
 
-    if not specs_clean:
+    lat_value: float | None = None
+    lon_value: float | None = None
+
+    if (latitude or "").strip() and (longitude or "").strip():
+        try:
+            lat_value = float(latitude)
+            lon_value = float(longitude)
+        except ValueError:
+            lat_value = None
+            lon_value = None
+
+    if lat_value is None or lon_value is None:
         return templates.TemplateResponse(
             "service_center/create.html",
             {
                 "request": request,
-                "error_message": "Выберите хотя бы одну специализацию.",
+                "error_message": "Укажите геолокацию СТО (📍 или 🗺) — без неё СТО не сможет участвовать в подборе.",
                 "specialization_options": specialization_options,
-                "segment_options": segment_options,
+                    "segment_options": segment_options,
                 "form_data": {
                     "name": name,
                     "address": address,
@@ -272,11 +272,36 @@ async def sc_create_post(
                     "longitude": longitude,
                     "phone": phone,
                     "website": website,
+                    "segment": _normalize_sc_segment(segment),
                     "org_type": org_type,
-                    "segment": segment,
                     "is_mobile_service": bool(is_mobile_service),
                     "has_tow_truck": bool(has_tow_truck),
-                    "specializations": specs_clean,
+                    "specializations": specializations,
+                },
+            },
+        )
+
+    specs_clean = [s for s in (specializations or []) if s]
+    if not specs_clean:
+        return templates.TemplateResponse(
+            "service_center/create.html",
+            {
+                "request": request,
+                "error_message": "Выберите минимум одну специализацию.",
+                "specialization_options": specialization_options,
+                    "segment_options": segment_options,
+                "form_data": {
+                    "name": name,
+                    "address": address,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "phone": phone,
+                    "website": website,
+                    "segment": _normalize_sc_segment(segment),
+                    "org_type": org_type,
+                    "is_mobile_service": bool(is_mobile_service),
+                    "has_tow_truck": bool(has_tow_truck),
+                    "specializations": specializations,
                 },
             },
         )
@@ -289,8 +314,8 @@ async def sc_create_post(
         "longitude": lon_value,
         "phone": phone or None,
         "website": website or None,
+        "segment": _normalize_sc_segment(segment),
         "org_type": org_type or None,
-        "segment": segment,
         "specializations": specs_clean,
         "is_mobile_service": bool(is_mobile_service),
         "has_tow_truck": bool(has_tow_truck),
@@ -305,19 +330,16 @@ async def sc_create_post(
         resp.raise_for_status()
         success = True
     except Exception:
-        error_message = "Не удалось создать СТО. Попробуйте позже."
-
-    if success:
-        # после создания — обратно в кабинет (как было)
-        return RedirectResponse(url="/service-center/dashboard", status_code=303)
+        error_message = "Не удалось отправить заявку на модерацию. Попробуйте позже."
 
     return templates.TemplateResponse(
         "service_center/create.html",
         {
             "request": request,
+            "success": success,
             "error_message": error_message,
             "specialization_options": specialization_options,
-            "segment_options": segment_options,
+                    "segment_options": segment_options,
             "form_data": {
                 "name": name,
                 "address": address,
@@ -326,13 +348,13 @@ async def sc_create_post(
                 "phone": phone,
                 "website": website,
                 "org_type": org_type,
-                "segment": segment,
                 "is_mobile_service": bool(is_mobile_service),
                 "has_tow_truck": bool(has_tow_truck),
-                "specializations": specs_clean,
+                "specializations": specializations,
             },
         },
     )
+
 
 # ---------------------------------------------------------------------------
 # ВСПОМОГАТЕЛЬНОЕ: загрузить СТО и проверить принадлежность
@@ -375,24 +397,10 @@ async def sc_edit_get(
     request: Request,
     client: AsyncClient = Depends(get_backend_client),
 ) -> HTMLResponse:
-    _ = get_current_user_id(request)
-
-    try:
-        # ✅ правильный helper: и загрузит СТО, и проверит, что это СТО текущего владельца
-        sc = await _load_sc_for_owner(request, client, sc_id)
-    except HTTPException as e:
-        # дружелюбно возвращаем в кабинет, без падения 500
-        if e.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND):
-            return templates.TemplateResponse(
-                "service_center/dashboard.html",
-                {
-                    "request": request,
-                    "service_centers": [],
-                    "sc_counters": {},  # чтобы шаблон не упал
-                    "error_message": "СТО не найдена или недоступна.",
-                },
-            )
-        raise
+    """
+    Форма редактирования профиля СТО.
+    """
+    sc = await _load_sc_for_owner(request, client, sc_id)
 
     specialization_options = _get_sc_specialization_options()
     segment_options = _get_sc_segment_options()
@@ -408,9 +416,46 @@ async def sc_edit_get(
             "error_message": None,
             "success": False,
             "specialization_options": specialization_options,
-            "segment_options": segment_options,
+                    "segment_options": segment_options,
         },
     )
+
+
+def _get_sc_segment_options() -> list[tuple[str, str]]:
+    # Сегментация/категория СТО (плашка/фильтры)
+    return [
+        ("unspecified", "Не указано"),
+        ("premium_plus", "Прем+"),
+        ("official", "Официальный"),
+        ("multibrand", "Мультибренд"),
+        ("club", "Клубный"),
+        ("specialized", "Специализированный"),
+    ]
+
+
+def _normalize_sc_segment(value: str | None) -> str:
+    """Нормализуем сегмент, чтобы UI мог прислать как код, так и русское название."""
+    v = (value or "").strip()
+    if not v:
+        return "unspecified"
+
+    # Нормальные коды
+    allowed = {k for k, _ in _get_sc_segment_options()}
+    if v in allowed:
+        return v
+
+    # Русские/варианты
+    ru_map = {
+        "не указано": "unspecified",
+        "прем+": "premium_plus",
+        "прем": "premium_plus",
+        "официальный": "official",
+        "мультибренд": "multibrand",
+        "клубный": "club",
+        "специализированный": "specialized",
+    }
+    vv = v.lower()
+    return ru_map.get(vv, "unspecified")
 
 
 def _get_sc_specialization_options() -> list[tuple[str, str]]:
@@ -461,30 +506,6 @@ def _get_sc_specialization_options() -> list[tuple[str, str]]:
         ]
 
 
-def _get_sc_segment_options() -> list[tuple[str, str]]:
-    """
-    Единый список сегментов/плашек СТО (импорт из backend если доступен, иначе фолбэк).
-    """
-    try:
-        from backend.app.core.catalogs.service_center_segments import get_service_center_segment_options
-        return list(get_service_center_segment_options())
-    except Exception:
-        return [
-            ("unspecified", "Не указано"),
-            ("prem_plus", "Прем+"),
-            ("official", "Официальный"),
-            ("multibrand", "Мультибренд"),
-            ("club", "Клубный"),
-            ("specialized", "Специализированный"),
-        ]
-
-
-def _normalize_sc_segment(value: str | None) -> str:
-    value = (value or "").strip() or "unspecified"
-    allowed = {k for k, _ in _get_sc_segment_options()}
-    return value if value in allowed else "unspecified"
-
-
 @router.post("/edit/{sc_id}", response_class=HTMLResponse)
 async def sc_edit_post(
     sc_id: int,
@@ -496,8 +517,8 @@ async def sc_edit_post(
     longitude: str = Form(""),
     phone: str = Form(""),
     website: str = Form(""),
-    org_type: str = Form("company"),
     segment: str = Form("unspecified"),
+    org_type: str = Form("company"),
     specializations: list[str] = Form([]),
     is_mobile_service: bool = Form(False),
     has_tow_truck: bool = Form(False),
@@ -511,30 +532,67 @@ async def sc_edit_post(
     sc = await _load_sc_for_owner(request, client, sc_id)
 
     specs_clean = [s for s in (specializations or []) if s]
-    specs_clean = [s for s in specs_clean if s in known_codes]
-    specs_clean = sorted(set(specs_clean))
+    if not specs_clean:
+        return templates.TemplateResponse(
+            "service_center/edit.html",
+            {
+                "request": request,
+                "sc": sc,  # ✅
+                "service_center": sc,
+                "error_message": "Выберите минимум одну специализацию.",
+                "success": False,
+                "specialization_options": specialization_options,
+                    "segment_options": segment_options,
+            },
+        )
 
-    segment = _normalize_sc_segment(segment)
+    # ✅ Защита от потери старых специализаций, которых нет в UI
+    existing_specs = sc.get("specializations") or []
+    legacy_specs = [s for s in existing_specs if s and s not in known_codes]
 
-    # нормализация координат (как было)
-    lat_value = None
-    lon_value = None
-    try:
-        lat_value = float(latitude) if latitude else None
-        lon_value = float(longitude) if longitude else None
-    except Exception:
-        lat_value = None
-        lon_value = None
+    # сохраняем порядок: сначала выбранные, потом legacy (без дублей)
+    specs_final: list[str] = []
+    for s in specs_clean + legacy_specs:
+        if s and s not in specs_final:
+            specs_final.append(s)
 
-    # legacy: если пришло пусто — оставляем как есть
-    if sc and (not specs_clean):
-        old_specs = sc.get("specializations") or []
-        if isinstance(old_specs, list) and old_specs:
-            specs_final = old_specs
-        else:
-            specs_final = specs_clean
-    else:
-        specs_final = specs_clean
+    # Координаты
+    lat_value: float | None = None
+    lon_value: float | None = None
+
+    if latitude.strip():
+        try:
+            lat_value = float(latitude.strip().replace(",", "."))
+        except ValueError:
+            return templates.TemplateResponse(
+                "service_center/edit.html",
+                {
+                    "request": request,
+                    "sc": sc,  # ✅
+                    "service_center": sc,
+                    "error_message": "Широта должна быть числом.",
+                    "success": False,
+                    "specialization_options": specialization_options,
+                    "segment_options": segment_options,
+                },
+            )
+
+    if longitude.strip():
+        try:
+            lon_value = float(longitude.strip().replace(",", "."))
+        except ValueError:
+            return templates.TemplateResponse(
+                "service_center/edit.html",
+                {
+                    "request": request,
+                    "sc": sc,  # ✅
+                    "service_center": sc,
+                    "error_message": "Долгота должна быть числом.",
+                    "success": False,
+                    "specialization_options": specialization_options,
+                    "segment_options": segment_options,
+                },
+            )
 
     payload: dict[str, Any] = {
         "name": name,
@@ -543,8 +601,8 @@ async def sc_edit_post(
         "longitude": lon_value,
         "phone": phone or None,
         "website": website or None,
+        "segment": _normalize_sc_segment(segment),
         "org_type": org_type or None,
-        "segment": segment,
         "specializations": specs_final,
         "is_mobile_service": is_mobile_service,
         "has_tow_truck": has_tow_truck,
@@ -567,12 +625,12 @@ async def sc_edit_post(
         "service_center/edit.html",
         {
             "request": request,
-            "sc": sc,
+            "sc": sc,  # ✅
             "service_center": sc,
             "error_message": error_message,
             "success": success,
             "specialization_options": specialization_options,
-            "segment_options": segment_options,
+                    "segment_options": segment_options,
         },
     )
 

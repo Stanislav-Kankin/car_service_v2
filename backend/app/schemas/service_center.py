@@ -1,93 +1,93 @@
-from __future__ import annotations
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    JSON,
+)
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
-from datetime import datetime
-from typing import Dict, List, Optional
-
-from pydantic import BaseModel, Field, ConfigDict
+from ..core.db import Base
 
 
-class ServiceCenterBase(BaseModel):
+class ServiceCenter(Base):
     """
-    Общие поля для создания/чтения СТО.
+    Сервисный центр (СТО).
+    org_type:
+      - "individual" — частный мастер (ФЛ)
+      - "company"   — юридическое лицо (ООО/ИП и т.д.)
     """
 
-    name: str = Field(..., max_length=255)
-    address: Optional[str] = Field(default=None, max_length=500)
+    __tablename__ = "service_centers"
 
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    id = Column(Integer, primary_key=True, index=True)
 
-    phone: Optional[str] = Field(default=None, max_length=50)
-    website: Optional[str] = Field(default=None, max_length=255)
-    social_links: Optional[Dict] = None
-
-    specializations: Optional[List[str]] = None
-    org_type: Optional[str] = Field(
-        default=None,
-        max_length=20,
-        description="Тип организации: 'individual' (частник) или 'company' (юрлицо)",
+    # владелец/менеджер СТО (User)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
 
-    # ✅ сегментация СТО
-    segment: str = Field(
-        default="unspecified",
-        max_length=20,
-        description="Сегмент СТО: premium_plus / official / multibrand / club / specialized / unspecified",
+    name = Column(String(255), nullable=False)
+
+    address = Column(String(500), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+
+    phone = Column(String(32), nullable=True)
+    website = Column(String(255), nullable=True)
+
+    # соцсети/контакты в виде JSON
+    social_links = Column(JSON, nullable=True)
+
+    # список специализаций (строковые коды)
+    specializations = Column(JSON, nullable=True)
+
+    org_type = Column(String(20), nullable=True)
+
+    # Сегментация/категория СТО (для фильтров/плашек в UI).
+    # Значения: premium_plus / official / multibrand / club / specialized / unspecified
+    segment = Column(String(20), nullable=False, server_default="unspecified")
+
+    # выездной мастер/эвакуатор
+    is_mobile_service = Column(Boolean, nullable=True, default=False)
+    has_tow_truck = Column(Boolean, nullable=True, default=False)
+
+    # модерация
+    is_active = Column(Boolean, nullable=False, default=False)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
-    # Флаги возможностей
-    is_mobile_service: bool = False
-    has_tow_truck: bool = False
-    is_active: bool = True
+    # -------- связи --------
+    owner = relationship("User", back_populates="service_centers")
+    wallet = relationship(
+        "ServiceCenterWallet",
+        back_populates="service_center",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    offers = relationship("Offer", back_populates="service_center")
+    requests = relationship("Request", back_populates="service_center")
 
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ServiceCenterCreate(ServiceCenterBase):
-    """
-    Схема создания СТО.
-    """
-    user_id: int
-
-
-class ServiceCenterUpdate(BaseModel):
-    """
-    Частичное обновление профиля СТО.
-    Все поля опциональные: обновляем только переданные (exclude_unset=True).
-    """
-
-    name: Optional[str] = Field(default=None, max_length=255)
-    address: Optional[str] = Field(default=None, max_length=500)
-
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-
-    phone: Optional[str] = Field(default=None, max_length=50)
-    website: Optional[str] = Field(default=None, max_length=255)
-    social_links: Optional[Dict] = None
-
-    specializations: Optional[List[str]] = None
-    org_type: Optional[str] = Field(default=None, max_length=20)
-
-    # ✅ сегментация СТО — ВОТ ЭТОГО НЕ ХВАТАЕТ, из-за этого “не сохраняется”
-    segment: Optional[str] = Field(default=None, max_length=20)
-
-    # флаги — тоже опциональные (чтобы PATCH не требовал их всегда)
-    is_mobile_service: Optional[bool] = None
-    has_tow_truck: Optional[bool] = None
-    is_active: Optional[bool] = None
-
-    model_config = ConfigDict(from_attributes=True, extra="ignore")
-
-
-class ServiceCenterRead(ServiceCenterBase):
-    """
-    Схема чтения СТО (то, что возвращает API наружу).
-    """
-
-    id: int
-    user_id: int
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-    model_config = ConfigDict(from_attributes=True)
+    # распределения заявок по этому СТО
+    request_distributions = relationship(
+        "RequestDistribution",
+        back_populates="service_center",
+        cascade="all, delete-orphan",
+    )
