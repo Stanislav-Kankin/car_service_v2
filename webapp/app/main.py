@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import pages_public, pages_user, pages_service_center, pages_admin
+from .routers import pages_public, pages_user, pages_referrals, pages_service_center, pages_admin
 from .middleware import RegistrationGuardMiddleware, UserIDMiddleware
 
 
@@ -97,6 +97,7 @@ def create_app() -> FastAPI:
     # Роутеры
     app.include_router(pages_public.router)
     app.include_router(pages_user.router)
+    app.include_router(pages_referrals.router)
     app.include_router(pages_service_center.router)
     app.include_router(pages_admin.router)
 
