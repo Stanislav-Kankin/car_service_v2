@@ -1,5 +1,5 @@
 from typing import Optional
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +11,53 @@ from ..schemas.user import UserCreate, UserUpdate, UserRole
 from ..services.bonus_service import BonusService
 
 
+
 class UsersService:
+    @staticmethod
+    def _base36(number: int) -> str:
+        """Конвертация int -> base36 (0-9a-z)."""
+        if number < 0:
+            raise ValueError("number must be >= 0")
+        alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+        if number == 0:
+            return "0"
+        out = ""
+        n = number
+        while n:
+            n, i = divmod(n, 36)
+            out = alphabet[i] + out
+        return out
+
+    @staticmethod
+    def make_ref_code(user_id: int) -> str:
+        """Детерминированный реф-код на основе user_id (уникален в рамках БД)."""
+        return f"u{UsersService._base36(int(user_id))}"
+
+    @staticmethod
+    async def ensure_ref_code(db: AsyncSession, user: User) -> User:
+        """Гарантирует, что у пользователя есть ref_code (нужно для старых юзеров после миграции)."""
+        if getattr(user, "ref_code", None):
+            return user
+        # user.id уже существует
+        user.ref_code = UsersService.make_ref_code(user.id)
+        db.add(user)
+
+        # Рефералы:
+        # 1) если у старого пользователя ещё нет ref_code — заполним
+        await UsersService.ensure_ref_code(db, user)
+
+        # 2) подтверждение реферала: считаем подтверждённым после заполнения телефона
+        if "phone" in data:
+            phone_val = (user.phone or "").strip()
+            if phone_val and getattr(user, "referred_by_user_id", None) and not getattr(user, "ref_confirmed_at", None):
+                user.ref_confirmed_at = datetime.now(timezone.utc)
+
+        await db.commit()
+        await db.refresh(user)
+
+        # Рефералы: гарантируем, что ref_code заполнен
+        await UsersService.ensure_ref_code(db, user)
+        return user
     @staticmethod
     async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
         user = User(

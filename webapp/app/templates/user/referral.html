@@ -1,0 +1,114 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Реферальная программа{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-semibold text-slate-900">Реферальная программа</h1>
+        <p class="text-slate-600 mt-1">Приглашайте друзей и партнёров в сервис. Статистика — ниже.</p>
+      </div>
+      <a href="/me/dashboard" class="text-slate-600 hover:text-slate-900 text-sm">← В кабинет</a>
+    </div>
+
+    {% if not stats %}
+      <div class="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+        Не удалось загрузить данные рефералки. Обновите страницу или попробуйте позже.
+      </div>
+    {% else %}
+      <div class="mt-6 grid gap-4">
+        <div class="rounded-xl border border-slate-200 p-4">
+          <div class="text-sm text-slate-500">Ваш реферальный код</div>
+          <div class="mt-1 flex items-center gap-3">
+            <div class="font-mono text-lg font-semibold text-slate-900" id="refCode">{{ stats.ref_code }}</div>
+            <button
+              class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50"
+              onclick="navigator.clipboard.writeText(document.getElementById('refCode').innerText); this.innerText='Скопировано'; setTimeout(()=>this.innerText='Скопировать', 1200);"
+            >Скопировать</button>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 p-4">
+          <div class="text-sm text-slate-500">Ссылка для приглашения</div>
+          {% if deep_link %}
+            <div class="mt-1 flex items-center gap-3">
+              <input
+                class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 text-sm"
+                id="refLink"
+                value="{{ deep_link }}"
+                readonly
+              />
+              <button
+                class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50"
+                onclick="navigator.clipboard.writeText(document.getElementById('refLink').value); this.innerText='Скопировано'; setTimeout(()=>this.innerText='Скопировать', 1200);"
+              >Скопировать</button>
+            </div>
+            <p class="text-xs text-slate-500 mt-2">Откроет Telegram Mini App напрямую (startapp).</p>
+          {% else %}
+            <p class="mt-2 text-slate-600 text-sm">BOT_USERNAME не настроен — ссылка не сформирована. Код всё равно работает.</p>
+          {% endif %}
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="rounded-xl border border-slate-200 p-4">
+            <div class="text-sm text-slate-500">Приглашено всего</div>
+            <div class="text-2xl font-semibold text-slate-900 mt-1">{{ stats.invited_total }}</div>
+          </div>
+          <div class="rounded-xl border border-slate-200 p-4">
+            <div class="text-sm text-slate-500">Подтверждено (есть телефон)</div>
+            <div class="text-2xl font-semibold text-slate-900 mt-1">{{ stats.invited_confirmed }}</div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 p-4">
+          <div class="text-sm text-slate-500 mb-3">Разбивка по ролям</div>
+          {% if stats.invited_by_role %}
+            <div class="flex flex-wrap gap-2">
+              {% for role, cnt in stats.invited_by_role.items() %}
+                <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-sm">
+                  <span class="font-medium">{{ role }}</span>
+                  <span class="text-slate-500">{{ cnt }}</span>
+                </span>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-slate-600 text-sm">Пока нет приглашённых.</div>
+          {% endif %}
+        </div>
+
+        <div class="rounded-xl border border-slate-200 p-4">
+          <div class="text-sm text-slate-500 mb-3">Последние приглашённые</div>
+          {% if stats.recent and stats.recent|length > 0 %}
+            <div class="divide-y divide-slate-200">
+              {% for u in stats.recent %}
+                <div class="py-3 flex items-start justify-between gap-4">
+                  <div>
+                    <div class="text-slate-900 font-medium">
+                      {{ u.full_name or ("Пользователь #" ~ u.user_id) }}
+                      <span class="text-slate-500 font-normal text-sm">({{ u.role or "unknown" }})</span>
+                    </div>
+                    <div class="text-xs text-slate-500 mt-1">
+                      Создан: {{ u.created_at or "-" }}
+                    </div>
+                  </div>
+                  <div class="text-xs">
+                    {% if u.ref_confirmed_at %}
+                      <span class="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Подтверждён</span>
+                    {% else %}
+                      <span class="px-2 py-1 rounded-full bg-slate-50 text-slate-700 border border-slate-200">Не подтверждён</span>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-slate-600 text-sm">Пока нет приглашённых.</div>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

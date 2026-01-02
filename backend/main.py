@@ -16,6 +16,7 @@ from backend.app.api.v1 import (
     bonus,
     auth,
     geo,
+    referrals,
 )
 
 
@@ -102,6 +103,7 @@ app.include_router(offers.router, prefix="/api/v1")
 app.include_router(bonus.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(geo.router, prefix="/api/v1")
+app.include_router(referrals.router, prefix="/api/v1")
 
 
 @app.get("/health")

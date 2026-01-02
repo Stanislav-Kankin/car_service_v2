@@ -18,6 +18,17 @@ class User(Base):
     phone = Column(String, nullable=True)
     city = Column(String, nullable=True)
 
+    # Рефералы
+    # ref_code: код, который пользователь может шарить (формируется из user.id, см. UsersService)
+    ref_code = Column(String(32), nullable=True, index=True)
+    # кто привёл (user_id пригласившего)
+    referred_by_user_id = Column(Integer, nullable=True, index=True)
+    # когда зафиксировали привязку реферала
+    referred_at = Column(DateTime(timezone=True), nullable=True)
+    # когда реферал подтвердился (например, после заполнения телефона)
+    ref_confirmed_at = Column(DateTime(timezone=True), nullable=True)
+
+
     role = Column(Enum(UserRole), nullable=False, default=UserRole.client)
     is_active = Column(Boolean, default=True)
 

@@ -56,7 +56,7 @@ def _auth_html() -> HTMLResponse:
                   method: "POST",
                   headers: {"Content-Type": "application/json"},
                   credentials: "include",
-                  body: JSON.stringify({ init_data: initData }),
+                  body: JSON.stringify({ init_data: initData, start_param: (tg.initDataUnsafe && tg.initDataUnsafe.start_param) ? tg.initDataUnsafe.start_param : null }),
                 });
 
                 if (!resp.ok) return;

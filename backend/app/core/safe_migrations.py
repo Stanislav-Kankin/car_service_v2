@@ -53,6 +53,12 @@ async def _apply_postgres(conn: AsyncConnection) -> None:
         # service_centers
         # service_centers
         "ALTER TABLE service_centers ADD COLUMN IF NOT EXISTS segment VARCHAR(20) NOT NULL DEFAULT 'unspecified';",
+
+        # users (referrals)
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_code VARCHAR(32);",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INTEGER;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_at TIMESTAMP WITH TIME ZONE;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_confirmed_at TIMESTAMP WITH TIME ZONE;",
         "UPDATE service_centers SET segment='unspecified' WHERE segment IS NULL OR segment='';",
 
     ]
@@ -116,6 +122,20 @@ async def _apply_sqlite(conn: AsyncConnection) -> None:
             )
     except Exception:
         logger.exception("safe_migration failed (sqlite) on service_centers")
+
+    # users (referrals)
+    try:
+        cols = await _sqlite_get_columns(conn, "users")
+        if "ref_code" not in cols:
+            await _sqlite_add_column(conn, "users", "ref_code", "TEXT")
+        if "referred_by_user_id" not in cols:
+            await _sqlite_add_column(conn, "users", "referred_by_user_id", "INTEGER")
+        if "referred_at" not in cols:
+            await _sqlite_add_column(conn, "users", "referred_at", "TEXT")
+        if "ref_confirmed_at" not in cols:
+            await _sqlite_add_column(conn, "users", "ref_confirmed_at", "TEXT")
+    except Exception:
+        logger.exception("safe_migration failed (sqlite) on users referrals")
 
 
 async def apply_safe_migrations(conn: AsyncConnection, db_type: str | None = None) -> None:
