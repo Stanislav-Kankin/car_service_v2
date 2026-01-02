@@ -53,6 +53,10 @@ async def _apply_postgres(conn: AsyncConnection) -> None:
         # service_centers
         "ALTER TABLE service_centers ADD COLUMN IF NOT EXISTS segment VARCHAR(32) DEFAULT 'unspecified';",
         "UPDATE service_centers SET segment='unspecified' WHERE segment IS NULL;",
+        # service_centers
+        "ALTER TABLE service_centers ADD COLUMN IF NOT EXISTS segment VARCHAR(20) NOT NULL DEFAULT 'unspecified';",
+        "UPDATE service_centers SET segment='unspecified' WHERE segment IS NULL OR segment='';",
+
     ]
 
     for stmt in stmts:
@@ -107,9 +111,11 @@ async def _apply_sqlite(conn: AsyncConnection) -> None:
     try:
         cols = await _sqlite_get_columns(conn, "service_centers")
         if "segment" not in cols:
-            await _sqlite_add_column(conn, "service_centers", "segment", "TEXT DEFAULT 'unspecified'")
-        # проставим дефолт всем старым строкам, где NULL
-        await conn.exec_driver_sql("UPDATE service_centers SET segment='unspecified' WHERE segment IS NULL")
+            await _sqlite_add_column(conn, "service_centers", "segment", "TEXT")
+            # на всякий — проставим дефолт всем существующим
+            await conn.execute(
+                "UPDATE service_centers SET segment='unspecified' WHERE segment IS NULL OR segment='';"
+            )
     except Exception:
         logger.exception("safe_migration failed (sqlite) on service_centers")
 
