@@ -46,34 +46,22 @@ def normalize_ref_code(raw: Optional[str]) -> Optional[str]:
 
 def check_telegram_auth(init_data: str, bot_token: str) -> dict:
     """
-    Строгая проверка подписи Telegram Mini App (WebApp initData).
+    Строгая проверка подписи Telegram Mini App (Telegram.WebApp.initData).
 
-    Актуальный алгоритм (Telegram Mini Apps / core.telegram.org):
-    - Берём все пары key=value из init_data, исключая `hash` (и `signature`, если есть).
-    - Сортируем по ключу.
-    - Склеиваем через '\n' в data_check_string.
-    - secret_key = HMAC_SHA256(key='WebAppData', msg=bot_token)  (в байтах)
+    По официальной документации Telegram:
+    - data_check_string: все пары key=value из initData, кроме hash, отсортировать по key и склеить через '\n'
+    - secret_key = HMAC_SHA256(key='WebAppData', msg=bot_token)
     - expected_hash = hex(HMAC_SHA256(key=secret_key, msg=data_check_string))
     """
-    # Telegram передаёт initData как query string (urlencoded)
-    pairs = urllib.parse.parse_qsl(init_data, keep_blank_values=True)
+    parsed = urllib.parse.parse_qs(init_data, keep_blank_values=True)
 
-    received_hash = None
-    filtered: list[tuple[str, str]] = []
-    for k, v in pairs:
-        if k == "hash":
-            received_hash = v
-            continue
-        # signature используется в режиме "Third-Party Use" (Ed25519). Для обычного WebApp initData он не нужен.
-        if k == "signature":
-            continue
-        filtered.append((k, v))
-
+    received_hash = parsed.get("hash", [""])[0]
     if not received_hash:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid hash")
 
-    filtered.sort(key=lambda kv: kv[0])
-    data_check_string = "\n".join(f"{k}={v}" for k, v in filtered)
+    data_check_string = "\n".join(
+        f"{k}={v[0]}" for k, v in sorted(parsed.items()) if k != "hash"
+    )
 
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     expected_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
@@ -81,8 +69,7 @@ def check_telegram_auth(init_data: str, bot_token: str) -> dict:
     if expected_hash != received_hash:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid hash")
 
-    # Возвращаем структуру в формате parse_qs, как ожидал остальной код ниже
-    return urllib.parse.parse_qs(init_data)
+    return parsed
 
 
 @router.post("/telegram-webapp")
