@@ -83,13 +83,17 @@ async def auth_telegram_webapp(
         parsed = check_telegram_auth(payload.init_data, settings.BOT_TOKEN)
     except HTTPException as e:
         if e.status_code == status.HTTP_403_FORBIDDEN:
-            # DEV: подпись не сошлась, но не валим запрос, а просто логируем
+            # В PROD/STAGING подпись Telegram обязана быть валидной.
+            # Обход проверки допустим ТОЛЬКО в DEBUG-режиме для локальной разработки.
+            if not settings.DEBUG:
+                raise
+
             logger.warning(
-                "Telegram WebApp auth: invalid hash (DEV MODE: пропускаем проверку). "
+                "Telegram WebApp auth: invalid hash (DEBUG MODE: пропускаем проверку подписи). "
                 "Подробнее: %s",
                 e.detail,
             )
-            # Парсим init_data без проверки подписи
+            # DEBUG: Парсим init_data без проверки подписи
             parsed = urllib.parse.parse_qs(payload.init_data)
         else:
             # Любая другая ошибка — пусть летит как раньше

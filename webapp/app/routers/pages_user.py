@@ -1280,14 +1280,11 @@ async def request_detail(
         if o.get("status") == "accepted":
             accepted_offer_id = int(o.get("id"))
             accepted_sc_id = int(o.get("service_center_id"))
-            break
 
-    # Для отображения “Написать в Telegram” нам нужно знать telegram_id СТО по offer-ам
-    offer_sc_telegram_ids: dict[int, int] = {}
     service_centers_by_id: dict[int, dict[str, Any]] = {}
+    offer_sc_telegram_ids: dict[int, int] = {}
 
     try:
-        # Соберём уникальные ID СТО из офферов
         sc_ids = sorted(
             {int(o.get("service_center_id")) for o in offers if o.get("service_center_id") is not None}
         )
@@ -1308,8 +1305,9 @@ async def request_detail(
             except Exception:
                 continue
 
-    # Обогатим offers данными по СТО (название/адрес), чтобы в шаблоне не было "СТО #id".
-    # Никаких дополнительных запросов: данные уже собраны в service_centers_by_id выше.
+    # Обогатим offers данными по СТО (название/адрес/сегмент),
+    # чтобы в шаблоне не было "СТО #id" и не было рассинхрона/мусора.
+    # Источник правды — service_centers_by_id, поэтому НЕ setdefault.
     for o in offers:
         try:
             sc_id = o.get("service_center_id")
@@ -1318,8 +1316,19 @@ async def request_detail(
             sc = service_centers_by_id.get(int(sc_id))
             if not sc:
                 continue
-            o.setdefault("service_center_name", sc.get("name"))
-            o.setdefault("service_center_address", sc.get("address") or sc.get("address_text"))
+
+            sc_name = sc.get("name")
+            if sc_name:
+                o["service_center_name"] = sc_name
+
+            sc_addr = sc.get("address") or sc.get("address_text")
+            if sc_addr:
+                o["service_center_address"] = sc_addr
+
+            sc_segment = sc.get("segment")
+            if sc_segment:
+                o["service_center_segment"] = sc_segment
+
         except Exception:
             continue
 

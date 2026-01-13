@@ -232,6 +232,15 @@
     </div>
 
     {% if offers %}
+      {% set segment_labels = {
+        "unspecified": "Не указано",
+        "premium_plus": "Прем+",
+        "official": "Официальный",
+        "multibrand": "Мультибренд",
+        "club": "Клубный",
+        "specialized": "Специализированный",
+      } %}
+
       <div class="mt-4 space-y-3">
         {% for offer in offers %}
           <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
@@ -240,6 +249,16 @@
                 <div class="text-sm font-semibold text-slate-100">
                   {{ offer.service_center_name or ("СТО #" ~ offer.service_center_id) }}
                 </div>
+
+                {% if offer.service_center_segment %}
+                  {% set seg = offer.service_center_segment %}
+                  <div class="mt-1">
+                    <span class="inline-flex items-center rounded-full bg-slate-800/80 px-2.5 py-0.5 text-[11px] font-medium text-slate-200 border border-slate-700">
+                      {{ segment_labels.get(seg, "Не указано") }}
+                    </span>
+                  </div>
+                {% endif %}
+
                 {% if offer.service_center_address %}
                   <div class="text-[11px] text-slate-500 mt-1">
                     📍 {{ offer.service_center_address }}
