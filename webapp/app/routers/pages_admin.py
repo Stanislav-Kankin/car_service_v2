@@ -29,7 +29,9 @@ def get_current_user_id(request: Request) -> int:
 
 async def get_current_admin(request: Request, client: AsyncClient) -> dict[str, Any]:
     """
-    Админ определяется по allowlist в .env (TELEGRAM_ADMIN_IDS).
+    Админ определяется:
+    - в app/mixed режиме: по user.role == 'admin'
+    - в telegram режиме: по allowlist TELEGRAM_ADMIN_IDS (telegram_id)
     """
     user_id = get_current_user_id(request)
 
@@ -41,6 +43,11 @@ async def get_current_admin(request: Request, client: AsyncClient) -> dict[str, 
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден")
 
     user = resp.json()
+
+    # Если роль уже admin — пускаем независимо от telegram_id.
+    role = (user.get("role") or "").strip().lower()
+    if role == "admin":
+        return user
 
     # allowlist по telegram_id (TELEGRAM_ADMIN_IDS)
     admin_ids_raw = (os.getenv("TELEGRAM_ADMIN_IDS") or "").strip()
