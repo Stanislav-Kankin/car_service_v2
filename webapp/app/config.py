@@ -23,5 +23,11 @@ class Settings(BaseSettings):
     # auth mode: app|telegram|mixed
     AUTH_MODE: str = "mixed"
 
+    # Android TWA (Trusted Web Activity)
+    # Package name of the Android app shell
+    TWA_ANDROID_PACKAGE: str = ""
+    # Comma-separated SHA256 certificate fingerprints (AA:BB:...)
+    TWA_SHA256_CERT_FINGERPRINTS: str = ""
+
 
 settings = Settings()

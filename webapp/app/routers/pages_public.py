@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
 import httpx
 import json
 
@@ -337,6 +337,39 @@ async def index_head(_: Request) -> HTMLResponse:
 @router.get("/health", response_class=HTMLResponse)
 async def health(_: Request) -> HTMLResponse:
     return HTMLResponse("ok")
+
+
+
+def _split_csv(raw: str) -> list[str]:
+    parts = (raw or "").replace(";", ",").split(",")
+    return [p.strip() for p in parts if p.strip()]
+
+
+@router.get("/.well-known/assetlinks.json")
+async def assetlinks() -> Response:
+    """
+    Digital Asset Links for Android Trusted Web Activity (TWA).
+
+    Если переменные не заданы — отдаём 404, чтобы не светить лишнее.
+    """
+    package_name = str(getattr(settings, "TWA_ANDROID_PACKAGE", "") or "").strip()
+    fps_raw = str(getattr(settings, "TWA_SHA256_CERT_FINGERPRINTS", "") or "").strip()
+    fingerprints = _split_csv(fps_raw)
+
+    if not package_name or not fingerprints:
+        return Response(status_code=404)
+
+    data = [
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": package_name,
+                "sha256_cert_fingerprints": fingerprints,
+            },
+        }
+    ]
+    return JSONResponse(content=data)
 
 
 @router.get('/manifest.webmanifest')
