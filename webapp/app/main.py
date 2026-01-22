@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .routers import pages_public, pages_user, pages_referrals, pages_service_center, pages_admin
-from .middleware import RegistrationGuardMiddleware, UserIDMiddleware
+from .middleware import RegistrationGuardMiddleware, SessionMiddleware
 
 
 def setup_logging(service_name: str) -> None:
@@ -92,7 +92,7 @@ def create_app() -> FastAPI:
     # Поэтому Guard добавляем ПЕРВЫМ, а UserID — ПОСЛЕДНИМ,
     # чтобы UserID отработал раньше Guard.
     app.add_middleware(RegistrationGuardMiddleware)
-    app.add_middleware(UserIDMiddleware)
+    app.add_middleware(SessionMiddleware)
 
     # Роутеры
     app.include_router(pages_public.router)

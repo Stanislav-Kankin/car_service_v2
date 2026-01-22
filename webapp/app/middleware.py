@@ -10,15 +10,34 @@ from starlette.responses import RedirectResponse, Response
 from .config import settings
 
 
-class UserIDMiddleware(BaseHTTPMiddleware):
+class SessionMiddleware(BaseHTTPMiddleware):
+    """
+    Восстанавливает user_id из server-side сессии (cookie session_id).
+
+    Логика:
+    - если session_id нет -> user_id=None
+    - если session_id есть -> проверяем через backend /api/v1/auth/session
+    """
+    _COOKIE_NAME = "session_id"
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         user_id: int | None = None
 
-        raw = request.cookies.get("user_id") or request.cookies.get("userId")
-        if raw:
+        token = (request.cookies.get(self._COOKIE_NAME) or "").strip()
+        if token:
             try:
-                user_id = int(raw)
-            except (TypeError, ValueError):
+                async with httpx.AsyncClient(base_url=str(settings.BACKEND_API_URL), timeout=10.0) as client:
+                    resp = await client.get(
+                        "/api/v1/auth/session",
+                        headers={"Cookie": f"{self._COOKIE_NAME}={token}"},
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json() or {}
+                        raw_uid = data.get("user_id")
+                        if raw_uid is not None:
+                            user_id = int(raw_uid)
+            except Exception:
+                # backend недоступен/ошибка — считаем что не авторизован
                 user_id = None
 
         request.state.user_id = user_id
@@ -40,7 +59,12 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
 
     _REGISTER_PATHS = ("/me/register", "/me/register/")
 
-    def _clear_user_cookie(self, resp: Response) -> None:
+    def _clear_auth_cookie(self, resp: Response) -> None:
+        # Новая cookie
+        resp.delete_cookie("session_id", path="/")
+        resp.delete_cookie("session_id", path="/", domain=".dev-cloud-ksa.ru")
+
+        # Legacy cookies (на всякий случай, чтобы не мешали тестам)
         resp.delete_cookie("user_id", path="/")
         resp.delete_cookie("user_id", path="/", domain=".dev-cloud-ksa.ru")
         resp.delete_cookie("userId", path="/")
@@ -75,8 +99,7 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
 
         user_id = getattr(request.state, "user_id", None)
 
-        # ✅ КЛЮЧЕВОЕ: если cookie нет — ведём на "/" с next,
-        # чтобы там прошла Telegram WebApp auth и вернула на исходную страницу.
+        # Если сессии нет — ведём на "/" с next
         if not user_id:
             return self._redirect_to_entry_with_next(request)
 
@@ -87,7 +110,7 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
 
                 if resp.status_code == 404:
                     r = self._redirect_to_entry_with_next(request)
-                    self._clear_user_cookie(r)
+                    self._clear_auth_cookie(r)
                     return r
 
                 resp.raise_for_status()

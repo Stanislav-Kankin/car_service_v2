@@ -16,59 +16,111 @@ def _auth_html() -> HTMLResponse:
         <head>
             <meta charset="utf-8"/>
             <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>MyGarage — Авторизация…</title>
-            <script src="https://telegram.org/js/telegram-web-app.js"></script>
+            <title>MyGarage — Вход</title>
+            <script src="https://cdn.tailwindcss.com"></script>
         </head>
-        <body>
-            <script>
-              function setUserIdCookie(userId) {
-                const parts = [
-                  `user_id=${encodeURIComponent(userId)}`,
-                  "Path=/",
-                  "Max-Age=2592000",
-                  "Domain=.dev-cloud-ksa.ru",
-                  "SameSite=None",
-                  "Secure"
-                ];
-                document.cookie = parts.join("; ");
-              }
+        <body class="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center p-4">
+            <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-4">
+                <h1 class="text-xl font-semibold">Вход по телефону</h1>
+                <p class="text-sm text-slate-300">
+                    Введите номер телефона — мы пришлём одноразовый код (OTP).
+                </p>
 
+                <div class="space-y-2">
+                    <label class="text-xs text-slate-400">Телефон</label>
+                    <input id="phone" class="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2"
+                           placeholder="+7 999 123-45-67" autocomplete="tel"/>
+                </div>
+
+                <button id="btnRequest"
+                        class="w-full rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-slate-950 hover:bg-emerald-400 transition">
+                    Получить код
+                </button>
+
+                <div id="step2" class="hidden space-y-2 pt-2">
+                    <label class="text-xs text-slate-400">Код из SMS</label>
+                    <input id="code" class="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2"
+                           placeholder="123456" inputmode="numeric" autocomplete="one-time-code"/>
+                    <button id="btnVerify"
+                            class="w-full rounded-xl bg-sky-500 px-4 py-2 font-semibold text-slate-950 hover:bg-sky-400 transition">
+                        Войти
+                    </button>
+                </div>
+
+                <div id="msg" class="text-sm text-slate-300"></div>
+                <div id="dev" class="text-xs text-amber-300"></div>
+            </div>
+
+            <script>
               function getSafeNext() {
                 try {
                   const params = new URLSearchParams(window.location.search || "");
                   const next = params.get("next") || "";
-                  // Разрешаем только относительные пути
                   if (next && next.startsWith("/")) return next;
                 } catch (e) {}
                 return "/me/dashboard";
               }
 
-              (async function () {
-                if (!window.Telegram || !Telegram.WebApp) return;
+              function setMsg(text, isError) {
+                const el = document.getElementById("msg");
+                el.textContent = text || "";
+                el.className = "text-sm " + (isError ? "text-rose-300" : "text-slate-300");
+              }
 
-                const tg = Telegram.WebApp;
-                tg.ready();
+              function setDev(text) {
+                const el = document.getElementById("dev");
+                el.textContent = text || "";
+              }
 
-                const initData = tg.initData || "";
-                if (!initData) return;
+              function showStep2() {
+                document.getElementById("step2").classList.remove("hidden");
+                document.getElementById("code").focus();
+              }
 
-                const resp = await fetch("/api/v1/auth/telegram-webapp", {
+              async function postJson(url, payload) {
+                const resp = await fetch(url, {
                   method: "POST",
                   headers: {"Content-Type": "application/json"},
                   credentials: "include",
-                  body: JSON.stringify({ init_data: initData, start_param: (tg.initDataUnsafe && tg.initDataUnsafe.start_param) ? tg.initDataUnsafe.start_param : null }),
+                  body: JSON.stringify(payload),
                 });
+                let data = null;
+                try { data = await resp.json(); } catch (e) {}
+                return { resp, data };
+              }
 
-                if (!resp.ok) return;
+              document.getElementById("btnRequest").addEventListener("click", async () => {
+                setMsg("", false);
+                setDev("");
+                const phone = (document.getElementById("phone").value || "").trim();
+                if (!phone) { setMsg("Введите телефон", true); return; }
 
-                const data = await resp.json();
-                if (!data || !data.user_id) return;
+                const { resp, data } = await postJson("/api/v1/auth/otp/request", { phone });
+                if (!resp.ok) {
+                  setMsg((data && data.detail) ? data.detail : "Ошибка запроса кода", true);
+                  return;
+                }
+                showStep2();
+                setMsg("Код отправлен. Введите его ниже.", false);
+                if (data && data.dev_code) {
+                  setDev("DEV: код для входа = " + data.dev_code);
+                }
+              });
 
-                setUserIdCookie(data.user_id);
+              document.getElementById("btnVerify").addEventListener("click", async () => {
+                setMsg("", false);
+                const phone = (document.getElementById("phone").value || "").trim();
+                const code = (document.getElementById("code").value || "").trim();
+                if (!phone || !code) { setMsg("Введите телефон и код", true); return; }
 
+                const { resp, data } = await postJson("/api/v1/auth/otp/verify", { phone, code });
+                if (!resp.ok) {
+                  setMsg((data && data.detail) ? data.detail : "Ошибка проверки кода", true);
+                  return;
+                }
                 const target = getSafeNext();
                 window.location.replace(target);
-              })();
+              });
             </script>
         </body>
         </html>
@@ -77,6 +129,11 @@ def _auth_html() -> HTMLResponse:
 
 
 def _clear_cookie(resp: HTMLResponse | RedirectResponse) -> None:
+    # Новая cookie
+    resp.delete_cookie("session_id", path="/")
+    resp.delete_cookie("session_id", path="/", domain=".dev-cloud-ksa.ru")
+
+    # Legacy cookies (на всякий случай)
     resp.delete_cookie("user_id", path="/")
     resp.delete_cookie("user_id", path="/", domain=".dev-cloud-ksa.ru")
     resp.delete_cookie("userId", path="/")
@@ -93,7 +150,7 @@ def _safe_next_from_request(request: Request) -> str | None:
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
     """
-    ЕДИНСТВЕННАЯ точка входа Mini App.
+    ЕДИНСТВЕННАЯ точка входа WebApp.
 
     Правило:
     - если НЕТ валидной сессии -> 200 OK auth HTML

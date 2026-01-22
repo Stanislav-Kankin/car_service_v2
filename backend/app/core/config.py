@@ -55,6 +55,25 @@ class Settings:
     WEBAPP_PUBLIC_URL = os.getenv("WEBAPP_PUBLIC_URL", "").strip()
     BOT_API_URL = os.getenv("BOT_API_URL", "").strip()
 
+
+    # ---------------------- Auth (Standalone App) ----------------------
+    # Вход по телефону + одноразовый код (OTP)
+    OTP_TTL_SECONDS: int = int(os.getenv("OTP_TTL_SECONDS", "300"))  # 5 минут
+    OTP_MAX_ATTEMPTS: int = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+    OTP_RESEND_COOLDOWN_SECONDS: int = int(os.getenv("OTP_RESEND_COOLDOWN_SECONDS", "30"))
+
+    # Сессии (server-side) — срок жизни (по умолчанию 30 дней)
+    AUTH_SESSION_TTL_SECONDS: int = int(os.getenv("AUTH_SESSION_TTL_SECONDS", "2592000"))
+
+    # Cookie, в которой хранится session token
+    AUTH_COOKIE_NAME: str = os.getenv("AUTH_COOKIE_NAME", "session_id")
+    AUTH_COOKIE_DOMAIN: str = os.getenv("AUTH_COOKIE_DOMAIN", ".dev-cloud-ksa.ru")
+    AUTH_COOKIE_SAMESITE: str = os.getenv("AUTH_COOKIE_SAMESITE", "none")  # none|lax|strict
+    # Secure по умолчанию включён. В локальной разработке можно выключить через AUTH_COOKIE_SECURE=0
+    AUTH_COOKIE_SECURE: bool = _env_bool("AUTH_COOKIE_SECURE", True)
+
+    # DEV: для тестов можно вернуть код в ответе (только если DEBUG=true или DEV_SMS_RETURN_CODE=true)
+    DEV_SMS_RETURN_CODE: bool = _env_bool("DEV_SMS_RETURN_CODE", False)
     # ---------------------- Admin ----------------------
     # Админы определяются через env TELEGRAM_ADMIN_IDS="123,456"
     TELEGRAM_ADMIN_IDS_RAW = os.getenv("TELEGRAM_ADMIN_IDS", "").strip()
