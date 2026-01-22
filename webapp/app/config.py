@@ -20,5 +20,8 @@ class Settings(BaseSettings):
     # ✅ BONUS HIDDEN MODE
     BONUS_HIDDEN_MODE: bool = True
 
+    # auth mode: app|telegram|mixed
+    AUTH_MODE: str = "mixed"
+
 
 settings = Settings()

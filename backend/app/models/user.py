@@ -13,6 +13,10 @@ class User(Base):
     # Telegram
     telegram_id = Column(BigInteger, unique=True, index=True, nullable=True)
 
+    # Standalone login
+    email = Column(String, unique=True, index=True, nullable=True)
+    password_hash = Column(String, nullable=True)
+
     # Профиль
     full_name = Column(String, nullable=True)
     phone = Column(String, nullable=True)

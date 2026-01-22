@@ -72,6 +72,18 @@ class Settings:
     # Secure по умолчанию включён. В локальной разработке можно выключить через AUTH_COOKIE_SECURE=0
     AUTH_COOKIE_SECURE: bool = _env_bool("AUTH_COOKIE_SECURE", True)
 
+
+
+    # Режим авторизации:
+    # - telegram: только Telegram WebApp auth
+    # - app: только standalone (email/пароль, OTP и т.п.)
+    # - mixed: оба режима (по умолчанию)
+    AUTH_MODE: str = os.getenv("AUTH_MODE", "mixed").strip().lower()
+
+    # Пароли (email+password)
+    PASSWORD_HASH_ITERATIONS: int = int(os.getenv("PASSWORD_HASH_ITERATIONS", "200000"))
+    PASSWORD_MIN_LENGTH: int = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))
+
     # DEV: для тестов можно вернуть код в ответе (только если DEBUG=true или DEV_SMS_RETURN_CODE=true)
     DEV_SMS_RETURN_CODE: bool = _env_bool("DEV_SMS_RETURN_CODE", False)
     # ---------------------- Admin ----------------------

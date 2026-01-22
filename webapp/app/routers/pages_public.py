@@ -9,123 +9,257 @@ router = APIRouter(tags=["public"])
 
 def _auth_html() -> HTMLResponse:
     # ВАЖНО: / должен быть 200 OK, без редиректов, иначе цикл.
-    return HTMLResponse(
-        """
-        <!DOCTYPE html>
-        <html lang="ru">
-        <head>
-            <meta charset="utf-8"/>
-            <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>MyGarage — Вход</title>
-            <script src="https://cdn.tailwindcss.com"></script>
-        </head>
-        <body class="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center p-4">
-            <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-4">
-                <h1 class="text-xl font-semibold">Вход по телефону</h1>
-                <p class="text-sm text-slate-300">
-                    Введите номер телефона — мы пришлём одноразовый код (OTP).
-                </p>
+    html_str = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyGarage — Вход</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center p-4">
+    <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-4">
+        <div class="flex items-center justify-between">
+            <h1 class="text-xl font-semibold">Вход</h1>
+            <span id="modeBadge" class="text-[11px] px-2 py-1 rounded-lg border border-slate-800 text-slate-300"></span>
+        </div>
 
-                <div class="space-y-2">
-                    <label class="text-xs text-slate-400">Телефон</label>
-                    <input id="phone" class="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2"
-                           placeholder="+7 999 123-45-67" autocomplete="tel"/>
-                </div>
+        <div id="tabs" class="flex gap-2">
+            <button id="tabEmail" class="flex-1 rounded-xl border border-slate-800 px-3 py-2 text-sm hover:bg-slate-800/30 transition">
+                Email
+            </button>
+            <button id="tabPhone" class="flex-1 rounded-xl border border-slate-800 px-3 py-2 text-sm hover:bg-slate-800/30 transition">
+                Телефон (OTP)
+            </button>
+        </div>
 
-                <button id="btnRequest"
-                        class="w-full rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-slate-950 hover:bg-emerald-400 transition">
-                    Получить код
-                </button>
+        <!-- EMAIL -->
+        <div id="panelEmail" class="space-y-3">
+            <p class="text-sm text-slate-300">
+                Вход без Telegram и без SMS: email + пароль.
+            </p>
 
-                <div id="step2" class="hidden space-y-2 pt-2">
-                    <label class="text-xs text-slate-400">Код из SMS</label>
-                    <input id="code" class="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2"
-                           placeholder="123456" inputmode="numeric" autocomplete="one-time-code"/>
-                    <button id="btnVerify"
-                            class="w-full rounded-xl bg-sky-500 px-4 py-2 font-semibold text-slate-950 hover:bg-sky-400 transition">
-                        Войти
-                    </button>
-                </div>
-
-                <div id="msg" class="text-sm text-slate-300"></div>
-                <div id="dev" class="text-xs text-amber-300"></div>
+            <div class="space-y-2">
+                <label class="text-xs text-slate-400">Email</label>
+                <input id="email" class="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2"
+                       placeholder="name@example.com" autocomplete="email" inputmode="email"/>
             </div>
 
-            <script>
-              function getSafeNext() {
-                try {
-                  const params = new URLSearchParams(window.location.search || "");
-                  const next = params.get("next") || "";
-                  if (next && next.startsWith("/")) return next;
-                } catch (e) {}
-                return "/me/dashboard";
-              }
+            <div class="space-y-2">
+                <label class="text-xs text-slate-400">Пароль</label>
+                <input id="password" type="password" class="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2"
+                       placeholder="••••••••" autocomplete="current-password"/>
+            </div>
 
-              function setMsg(text, isError) {
-                const el = document.getElementById("msg");
-                el.textContent = text || "";
-                el.className = "text-sm " + (isError ? "text-rose-300" : "text-slate-300");
-              }
+            <div class="space-y-2">
+                <label class="text-xs text-slate-400">Имя (для регистрации, опционально)</label>
+                <input id="full_name" class="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2"
+                       placeholder="Иван" autocomplete="name"/>
+            </div>
 
-              function setDev(text) {
-                const el = document.getElementById("dev");
-                el.textContent = text || "";
-              }
+            <div class="grid grid-cols-2 gap-2">
+                <button id="btnEmailLogin"
+                        class="w-full rounded-xl bg-sky-500 px-4 py-2 font-semibold text-slate-950 hover:bg-sky-400 transition">
+                    Войти
+                </button>
+                <button id="btnEmailRegister"
+                        class="w-full rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-slate-950 hover:bg-emerald-400 transition">
+                    Создать аккаунт
+                </button>
+            </div>
+        </div>
 
-              function showStep2() {
-                document.getElementById("step2").classList.remove("hidden");
-                document.getElementById("code").focus();
-              }
+        <!-- PHONE OTP (оставлено для совместимости; в AUTH_MODE=app скрывается) -->
+        <div id="panelPhone" class="space-y-3">
+            <h2 class="text-base font-semibold">Вход по телефону</h2>
+            <p class="text-sm text-slate-300">
+                Введите номер телефона — мы пришлём одноразовый код (OTP).
+            </p>
 
-              async function postJson(url, payload) {
-                const resp = await fetch(url, {
-                  method: "POST",
-                  headers: {"Content-Type": "application/json"},
-                  credentials: "include",
-                  body: JSON.stringify(payload),
-                });
-                let data = null;
-                try { data = await resp.json(); } catch (e) {}
-                return { resp, data };
-              }
+            <div class="space-y-2">
+                <label class="text-xs text-slate-400">Телефон</label>
+                <input id="phone" class="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2"
+                       placeholder="+7 999 123-45-67" autocomplete="tel"/>
+            </div>
 
-              document.getElementById("btnRequest").addEventListener("click", async () => {
-                setMsg("", false);
-                setDev("");
-                const phone = (document.getElementById("phone").value || "").trim();
-                if (!phone) { setMsg("Введите телефон", true); return; }
+            <button id="btnRequest"
+                    class="w-full rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-slate-950 hover:bg-emerald-400 transition">
+                Получить код
+            </button>
 
-                const { resp, data } = await postJson("/api/v1/auth/otp/request", { phone });
-                if (!resp.ok) {
-                  setMsg((data && data.detail) ? data.detail : "Ошибка запроса кода", true);
-                  return;
-                }
-                showStep2();
-                setMsg("Код отправлен. Введите его ниже.", false);
-                if (data && data.dev_code) {
-                  setDev("DEV: код для входа = " + data.dev_code);
-                }
-              });
+            <div id="step2" class="hidden space-y-2 pt-2">
+                <label class="text-xs text-slate-400">Код из SMS</label>
+                <input id="code" class="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2"
+                       placeholder="123456" inputmode="numeric" autocomplete="one-time-code"/>
+                <button id="btnVerify"
+                        class="w-full rounded-xl bg-sky-500 px-4 py-2 font-semibold text-slate-950 hover:bg-sky-400 transition">
+                    Войти
+                </button>
+            </div>
 
-              document.getElementById("btnVerify").addEventListener("click", async () => {
-                setMsg("", false);
-                const phone = (document.getElementById("phone").value || "").trim();
-                const code = (document.getElementById("code").value || "").trim();
-                if (!phone || !code) { setMsg("Введите телефон и код", true); return; }
+            <div id="dev" class="text-xs text-amber-300"></div>
+        </div>
 
-                const { resp, data } = await postJson("/api/v1/auth/otp/verify", { phone, code });
-                if (!resp.ok) {
-                  setMsg((data && data.detail) ? data.detail : "Ошибка проверки кода", true);
-                  return;
-                }
-                const target = getSafeNext();
-                window.location.replace(target);
-              });
-            </script>
-        </body>
-        </html>
-        """,
-    )
+        <div id="msg" class="text-sm text-slate-300"></div>
+    </div>
+
+    <script>
+      const AUTH_MODE = "%(AUTH_MODE)s";
+
+      function getSafeNext() {
+        try {
+          const params = new URLSearchParams(window.location.search || "");
+          const next = params.get("next") || "";
+          if (next && next.startsWith("/")) return next;
+        } catch (e) {}
+        return "/me/dashboard";
+      }
+
+      function setMsg(text, isError) {
+        const el = document.getElementById("msg");
+        el.textContent = text || "";
+        el.className = "text-sm " + (isError ? "text-rose-300" : "text-slate-300");
+      }
+
+      function setDev(text) {
+        const el = document.getElementById("dev");
+        if (!el) return;
+        el.textContent = text || "";
+      }
+
+      function showStep2() {
+        document.getElementById("step2").classList.remove("hidden");
+        document.getElementById("code").focus();
+      }
+
+      function setActiveTab(tab) {
+        const btnEmail = document.getElementById("tabEmail");
+        const btnPhone = document.getElementById("tabPhone");
+        const panelEmail = document.getElementById("panelEmail");
+        const panelPhone = document.getElementById("panelPhone");
+
+        const activeCls = "bg-slate-800/40";
+        btnEmail.classList.remove(activeCls);
+        btnPhone.classList.remove(activeCls);
+
+        if (tab === "phone") {
+          btnPhone.classList.add(activeCls);
+          panelPhone.classList.remove("hidden");
+          panelEmail.classList.add("hidden");
+        } else {
+          btnEmail.classList.add(activeCls);
+          panelEmail.classList.remove("hidden");
+          panelPhone.classList.add("hidden");
+        }
+      }
+
+      async function postJson(url, payload) {
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        let data = null;
+        try { data = await resp.json(); } catch (e) {}
+        return { resp, data };
+      }
+
+      // ----- init UI
+      (function init() {
+        const badge = document.getElementById("modeBadge");
+        badge.textContent = "AUTH_MODE=" + AUTH_MODE;
+
+        const phoneTab = document.getElementById("tabPhone");
+        const phonePanel = document.getElementById("panelPhone");
+
+        // В режиме app скрываем OTP (но код оставляем для совместимости)
+        if (AUTH_MODE === "app") {
+          phoneTab.disabled = true;
+          phoneTab.classList.add("opacity-40", "cursor-not-allowed");
+          phonePanel.classList.add("hidden");
+          setActiveTab("email");
+          return;
+        }
+
+        // mixed/telegram: оставляем обе вкладки, по умолчанию email (mixed) / phone (telegram)
+        if (AUTH_MODE === "telegram") {
+          setActiveTab("phone");
+        } else {
+          setActiveTab("email");
+        }
+      })();
+
+      document.getElementById("tabEmail").addEventListener("click", () => setActiveTab("email"));
+      document.getElementById("tabPhone").addEventListener("click", () => setActiveTab("phone"));
+
+      // ----- email login/register
+      document.getElementById("btnEmailLogin").addEventListener("click", async () => {
+        setMsg("", false);
+        const email = (document.getElementById("email").value || "").trim();
+        const password = (document.getElementById("password").value || "").trim();
+        if (!email || !password) { setMsg("Введите email и пароль", true); return; }
+
+        const { resp, data } = await postJson("/api/v1/auth/email/login", { email, password });
+        if (!resp.ok) {
+          setMsg((data && data.detail) ? data.detail : "Ошибка входа", true);
+          return;
+        }
+        window.location.replace(getSafeNext());
+      });
+
+      document.getElementById("btnEmailRegister").addEventListener("click", async () => {
+        setMsg("", false);
+        const email = (document.getElementById("email").value || "").trim();
+        const password = (document.getElementById("password").value || "").trim();
+        const full_name = (document.getElementById("full_name").value || "").trim();
+        if (!email || !password) { setMsg("Введите email и пароль", true); return; }
+
+        const { resp, data } = await postJson("/api/v1/auth/email/register", { email, password, full_name });
+        if (!resp.ok) {
+          setMsg((data && data.detail) ? data.detail : "Ошибка регистрации", true);
+          return;
+        }
+        window.location.replace(getSafeNext());
+      });
+
+      // ----- phone otp (legacy)
+      document.getElementById("btnRequest").addEventListener("click", async () => {
+        setMsg("", false);
+        setDev("");
+        const phone = (document.getElementById("phone").value || "").trim();
+        if (!phone) { setMsg("Введите телефон", true); return; }
+
+        const { resp, data } = await postJson("/api/v1/auth/otp/request", { phone });
+        if (!resp.ok) {
+          setMsg((data && data.detail) ? data.detail : "Ошибка запроса кода", true);
+          return;
+        }
+        showStep2();
+        setMsg("Код отправлен. Введите его ниже.", false);
+        if (data && data.dev_code) {
+          setDev("DEV: код для входа = " + data.dev_code);
+        }
+      });
+
+      document.getElementById("btnVerify").addEventListener("click", async () => {
+        setMsg("", false);
+        const phone = (document.getElementById("phone").value || "").trim();
+        const code = (document.getElementById("code").value || "").trim();
+        if (!phone || !code) { setMsg("Введите телефон и код", true); return; }
+
+        const { resp, data } = await postJson("/api/v1/auth/otp/verify", { phone, code });
+        if (!resp.ok) {
+          setMsg((data && data.detail) ? data.detail : "Ошибка проверки кода", true);
+          return;
+        }
+        window.location.replace(getSafeNext());
+      });
+    </script>
+</body>
+</html>
+""" % {"AUTH_MODE": str(getattr(settings, "AUTH_MODE", "mixed") or "mixed").strip().lower()}
+    return HTMLResponse(html_str)
 
 
 def _clear_cookie(resp: HTMLResponse | RedirectResponse) -> None:

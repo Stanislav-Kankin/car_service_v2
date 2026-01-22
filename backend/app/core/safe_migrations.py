@@ -54,6 +54,10 @@ async def _apply_postgres(conn: AsyncConnection) -> None:
         # service_centers
         "ALTER TABLE service_centers ADD COLUMN IF NOT EXISTS segment VARCHAR(20) NOT NULL DEFAULT 'unspecified';",
 
+        # users (auth)
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(320);",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;",
+
         # users (referrals)
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_code VARCHAR(32);",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INTEGER;",
@@ -126,6 +130,10 @@ async def _apply_sqlite(conn: AsyncConnection) -> None:
     # users (referrals)
     try:
         cols = await _sqlite_get_columns(conn, "users")
+        if "email" not in cols:
+            await _sqlite_add_column(conn, "users", "email", "TEXT")
+        if "password_hash" not in cols:
+            await _sqlite_add_column(conn, "users", "password_hash", "TEXT")
         if "ref_code" not in cols:
             await _sqlite_add_column(conn, "users", "ref_code", "TEXT")
         if "referred_by_user_id" not in cols:

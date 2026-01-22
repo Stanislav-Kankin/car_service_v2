@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, status, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 
 from backend.app.core.db import get_db
 from backend.app.core.config import settings
@@ -41,12 +41,85 @@ class OtpVerifyIn(BaseModel):
     code: str
 
 
+class EmailRegisterIn(BaseModel):
+    email: str
+    password: str
+    full_name: Optional[str] = None
+
+
+class EmailLoginIn(BaseModel):
+    email: str
+    password: str
+
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _sha256_hex(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _normalize_email(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    return s
+
+
+def _hash_password(password: str, *, iterations: int) -> str:
+    # Формат: pbkdf2_sha256$<iterations>$<salt_hex>$<hash_hex>
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return f"pbkdf2_sha256${iterations}${salt.hex()}${dk.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        scheme, it_s, salt_hex, hash_hex = stored.split("$", 3)
+        if scheme != "pbkdf2_sha256":
+            return False
+        iterations = int(it_s)
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(hash_hex)
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return hmac.compare_digest(dk, expected)
+    except Exception:
+        return False
+
+
+def _auth_mode() -> str:
+    return str(getattr(settings, "AUTH_MODE", "mixed") or "mixed").strip().lower()
+
+
+async def _issue_session_cookie(*, response: Response, db: AsyncSession, user_id: int) -> None:
+    now = _now_utc()
+    ttl_seconds = int(getattr(settings, "AUTH_SESSION_TTL_SECONDS", 2592000))
+    session_token = secrets.token_urlsafe(32)
+    session_hash = _sha256_hex(session_token)
+
+    sess = UserSession(
+        user_id=int(user_id),
+        token_hash=session_hash,
+        expires_at=now + timedelta(seconds=ttl_seconds),
+        revoked_at=None,
+    )
+    db.add(sess)
+    await db.commit()
+
+    cookie_name = getattr(settings, "AUTH_COOKIE_NAME", "session_id")
+    cookie_domain = getattr(settings, "AUTH_COOKIE_DOMAIN", ".dev-cloud-ksa.ru")
+    cookie_samesite = str(getattr(settings, "AUTH_COOKIE_SAMESITE", "none")).lower()
+    cookie_secure = bool(getattr(settings, "AUTH_COOKIE_SECURE", True))
+
+    response.set_cookie(
+        key=cookie_name,
+        value=session_token,
+        max_age=ttl_seconds,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=cookie_samesite,  # type: ignore[arg-type]
+        domain=cookie_domain,
+        path="/",
+    )
 
 
 def _normalize_phone(raw: str) -> str:
@@ -322,37 +395,99 @@ async def otp_verify(
         await db.commit()
         await db.refresh(user)
 
-    # Создаём сессию
-    ttl_seconds = int(getattr(settings, "AUTH_SESSION_TTL_SECONDS", 2592000))
-    session_token = secrets.token_urlsafe(32)
-    session_hash = _sha256_hex(session_token)
+    # Создаём сессию и устанавливаем cookie
+    await _issue_session_cookie(response=response, db=db, user_id=int(user.id))
 
-    sess = UserSession(
-        user_id=int(user.id),
-        token_hash=session_hash,
-        expires_at=now + timedelta(seconds=ttl_seconds),
-        revoked_at=None,
+    return {"ok": True, "user_id": int(user.id)}
+
+
+@router.post("/email/register")
+async def email_register(
+    payload: EmailRegisterIn,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Регистрация для режима приложения (без Telegram, без SMS): email + password.
+    Выдаёт server-side сессию (cookie session_id).
+    """
+    mode = _auth_mode()
+    if mode == "telegram":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    email = _normalize_email(payload.email)
+    password = (payload.password or "").strip()
+    if not email or "@" not in email or len(email) > 320:
+        raise HTTPException(status_code=400, detail="Invalid email")
+    if len(password) < int(getattr(settings, "PASSWORD_MIN_LENGTH", 8)):
+        raise HTTPException(status_code=400, detail="Password too short")
+
+    # Уникальность email — проверяем в коде (без зависимости от индексов/миграций)
+    existing = (
+        await db.execute(select(User).where(func.lower(User.email) == email))
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    pwd_hash = _hash_password(password, iterations=int(getattr(settings, "PASSWORD_HASH_ITERATIONS", 200000)))
+
+    user = User(
+        telegram_id=None,
+        email=email,
+        password_hash=pwd_hash,
+        full_name=(payload.full_name or "").strip() or None,
+        phone=None,
+        city=None,
+        role=UserRole.client,
+        is_active=True,
     )
-    db.add(sess)
+    db.add(user)
     await db.commit()
+    await db.refresh(user)
 
-    # Устанавливаем cookie (HttpOnly, Secure)
-    cookie_name = getattr(settings, "AUTH_COOKIE_NAME", "session_id")
-    cookie_domain = getattr(settings, "AUTH_COOKIE_DOMAIN", ".dev-cloud-ksa.ru")
-    cookie_samesite = str(getattr(settings, "AUTH_COOKIE_SAMESITE", "none")).lower()
-    cookie_secure = bool(getattr(settings, "AUTH_COOKIE_SECURE", True))
+    # Реф-код (детерминированный)
+    if not getattr(user, "ref_code", None):
+        user.ref_code = UsersService.make_ref_code(int(user.id))
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
 
-    response.set_cookie(
-        key=cookie_name,
-        value=session_token,
-        max_age=ttl_seconds,
-        httponly=True,
-        secure=cookie_secure,
-        samesite=cookie_samesite,  # type: ignore[arg-type]
-        domain=cookie_domain,
-        path="/",
-    )
+    await _issue_session_cookie(response=response, db=db, user_id=int(user.id))
+    return {"ok": True, "user_id": int(user.id)}
 
+
+@router.post("/email/login")
+async def email_login(
+    payload: EmailLoginIn,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Логин для режима приложения: email + password.
+    Выдаёт server-side сессию (cookie session_id).
+    """
+    mode = _auth_mode()
+    if mode == "telegram":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    email = _normalize_email(payload.email)
+    password = (payload.password or "").strip()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email")
+
+    user = (
+        await db.execute(select(User).where(func.lower(User.email) == email))
+    ).scalar_one_or_none()
+    if not user or not getattr(user, "password_hash", None):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not _verify_password(password, str(user.password_hash)):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if getattr(user, "is_active", True) is False:
+        raise HTTPException(status_code=403, detail="User is inactive")
+
+    await _issue_session_cookie(response=response, db=db, user_id=int(user.id))
     return {"ok": True, "user_id": int(user.id)}
 
 
