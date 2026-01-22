@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
+import json
 
 from webapp.app.config import settings
 
@@ -16,6 +17,12 @@ def _auth_html() -> HTMLResponse:
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MyGarage — Вход</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0b1220" />
+    <link rel="icon" href="/static/icons/icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center p-4">
     <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-4">
@@ -256,6 +263,15 @@ def _auth_html() -> HTMLResponse:
         window.location.replace(getSafeNext());
       });
     </script>
+<script>
+  (function () {
+    try {
+      if (!("serviceWorker" in navigator)) return;
+      if (location.protocol !== "https:" && location.hostname !== "localhost") return;
+      navigator.serviceWorker.register("/sw.js").catch(function () {});
+    } catch (e) {}
+  })();
+</script>
 </body>
 </html>
 """ % {"AUTH_MODE": str(getattr(settings, "AUTH_MODE", "mixed") or "mixed").strip().lower()}
@@ -321,3 +337,77 @@ async def index_head(_: Request) -> HTMLResponse:
 @router.get("/health", response_class=HTMLResponse)
 async def health(_: Request) -> HTMLResponse:
     return HTMLResponse("ok")
+
+
+@router.get('/manifest.webmanifest')
+async def manifest() -> Response:
+    manifest_dict = {
+        'name': 'MyGarage',
+        'short_name': 'MyGarage',
+        'start_url': '/',
+        'scope': '/',
+        'display': 'standalone',
+        'background_color': '#0b1220',
+        'theme_color': '#0b1220',
+        'icons': [
+            {'src': '/static/icons/icon-192.png', 'sizes': '192x192', 'type': 'image/png'},
+            {'src': '/static/icons/icon-512.png', 'sizes': '512x512', 'type': 'image/png'},
+        ],
+    }
+    return Response(content=json.dumps(manifest_dict, ensure_ascii=False), media_type='application/manifest+json')
+
+
+@router.get('/sw.js')
+async def service_worker() -> Response:
+    js = """
+const CACHE_NAME = 'mygarage-shell-v1';
+const PRECACHE_URLS = [
+  '/',
+  '/manifest.webmanifest',
+  '/static/icons/icon-192.png',
+  '/static/icons/icon-512.png'
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(keys.map((k) => (k === CACHE_NAME ? null : caches.delete(k)))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+
+  // Только same-origin
+  if (url.origin !== self.location.origin) return;
+
+  // API не кешируем
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Навигация: network-first, fallback на cached '/'
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req).catch(() => caches.match('/'))
+    );
+    return;
+  }
+
+  // Статика/manifest: cache-first
+  event.respondWith(
+    caches.match(req).then((cached) => cached || fetch(req).then((resp) => {
+      const copy = resp.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+      return resp;
+    }))
+  );
+});
+""".strip()
+    return Response(content=js, media_type='application/javascript')
+

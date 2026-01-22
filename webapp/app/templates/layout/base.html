@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0b1220" />
+    <link rel="icon" href="/static/icons/icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
     <title>{% block title %}MyGarage{% endblock %}</title>
 
     <!-- TailwindCSS CDN -->
@@ -175,6 +183,19 @@
             @{{ bot_username or "MyGarageServiceBot" }}
         </div>
     </footer>
+
+
+    <!-- PWA Service Worker -->
+    <script>
+        (function () {
+            try {
+                if (!("serviceWorker" in navigator)) return;
+                // ServiceWorker требует HTTPS (или localhost)
+                if (location.protocol !== "https:" && location.hostname !== "localhost") return;
+                navigator.serviceWorker.register("/sw.js").catch(function () {});
+            } catch (e) {}
+        })();
+    </script>
 
     {% block scripts %}{% endblock %}
 </body>
