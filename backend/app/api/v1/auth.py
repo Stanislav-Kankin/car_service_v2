@@ -60,6 +60,8 @@ def _sha256_hex(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+
+
 def _normalize_email(raw: str) -> str:
     s = (raw or "").strip().lower()
     return s
@@ -120,7 +122,6 @@ async def _issue_session_cookie(*, response: Response, db: AsyncSession, user_id
         domain=cookie_domain,
         path="/",
     )
-
 
 def _normalize_phone(raw: str) -> str:
     # Оставляем только цифры
@@ -395,10 +396,40 @@ async def otp_verify(
         await db.commit()
         await db.refresh(user)
 
-    # Создаём сессию и устанавливаем cookie
-    await _issue_session_cookie(response=response, db=db, user_id=int(user.id))
+    # Создаём сессию
+    ttl_seconds = int(getattr(settings, "AUTH_SESSION_TTL_SECONDS", 2592000))
+    session_token = secrets.token_urlsafe(32)
+    session_hash = _sha256_hex(session_token)
+
+    sess = UserSession(
+        user_id=int(user.id),
+        token_hash=session_hash,
+        expires_at=now + timedelta(seconds=ttl_seconds),
+        revoked_at=None,
+    )
+    db.add(sess)
+    await db.commit()
+
+    # Устанавливаем cookie (HttpOnly, Secure)
+    cookie_name = getattr(settings, "AUTH_COOKIE_NAME", "session_id")
+    cookie_domain = getattr(settings, "AUTH_COOKIE_DOMAIN", ".dev-cloud-ksa.ru")
+    cookie_samesite = str(getattr(settings, "AUTH_COOKIE_SAMESITE", "none")).lower()
+    cookie_secure = bool(getattr(settings, "AUTH_COOKIE_SECURE", True))
+
+    response.set_cookie(
+        key=cookie_name,
+        value=session_token,
+        max_age=ttl_seconds,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=cookie_samesite,  # type: ignore[arg-type]
+        domain=cookie_domain,
+        path="/",
+    )
 
     return {"ok": True, "user_id": int(user.id)}
+
+
 
 
 @router.post("/email/register")
@@ -443,6 +474,14 @@ async def email_register(
     )
     db.add(user)
     await db.commit()
+    # Bootstrap admin role by email (standalone app)
+    admin_emails = set(getattr(settings, "INITIAL_ADMIN_EMAILS", []) or [])
+    if email in admin_emails and user.role != UserRole.admin:
+        user.role = UserRole.admin
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
     await db.refresh(user)
 
     # Реф-код (детерминированный)
@@ -484,12 +523,19 @@ async def email_login(
     if not _verify_password(password, str(user.password_hash)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    # Bootstrap admin role by email (standalone app)
+    admin_emails = set(getattr(settings, "INITIAL_ADMIN_EMAILS", []) or [])
+    if email in admin_emails and user.role != UserRole.admin:
+        user.role = UserRole.admin
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
     if getattr(user, "is_active", True) is False:
         raise HTTPException(status_code=403, detail="User is inactive")
 
     await _issue_session_cookie(response=response, db=db, user_id=int(user.id))
     return {"ok": True, "user_id": int(user.id)}
-
 
 @router.get("/session")
 async def auth_session(

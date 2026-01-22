@@ -105,6 +105,21 @@ class Settings:
             except ValueError:
                 # Просто игнорируем кривой id, чтобы не падать
                 continue
+
+    # ---------------------- Standalone Admin Bootstrap ----------------------
+    # Для режима приложения (email+password) нужно уметь быстро назначать админов без Telegram.
+    # Укажи список email через запятую/точку с запятой:
+    # INITIAL_ADMIN_EMAILS="admin@example.com,owner@example.com"
+    INITIAL_ADMIN_EMAILS_RAW: str = os.getenv("INITIAL_ADMIN_EMAILS", "").strip()
+    INITIAL_ADMIN_EMAILS: list[str] = []
+    if INITIAL_ADMIN_EMAILS_RAW:
+        parts = INITIAL_ADMIN_EMAILS_RAW.replace(";", ",").split(",")
+        for part in parts:
+            e = part.strip().lower()
+            if not e:
+                continue
+            INITIAL_ADMIN_EMAILS.append(e)
+
     DEBUG: bool = os.getenv("DEBUG", "false").strip().lower() in ("1", "true", "yes", "y", "on")
 
 

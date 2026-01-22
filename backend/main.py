@@ -6,7 +6,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.core.db import init_db
+from backend.app.core.db import init_db, AsyncSessionLocal
+from backend.app.core.bootstrap import ensure_initial_admins
 from backend.app.api.v1 import (
     users,
     service_centers,
@@ -84,6 +85,10 @@ app = FastAPI(title="CarBot V2 API")
 @app.on_event("startup")
 async def on_startup():
     await init_db()
+
+    # Bootstrap admin users for standalone app mode (email+password)
+    async with AsyncSessionLocal() as db:
+        await ensure_initial_admins(db)
 
 
 app.add_middleware(

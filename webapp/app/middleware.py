@@ -130,4 +130,10 @@ class RegistrationGuardMiddleware(BaseHTTPMiddleware):
             safe_next = urllib.parse.quote(next_path, safe="/?:=&")
             return RedirectResponse(url=f"/me/register?next={safe_next}", status_code=302)
 
+        # ADMIN-only guard (UI уровень; backend всё равно должен проверять роль)
+        if path.startswith("/admin/"):
+            role = ((user_obj or {}).get("role") or "").strip().lower()
+            if role != "admin":
+                return RedirectResponse(url="/me/dashboard", status_code=302)
+
         return await call_next(request)
