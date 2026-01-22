@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.db import get_db
+from ...api.deps import get_current_user
 from ...models.user import User
-from ...schemas.user import UserCreate, UserRead, UserUpdate
+from ...schemas.user import UserCreate, UserRead, UserUpdate, UserRole
 from ...services.user_service import UsersService
 
 router = APIRouter(
@@ -40,7 +41,16 @@ async def update_user(
     user_id: int,
     user_in: UserUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    # 🔒 IDOR защита: редактировать профиль может только владелец или админ
+    if current_user.role != UserRole.admin and int(current_user.id) != int(user_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # 🔒 Права: роль и is_active меняет только админ
+    if current_user.role != UserRole.admin and (user_in.role is not None or user_in.is_active is not None):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

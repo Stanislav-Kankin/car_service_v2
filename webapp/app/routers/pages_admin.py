@@ -62,7 +62,12 @@ async def get_current_admin(request: Request, client: AsyncClient) -> dict[str, 
     # (опционально) прокидываем роль admin в backend, если вдруг не стоит
     if user.get("role") != "admin":
         try:
-            await client.patch(f"/api/v1/users/{int(user_id)}", json={"role": "admin"})
+            # ВАЖНО: backend теперь защищает PATCH /users/{id} server-side сессией.
+            await client.patch(
+                f"/api/v1/users/{int(user_id)}",
+                json={"role": "admin"},
+                cookies=request.cookies,
+            )
         except Exception:
             pass
 

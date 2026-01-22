@@ -473,7 +473,12 @@ async def user_register_post(
     payload = {"full_name": full_name, "phone": phone, "city": city or None}
 
     try:
-        resp = await client.patch(f"/api/v1/users/{int(user_id)}", json=payload)
+        # ВАЖНО: backend теперь защищает PATCH /users/{id} server-side сессией.
+        resp = await client.patch(
+            f"/api/v1/users/{int(user_id)}",
+            json=payload,
+            cookies=request.cookies,
+        )
         resp.raise_for_status()
     except Exception:
         return templates.TemplateResponse(
