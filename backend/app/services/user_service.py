@@ -38,26 +38,20 @@ class UsersService:
         """Гарантирует, что у пользователя есть ref_code (нужно для старых юзеров после миграции)."""
         if getattr(user, "ref_code", None):
             return user
+        
         # user.id уже существует
         user.ref_code = UsersService.make_ref_code(user.id)
         db.add(user)
-
-        # Рефералы:
-        # 1) если у старого пользователя ещё нет ref_code — заполним
-        await UsersService.ensure_ref_code(db, user)
-
-        # 2) подтверждение реферала: считаем подтверждённым после заполнения телефона
-        if "phone" in data:
-            phone_val = (user.phone or "").strip()
-            if phone_val and getattr(user, "referred_by_user_id", None) and not getattr(user, "ref_confirmed_at", None):
-                user.ref_confirmed_at = datetime.now(timezone.utc)
-
+        
+        # Рефералы: подтверждение реферала считаем подтверждённым после заполнения телефона
+        phone_val = (user.phone or "").strip()
+        if (phone_val and getattr(user, "referred_by_user_id", None) and not getattr(user, "ref_confirmed_at", None)):
+            user.ref_confirmed_at = datetime.now(timezone.utc)
+        
         await db.commit()
         await db.refresh(user)
-
-        # Рефералы: гарантируем, что ref_code заполнен
-        await UsersService.ensure_ref_code(db, user)
         return user
+
     @staticmethod
     async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
         user = User(
